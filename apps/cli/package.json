@@ -1,0 +1,21 @@
+{
+  "name": "mdspec",
+  "version": "0.1.0",
+  "description": "CI-first spec publishing CLI",
+  "type": "module",
+  "bin": {
+    "mdspec": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "tsx": "*",
+    "typescript": "*"
+  }
+}

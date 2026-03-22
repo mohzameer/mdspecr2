@@ -1,0 +1,184 @@
+// ---------------------------------------------------------------------------
+// Shared payload types — used by web API routes and imported by worker
+// ---------------------------------------------------------------------------
+
+export type OrgRole = 'owner' | 'admin' | 'member'
+export type ProjectRole = 'admin' | 'member' | 'viewer'
+export type IntegrationType = 'notion' | 'confluence' | 'clickup'
+export type IntegrationStatus = 'connected' | 'unhealthy' | 'disconnected'
+export type PublishStatus = 'queued' | 'published' | 'failed'
+export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
+
+// ---------------------------------------------------------------------------
+// CLI → API publish payload
+// ---------------------------------------------------------------------------
+
+export interface SpecArtifact {
+  path: string
+  hash: string
+  frontmatter: Record<string, unknown>
+  content: string
+}
+
+export interface PublishPayload {
+  project_id: string
+  repo_name: string
+  branch: string
+  commit_sha: string
+  specs: SpecArtifact[]
+}
+
+// ---------------------------------------------------------------------------
+// BullMQ job data shapes
+// ---------------------------------------------------------------------------
+
+export interface PublishSpecJobData {
+  spec_id: string
+  spec_publish_target_id: string
+  integration_id: string
+  target_type: IntegrationType
+  project_id: string
+  content: string
+  path: string
+  frontmatter: Record<string, unknown>
+  attempt: number
+}
+
+export interface RunAgentJobData {
+  spec_id: string
+  project_id: string
+  template: 'full_publish' | 'task_summary' | 'release_notes'
+}
+
+export interface TaskSummaryJobData {
+  spec_id: string
+  task_id: string
+  target_type: IntegrationType
+}
+
+export type JobData = PublishSpecJobData | RunAgentJobData | TaskSummaryJobData
+
+// ---------------------------------------------------------------------------
+// Database row types (mirrors Supabase schema exactly)
+// ---------------------------------------------------------------------------
+
+export interface Organization {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface OrgMember {
+  id: string
+  org_id: string
+  user_id: string
+  role: OrgRole
+  created_at: string
+}
+
+export interface OrgInvite {
+  id: string
+  org_id: string
+  invited_by: string
+  email: string
+  role: Exclude<OrgRole, 'owner'>
+  token_hash: string
+  status: InviteStatus
+  expires_at: string
+  created_at: string
+}
+
+export interface Project {
+  id: string
+  org_id: string
+  name: string
+  description: string | null
+  registered_repo: string | null
+  spec_dirs: string[]
+  created_at: string
+}
+
+export interface ProjectMember {
+  id: string
+  project_id: string
+  user_id: string
+  role: ProjectRole
+  created_at: string
+}
+
+export interface ProjectToken {
+  id: string
+  project_id: string
+  token_hash: string
+  token_hint: string
+  revoked: boolean
+  created_by: string
+  created_at: string
+  revoked_at: string | null
+}
+
+export interface Integration {
+  id: string
+  org_id: string
+  type: IntegrationType
+  status: IntegrationStatus
+  credentials: string
+  config: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Spec {
+  id: string
+  project_id: string
+  repo: string
+  path: string
+  mdspec_id: string | null
+  commit_sha: string
+  content_hash: string
+  content: string
+  frontmatter: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SpecPublishTarget {
+  id: string
+  spec_id: string
+  integration_id: string
+  target_type: IntegrationType
+  external_page_id: string | null
+  external_url: string | null
+  status: PublishStatus
+  retry_count: number
+  last_error: string | null
+  published_at: string | null
+}
+
+export type OrgPlan = 'free' | 'pro'
+export type BillingPeriod = 'monthly' | 'yearly'
+export type SubscriptionStatus = 'active' | 'cancelled' | 'payment_failed'
+
+export interface Subscription {
+  id: string
+  org_id: string
+  plan: OrgPlan
+  billing_period: BillingPeriod | null
+  paddle_subscription_id: string | null
+  paddle_customer_id: string | null
+  status: SubscriptionStatus
+  current_period_start: string | null
+  current_period_end: string | null
+  cancelled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BillingEvent {
+  id: string
+  org_id: string
+  event_type: string
+  paddle_event_id: string
+  payload: Record<string, unknown>
+  created_at: string
+}
