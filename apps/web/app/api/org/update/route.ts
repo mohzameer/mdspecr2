@@ -1,0 +1,19 @@
+import { NextResponse, type NextRequest } from 'next/server'
+import { cookies } from 'next/headers'
+import { createSupabaseServerClient } from '@/lib/db-server'
+
+export async function PATCH(request: NextRequest) {
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+
+  const cookieStore = await cookies()
+  const orgId = cookieStore.get('current_org_id')?.value
+  if (!orgId) return NextResponse.json({ error: 'no org selected' }, { status: 400 })
+
+  const { name } = await request.json()
+  const { error } = await supabase.from('organizations').update({ name }).eq('id', orgId)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  return NextResponse.json({ ok: true })
+}

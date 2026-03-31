@@ -1,19 +1,20 @@
 #!/usr/bin/env node
-/**
- * mdspec CLI — npx mdspec publish --project <project_id>
- *
- * Responsibilities:
- *   1. Detect changed .md files via git diff (fallback: SHA256 hash compare)
- *   2. Parse frontmatter and compute content hashes
- *   3. POST artifact payload to /api/publish
- *   4. Print per-spec publish/skip/fail output to stdout
- *   5. Exit 0 on success or no-op, non-zero on hard failure
- *
- * Required env:
- *   MDSPEC_TOKEN   — project-scoped CI token (mds_<id>_<hex32>)
- * Optional env:
- *   MDSPEC_API_URL — override API base URL (defaults to https://mdspec.app)
- */
+import { Command } from 'commander'
+import { publishCommand } from './commands/publish.js'
 
-// TODO: implement publish command
-console.log('mdspec cli — not yet implemented')
+const program = new Command()
+
+program
+  .name('mdspec')
+  .description('CI-first spec publishing CLI')
+  .version('0.1.0')
+
+program
+  .command('publish')
+  .description('Publish spec files to mdspec')
+  .requiredOption('--project <project_id>', 'Project ID')
+  .option('--base <base_ref>', 'Base git ref for change detection (default: origin/main)')
+  .option('--dirs <dirs>', 'Comma-separated spec directories (overrides project config)')
+  .action(publishCommand)
+
+program.parseAsync(process.argv)
