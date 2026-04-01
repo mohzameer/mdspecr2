@@ -1,7 +1,6 @@
 'use client'
 
-import { Suspense, useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState, useEffect } from 'react'
 
 type IntegrationType = 'notion' | 'confluence' | 'clickup'
 
@@ -15,7 +14,13 @@ interface Integration {
 type ConnectForm = {
   notion: { token: string; root_page_id: string }
   confluence: { base_url: string; email: string; token: string; space_key: string }
-  clickup: { api_token: string; workspace_id: string }
+  clickup: { api_token: string; workspace_url: string }
+}
+
+function parseClickUpWorkspaceId(url: string): string | null {
+  // https://app.clickup.com/90181844797/... → 90181844797
+  const match = url.match(/app\.clickup\.com\/(\d+)/)
+  return match ? match[1] : null
 }
 
 const integrationMeta: Record<IntegrationType, { label: string; description: string; icon: string }> = {
@@ -38,9 +43,10 @@ export default function IntegrationsPage() {
   const [form, setForm] = useState<ConnectForm>({
     notion: { token: '', root_page_id: '' },
     confluence: { base_url: '', email: '', token: '', space_key: '' },
-    clickup: { api_token: '', workspace_id: '' },
+    clickup: { api_token: '', workspace_url: '' },
   })
   const [saving, setSaving] = useState(false)
+  const [urlError, setUrlError] = useState<string | null>(null)
 
   async function fetchIntegrations() {
     const res = await fetch('/api/integrations/list')
@@ -56,6 +62,28 @@ export default function IntegrationsPage() {
 
   async function connect(type: IntegrationType, e: React.FormEvent) {
     e.preventDefault()
+
+    // For ClickUp, parse workspace ID from URL before saving
+    if (type === 'clickup') {
+      const workspaceId = parseClickUpWorkspaceId(form.clickup.workspace_url)
+      if (!workspaceId) {
+        setUrlError('Could not find a workspace ID in that URL. Paste your full ClickUp workspace URL.')
+        return
+      }
+      setUrlError(null)
+      const credentials = { api_token: form.clickup.api_token, workspace_id: workspaceId }
+      setSaving(true)
+      await fetch('/api/integrations/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, credentials: JSON.stringify(credentials), config: credentials }),
+      })
+      await fetchIntegrations()
+      setConnecting(null)
+      setSaving(false)
+      return
+    }
+
     setSaving(true)
     await fetch('/api/integrations/connect', {
       method: 'POST',
@@ -109,7 +137,7 @@ export default function IntegrationsPage() {
                     </button>
                   ) : (
                     <button
-                      onClick={() => setConnecting(connecting === type ? null : type)}
+                      onClick={() => { setConnecting(connecting === type ? null : type); setUrlError(null) }}
                       className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
                     >
                       Connect
@@ -137,8 +165,27 @@ export default function IntegrationsPage() {
                   )}
                   {type === 'clickup' && (
                     <>
-                      <Field label="Personal API token" value={form.clickup.api_token} onChange={(v) => setForm({ ...form, clickup: { ...form.clickup, api_token: v } })} placeholder="pk_..." />
-                      <Field label="Workspace ID" value={form.clickup.workspace_id} onChange={(v) => setForm({ ...form, clickup: { ...form.clickup, workspace_id: v } })} placeholder="ClickUp workspace ID" />
+                      <Field
+                        label="Personal API token"
+                        value={form.clickup.api_token}
+                        onChange={(v) => setForm({ ...form, clickup: { ...form.clickup, api_token: v } })}
+                        placeholder="pk_..."
+                      />
+                      <Field
+                        label="Workspace URL"
+                        value={form.clickup.workspace_url}
+                        onChange={(v) => { setForm({ ...form, clickup: { ...form.clickup, workspace_url: v } }); setUrlError(null) }}
+                        placeholder="https://app.clickup.com/90181844797/..."
+                      />
+                      {form.clickup.workspace_url && (
+                        <p className="text-xs text-zinc-400">
+                          {parseClickUpWorkspaceId(form.clickup.workspace_url)
+                            ? <>Workspace ID: <span className="font-mono text-zinc-600 dark:text-zinc-300">{parseClickUpWorkspaceId(form.clickup.workspace_url)}</span></>
+                            : <span className="text-yellow-600">Paste your full ClickUp workspace URL to auto-detect the ID.</span>
+                          }
+                        </p>
+                      )}
+                      {urlError && <p className="text-xs text-red-500">{urlError}</p>}
                     </>
                   )}
                   <div className="flex gap-2">
