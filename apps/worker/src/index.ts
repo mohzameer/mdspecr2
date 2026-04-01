@@ -13,6 +13,7 @@
  */
 
 import { Worker } from 'bullmq'
+import { createServer } from 'node:http'
 import { publishProcessor } from './processors/publishProcessor.js'
 import { agentProcessor } from './processors/agentProcessor.js'
 
@@ -56,4 +57,20 @@ async function shutdown() {
 process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
 
-console.log('mdspec worker started — listening on publish and agents queues')
+// Health check server — lets Railway verify the container is up
+const PORT = process.env.PORT ?? 3001
+createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      status: 'ok',
+      queues: ['publish', 'agents'],
+      uptime: process.uptime(),
+    }))
+  } else {
+    res.writeHead(404)
+    res.end()
+  }
+}).listen(PORT, () => {
+  console.log(`mdspec worker started — health check on :${PORT}/health`)
+})
