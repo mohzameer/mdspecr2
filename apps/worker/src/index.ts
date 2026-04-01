@@ -59,14 +59,37 @@ process.on('SIGINT', shutdown)
 
 // Health check server — lets Railway verify the container is up
 const PORT = process.env.PORT ?? 3001
+
+const REQUIRED_ENV = [
+  'REDIS_URL',
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_KEY',
+]
+
+const OPTIONAL_ENV = [
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'OPENAI_BASE_URL',
+]
+
 createServer((req, res) => {
   if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({
-      status: 'ok',
-      queues: ['publish', 'agents'],
-      uptime: process.uptime(),
+    const required = REQUIRED_ENV.map((key) => ({
+      key,
+      set: !!process.env[key],
     }))
+    const optional = OPTIONAL_ENV.map((key) => ({
+      key,
+      set: !!process.env[key],
+    }))
+    const allRequiredSet = required.every((v) => v.set)
+
+    res.writeHead(allRequiredSet ? 200 : 503, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      status: allRequiredSet ? 'ok' : 'misconfigured',
+      uptime: process.uptime(),
+      env: { required, optional },
+    }, null, 2))
   } else {
     res.writeHead(404)
     res.end()
