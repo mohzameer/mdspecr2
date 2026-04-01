@@ -30,7 +30,7 @@ export default function GeneralSettingsPage() {
         setProject(p)
         setName(p.name)
         setDescription(p.description ?? '')
-        setSpecDirs(p.spec_dirs)
+        setSpecDirs(p.spec_dirs ?? [])
       })
   }, [projectId])
 

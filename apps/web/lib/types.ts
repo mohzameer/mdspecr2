@@ -46,17 +46,17 @@ export interface PublishSpecJobData {
 
 export interface RunAgentJobData {
   spec_id: string
+  spec_publish_target_id: string
+  integration_id: string
   project_id: string
-  template: 'full_publish' | 'task_summary' | 'release_notes'
+  template_id: string
+  trigger: 'folder_mapping' | 'frontmatter'
+  raw_content: string
+  target_integration_type: IntegrationType
+  agent_run_id: string
 }
 
-export interface TaskSummaryJobData {
-  spec_id: string
-  task_id: string
-  target_type: IntegrationType
-}
-
-export type JobData = PublishSpecJobData | RunAgentJobData | TaskSummaryJobData
+export type JobData = PublishSpecJobData | RunAgentJobData
 
 // ---------------------------------------------------------------------------
 // Database row types (mirrors Supabase schema exactly)
@@ -181,4 +181,43 @@ export interface BillingEvent {
   paddle_event_id: string
   payload: Record<string, unknown>
   created_at: string
+}
+
+export interface Template {
+  id: string
+  project_id: string
+  name: string
+  description: string | null
+  instructions: string
+  is_default: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FolderMapping {
+  id: string
+  project_id: string
+  folder_path: string
+  integration_id: string
+  template_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'failed'
+export type AgentRunTrigger = 'folder_mapping' | 'frontmatter'
+
+export interface AgentRun {
+  id: string
+  spec_id: string
+  template_id: string | null
+  trigger: AgentRunTrigger
+  raw_content: string
+  transformed_content: string | null
+  status: AgentRunStatus
+  error: string | null
+  duration_ms: number | null
+  created_at: string
+  completed_at: string | null
 }

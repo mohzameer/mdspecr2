@@ -73,17 +73,43 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
                 <div className="mt-0.5 pl-5 space-y-0.5">
                   {projects.map((project) => {
                     const projectActive = pathname.startsWith(`/projects/${project.id}`)
+                    const projectSubNav = [
+                      { href: `/projects/${project.id}/specs`, label: 'Specs' },
+                      { href: `/projects/${project.id}/map`, label: 'Map' },
+                      { href: `/projects/${project.id}/activity`, label: 'Activity' },
+                      { href: `/projects/${project.id}/settings`, label: 'Settings' },
+                    ]
                     return (
-                      <Link
-                        key={project.id}
-                        href={`/projects/${project.id}/specs`}
-                        className={cn(
-                          buttonVariants({ variant: projectActive ? 'secondary' : 'ghost', size: 'xs' }),
-                          'w-full justify-start truncate'
+                      <div key={project.id}>
+                        <Link
+                          href={`/projects/${project.id}/specs`}
+                          className={cn(
+                            buttonVariants({ variant: projectActive ? 'secondary' : 'ghost', size: 'xs' }),
+                            'w-full justify-start truncate'
+                          )}
+                        >
+                          {project.name}
+                        </Link>
+                        {projectActive && (
+                          <div className="mt-0.5 pl-4 space-y-0.5">
+                            {projectSubNav.map((sub) => {
+                              const subActive = pathname.startsWith(sub.href)
+                              return (
+                                <Link
+                                  key={sub.href}
+                                  href={sub.href}
+                                  className={cn(
+                                    buttonVariants({ variant: subActive ? 'secondary' : 'ghost', size: 'xs' }),
+                                    'w-full justify-start text-xs'
+                                  )}
+                                >
+                                  {sub.label}
+                                </Link>
+                              )
+                            })}
+                          </div>
                         )}
-                      >
-                        {project.name}
-                      </Link>
+                      </div>
                     )
                   })}
                 </div>

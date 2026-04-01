@@ -15,27 +15,55 @@ export default async function ProjectActivityPage({ params }: { params: Promise<
     .single()
   if (!project) notFound()
 
-  const { data: specIds } = await supabase
+  const { data: specRows } = await supabase
     .from('specs')
     .select('id')
     .eq('project_id', projectId)
 
-  const ids = (specIds ?? []).map((s) => s.id)
+  const specIds = (specRows ?? []).map((s) => s.id)
+  const safeIds = specIds.length ? specIds : ['00000000-0000-0000-0000-000000000000']
 
-  const { data: activity } = await supabase
-    .from('spec_publish_targets')
-    .select('id, status, last_error, published_at, target_type, specs(path)')
-    .in('spec_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000'])
-    .order('published_at', { ascending: false, nullsFirst: false })
-    .limit(50)
+  const [activityRes, agentRunsRes] = await Promise.all([
+    supabase
+      .from('spec_publish_targets')
+      .select('id, spec_id, status, last_error, published_at, target_type, specs(path)')
+      .in('spec_id', safeIds)
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .limit(50),
+    supabase
+      .from('agent_runs')
+      .select('id, spec_id, status, duration_ms, error, templates(name)')
+      .in('spec_id', safeIds)
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
 
-  const items = (activity ?? []).map((row) => ({
+  // Build spec_id → latest agent run lookup
+  const agentRunBySpecId: Record<string, {
+    template_name: string
+    status: string
+    duration_ms: number | null
+    error: string | null
+  }> = {}
+  for (const run of agentRunsRes.data ?? []) {
+    if (!agentRunBySpecId[run.spec_id]) {
+      agentRunBySpecId[run.spec_id] = {
+        template_name: (run.templates as any)?.name ?? 'Unknown template',
+        status: run.status,
+        duration_ms: run.duration_ms,
+        error: run.error,
+      }
+    }
+  }
+
+  const items = (activityRes.data ?? []).map((row) => ({
     id: row.id,
     spec_path: (row.specs as any)?.path ?? '',
     target_type: row.target_type,
     status: row.status,
     last_error: row.last_error,
     published_at: row.published_at,
+    agent_run: agentRunBySpecId[row.spec_id] ?? null,
   }))
 
   return (

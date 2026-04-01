@@ -1,103 +1,112 @@
 import { Job } from 'bullmq'
 import { createWorkerSupabaseClient } from '../lib/supabase.js'
+import { buildPrompt } from '../lib/promptBuilder.js'
+import { callLLM } from '../lib/llmClient.js'
+import { publishQueue } from '../lib/queue.js'
 
 interface RunAgentJobData {
   spec_id: string
+  spec_publish_target_id: string
+  integration_id: string
   project_id: string
-  template: 'full_publish' | 'task_summary' | 'release_notes'
+  template_id: string
+  trigger: 'folder_mapping' | 'frontmatter'
+  raw_content: string
+  target_integration_type: string
+  agent_run_id: string
 }
 
-interface TaskSummaryJobData {
-  spec_id: string
-  task_id: string
-  target_type: string
-}
+export async function agentProcessor(job: Job<RunAgentJobData>): Promise<void> {
+  const {
+    spec_id,
+    spec_publish_target_id,
+    integration_id,
+    project_id,
+    template_id,
+    trigger,
+    raw_content,
+    target_integration_type,
+    agent_run_id,
+  } = job.data
 
-type AgentJobData = RunAgentJobData | TaskSummaryJobData
-
-function isRunAgentJob(data: AgentJobData): data is RunAgentJobData {
-  return 'template' in data
-}
-
-export async function agentProcessor(job: Job<AgentJobData>): Promise<void> {
-  if (isRunAgentJob(job.data)) {
-    await runAgentTemplate(job.data)
-  } else {
-    await runTaskSummary(job.data)
-  }
-}
-
-async function runAgentTemplate(data: RunAgentJobData): Promise<void> {
-  const { spec_id, project_id, template } = data
   const supabase = createWorkerSupabaseClient()
 
+  // Mark run as in-progress
+  await supabase
+    .from('agent_runs')
+    .update({ status: 'running' })
+    .eq('id', agent_run_id)
+
+  let templateInstructions: string
+  try {
+    const { data: template, error } = await supabase
+      .from('templates')
+      .select('instructions')
+      .eq('id', template_id)
+      .single()
+
+    if (error || !template) throw new Error(`Template ${template_id} not found`)
+    templateInstructions = template.instructions
+  } catch (err) {
+    await supabase
+      .from('agent_runs')
+      .update({ status: 'failed', error: (err as Error).message, completed_at: new Date().toISOString() })
+      .eq('id', agent_run_id)
+    throw err
+  }
+
+  const prompt = buildPrompt(templateInstructions, raw_content, target_integration_type)
+  const startMs = Date.now()
+
+  let transformedContent: string
+  try {
+    transformedContent = await callLLM(prompt)
+  } catch (err) {
+    const message = (err as Error).message
+    await supabase
+      .from('agent_runs')
+      .update({
+        status: 'failed',
+        error: message,
+        duration_ms: Date.now() - startMs,
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', agent_run_id)
+    throw err
+  }
+
+  const durationMs = Date.now() - startMs
+
+  // Mark run complete
+  await supabase
+    .from('agent_runs')
+    .update({
+      status: 'completed',
+      transformed_content: transformedContent,
+      duration_ms: durationMs,
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', agent_run_id)
+
+  // Fetch the spec row we need for the downstream publish job
   const { data: spec } = await supabase
     .from('specs')
-    .select('content, path, frontmatter')
+    .select('path, frontmatter')
     .eq('id', spec_id)
     .single()
 
-  if (!spec) {
-    console.error(`[agent] spec ${spec_id} not found`)
-    return
-  }
+  // Enqueue publish job with the transformed content
+  await publishQueue.add(`publish-agent:${spec_id}:${integration_id}`, {
+    spec_id,
+    spec_publish_target_id,
+    integration_id,
+    target_type: target_integration_type,
+    project_id,
+    content: transformedContent,
+    path: spec?.path ?? '',
+    frontmatter: (spec?.frontmatter as Record<string, unknown>) ?? {},
+    attempt: 0,
+  })
 
-  switch (template) {
-    case 'full_publish':
-      // Passthrough — the spec was already published via the publish queue
-      console.log(`[agent] full_publish passthrough for spec ${spec_id}`)
-      break
-
-    case 'task_summary': {
-      const summary = generateSummary(spec.content)
-      console.log(`[agent] task_summary for spec ${spec_id}:\n${summary}`)
-      // In a full implementation, this would post the summary to the linked task
-      break
-    }
-
-    case 'release_notes': {
-      const notes = generateReleaseNotes(spec.content, spec.path)
-      console.log(`[agent] release_notes for spec ${spec_id}:\n${notes}`)
-      // In a full implementation, this would be published to a release notes page
-      break
-    }
-  }
-}
-
-async function runTaskSummary(data: TaskSummaryJobData): Promise<void> {
-  const { spec_id, task_id, target_type } = data
-  const supabase = createWorkerSupabaseClient()
-
-  const { data: spec } = await supabase
-    .from('specs')
-    .select('content, path')
-    .eq('id', spec_id)
-    .single()
-
-  if (!spec) return
-
-  const summary = generateSummary(spec.content)
-  console.log(`[agent] task_summary for task ${task_id} (${target_type}): ${summary}`)
-  // Future: post summary as task comment via target integration API
-}
-
-function generateSummary(content: string): string {
-  // Extract headings as bullet points + first paragraph
-  const lines = content.split('\n').filter((l) => l.trim())
-  const headings = lines.filter((l) => l.startsWith('#')).map((l) => l.replace(/^#+\s+/, '• '))
-  const firstPara = lines.find((l) => !l.startsWith('#') && l.trim().length > 20) ?? ''
-
-  const parts: string[] = []
-  if (firstPara) parts.push(firstPara.slice(0, 300))
-  if (headings.length) parts.push('\nKey sections:\n' + headings.slice(0, 8).join('\n'))
-
-  return parts.join('\n\n')
-}
-
-function generateReleaseNotes(content: string, path: string): string {
-  const lines = content.split('\n')
-  const title = path.split('/').pop()?.replace(/\.md$/, '').replace(/[-_]/g, ' ') ?? 'Release Notes'
-  const h2Sections = lines.filter((l) => l.startsWith('## ')).map((l) => `- ${l.slice(3)}`)
-
-  return `## ${title}\n\n${h2Sections.join('\n')}`
+  console.log(`[agent] ✓ ${trigger} — spec ${spec_id} transformed in ${durationMs}ms → publish enqueued`)
 }

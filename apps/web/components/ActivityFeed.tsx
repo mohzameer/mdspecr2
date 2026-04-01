@@ -3,6 +3,13 @@
 import { useEffect, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/db'
 
+interface AgentRunInfo {
+  template_name: string
+  status: string
+  duration_ms: number | null
+  error: string | null
+}
+
 interface ActivityItem {
   id: string
   spec_path: string
@@ -10,6 +17,7 @@ interface ActivityItem {
   status: string
   last_error: string | null
   published_at: string | null
+  agent_run: AgentRunInfo | null
 }
 
 interface ActivityFeedProps {
@@ -28,6 +36,13 @@ const statusLabels: Record<string, string> = {
   published: 'synced',
   failed: 'failed',
   queued: 'queued',
+}
+
+const agentStatusColors: Record<string, string> = {
+  completed: 'text-green-600 dark:text-green-400',
+  failed: 'text-red-600 dark:text-red-400',
+  running: 'text-yellow-600 dark:text-yellow-400',
+  queued: 'text-zinc-400',
 }
 
 function timeAgo(dateStr: string) {
@@ -50,31 +65,54 @@ export function ActivityFeed({ projectId, orgId, initialItems }: ActivityFeedPro
       .channel('activity-feed')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'spec_publish_targets',
-        },
+        { event: '*', schema: 'public', table: 'spec_publish_targets' },
         async () => {
-          // Refetch on any change
-          let query = supabase
+          const { data } = await supabase
             .from('spec_publish_targets')
-            .select('id, status, last_error, published_at, target_type, specs(path, project_id, projects(org_id))')
+            .select('id, spec_id, status, last_error, published_at, target_type, specs(path, project_id, projects(org_id))')
             .order('published_at', { ascending: false, nullsFirst: false })
             .limit(30)
-
-          const { data } = await query
           if (data) {
-            setItems(
-              data.map((row) => ({
+            setItems((prev) => {
+              const agentMap = Object.fromEntries(prev.map((i) => [i.id, i.agent_run]))
+              return data.map((row) => ({
                 id: row.id,
                 spec_path: (row.specs as any)?.path ?? '',
                 target_type: row.target_type,
                 status: row.status,
                 last_error: row.last_error,
                 published_at: row.published_at,
+                agent_run: agentMap[row.id] ?? null,
               }))
-            )
+            })
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'agent_runs' },
+        async () => {
+          // On any agent_run change, refetch and merge into existing items
+          const { data: agentRuns } = await supabase
+            .from('agent_runs')
+            .select('id, spec_id, status, duration_ms, error, templates(name)')
+            .order('created_at', { ascending: false })
+            .limit(30)
+
+          if (agentRuns) {
+            const agentMap: Record<string, AgentRunInfo> = {}
+            for (const run of agentRuns) {
+              agentMap[run.spec_id] = {
+                template_name: (run.templates as any)?.name ?? 'Unknown template',
+                status: run.status,
+                duration_ms: run.duration_ms,
+                error: run.error,
+              }
+            }
+            setItems((prev) => prev.map((item) => ({
+              ...item,
+              agent_run: agentMap[item.id] ?? item.agent_run,
+            })))
           }
         }
       )
@@ -90,22 +128,39 @@ export function ActivityFeed({ projectId, orgId, initialItems }: ActivityFeedPro
   return (
     <div className="space-y-0 divide-y divide-zinc-100 dark:divide-zinc-800">
       {items.map((item) => (
-        <div key={item.id} className="flex items-start justify-between gap-4 py-3">
-          <div className="min-w-0">
+        <div key={item.id} className="py-3">
+          <div className="flex items-start justify-between gap-4">
             <p className="text-sm font-mono text-zinc-700 dark:text-zinc-300 truncate">{item.spec_path}</p>
-            {item.last_error && (
-              <p className="text-xs text-red-500 mt-0.5 truncate">{item.last_error}</p>
-            )}
+            <div className="flex items-center gap-3 shrink-0 text-xs">
+              <span className="text-zinc-400">→ {item.target_type}</span>
+              <span className={statusColors[item.status] ?? 'text-zinc-400'}>
+                {statusLabels[item.status] ?? item.status}
+              </span>
+              {item.published_at && (
+                <span className="text-zinc-400">{timeAgo(item.published_at)}</span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-3 shrink-0 text-xs">
-            <span className="text-zinc-400">→ {item.target_type}</span>
-            <span className={statusColors[item.status] ?? 'text-zinc-400'}>
-              {statusLabels[item.status] ?? item.status}
-            </span>
-            {item.published_at && (
-              <span className="text-zinc-400">{timeAgo(item.published_at)}</span>
-            )}
-          </div>
+
+          {/* Agent run line */}
+          {item.agent_run && (
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-zinc-400">
+              <span>Agent: {item.agent_run.template_name}</span>
+              <span className={agentStatusColors[item.agent_run.status] ?? 'text-zinc-400'}>
+                {item.agent_run.status}
+              </span>
+              {item.agent_run.duration_ms != null && (
+                <span>{item.agent_run.duration_ms}ms</span>
+              )}
+              {item.agent_run.error && (
+                <span className="text-red-500 truncate">{item.agent_run.error}</span>
+              )}
+            </div>
+          )}
+
+          {item.last_error && (
+            <p className="text-xs text-red-500 mt-0.5 truncate">{item.last_error}</p>
+          )}
         </div>
       ))}
     </div>

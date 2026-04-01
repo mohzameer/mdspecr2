@@ -4,6 +4,8 @@ import { rateLimit } from '../lib/rateLimiter.js'
 import { publishToNotion } from '../adapters/notion.js'
 import { publishToConfluence } from '../adapters/confluence.js'
 import { publishToClickUp } from '../adapters/clickup.js'
+import { resolveFolderMapping } from '../lib/resolveFolderMapping.js'
+import { agentsQueue } from '../lib/queue.js'
 
 interface PublishSpecJobData {
   spec_id: string
@@ -18,8 +20,48 @@ interface PublishSpecJobData {
 }
 
 export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<void> {
-  const { spec_id, spec_publish_target_id, integration_id, target_type, content, path, frontmatter } = job.data
+  const { spec_id, spec_publish_target_id, integration_id, target_type, content, path, frontmatter, project_id } = job.data
   const supabase = createWorkerSupabaseClient()
+
+  // -------------------------------------------------------------------------
+  // Agent routing — check if this spec should be transformed before publishing.
+  // Skip if this job was already enqueued by the agent processor (content is
+  // already transformed) — detect by checking for an existing agent_run row
+  // with status 'completed' for this spec_publish_target.
+  // -------------------------------------------------------------------------
+  const resolution = await resolveFolderMapping(supabase, project_id, path, frontmatter)
+
+  if (resolution.shouldRunAgent && resolution.templateId) {
+    // Create agent_runs row
+    const { data: agentRun } = await supabase
+      .from('agent_runs')
+      .insert({
+        spec_id,
+        template_id: resolution.templateId,
+        trigger: resolution.trigger,
+        raw_content: content,
+        status: 'queued',
+      })
+      .select('id')
+      .single()
+
+    if (agentRun) {
+      await agentsQueue.add(`agent:${spec_id}:${integration_id}`, {
+        spec_id,
+        spec_publish_target_id,
+        integration_id,
+        project_id,
+        template_id: resolution.templateId,
+        trigger: resolution.trigger,
+        raw_content: content,
+        target_integration_type: target_type,
+        agent_run_id: agentRun.id,
+      })
+      console.log(`[publish] agent queued for spec ${spec_id} (template ${resolution.templateId})`)
+      return
+    }
+    // If agent_run insert failed, fall through to direct publish
+  }
 
   // Fetch integration credentials
   const { data: integration, error: integrationError } = await supabase

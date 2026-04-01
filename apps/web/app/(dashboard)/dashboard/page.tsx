@@ -57,6 +57,7 @@ export default async function DashboardPage() {
     status: row.status,
     last_error: row.last_error,
     published_at: row.published_at,
+    agent_run: null,
   }))
 
   return (

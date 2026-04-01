@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq'
-import type { PublishSpecJobData, RunAgentJobData, TaskSummaryJobData } from './types'
+import type { PublishSpecJobData, RunAgentJobData } from './types'
 
 // ---------------------------------------------------------------------------
 // Upstash Redis connection
@@ -28,8 +28,8 @@ export const publishQueue = new Queue<PublishSpecJobData>('publish', {
   },
 })
 
-// Handles: run_agent, task_summary
-export const agentsQueue = new Queue<RunAgentJobData | TaskSummaryJobData>('agents', {
+// Handles: run_agent
+export const agentsQueue = new Queue<RunAgentJobData>('agents', {
   connection,
   defaultJobOptions: {
     attempts: 3,
