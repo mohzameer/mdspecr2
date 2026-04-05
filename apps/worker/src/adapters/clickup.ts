@@ -124,7 +124,7 @@ export async function publishToClickUp(
     }
   }
 
-  if (!existingDocId) {
+  if (!existingDocId) { // either first publish or 404 fallthrough
     // Create new doc — content goes in the body via visibility field is optional
     const docPayload: Record<string, unknown> = {
       name: title,
@@ -181,4 +181,6 @@ export async function publishToClickUp(
       doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}`,
     }
   }
+
+  throw new Error('[clickup] unexpected state: no doc created or updated')
 }
