@@ -62,7 +62,7 @@ export async function listClickUpTargets(credentials: ClickUpCredentials): Promi
 export async function publishToClickUp(
   credentials: ClickUpCredentials,
   spec: { path: string; content: string; frontmatter: Record<string, unknown> },
-  existingDocId?: string | null,
+  existingDocIdParam?: string | null,
   targetId?: string | null
 ): Promise<{ doc_id: string; doc_url: string }> {
   const { api_token, workspace_id } = credentials
@@ -72,6 +72,8 @@ export async function publishToClickUp(
   // Check frontmatter for explicit clickup target
   const targets = spec.frontmatter?.targets as Array<Record<string, string>> | undefined
   const clickupTarget = targets?.find((t) => 'clickup' in t)?.clickup
+
+  let existingDocId: string | null = existingDocIdParam ?? null
 
   console.log(`[clickup] publish start — workspace=${workspace_id} existingDocId=${existingDocId ?? 'none'} targetId=${targetId ?? 'none'} title="${title}"`)
 
@@ -88,7 +90,6 @@ export async function publishToClickUp(
       const pages: Array<{ id: string }> = pagesRes.data?.data ?? pagesRes.data?.pages ?? []
 
       if (pages.length > 0) {
-        // Update the first page with new content
         const pageId = pages[0].id
         console.log(`[clickup] updating page ${pageId} in doc ${existingDocId}`)
         const updateRes = await axios.put(
@@ -98,7 +99,6 @@ export async function publishToClickUp(
         )
         console.log(`[clickup] page update response status=${updateRes.status}`)
       } else {
-        // No pages yet — create one
         console.log(`[clickup] no pages found, creating page in doc ${existingDocId}`)
         await axios.post(
           `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${existingDocId}/pages`,
@@ -106,17 +106,25 @@ export async function publishToClickUp(
           { headers }
         )
       }
+
+      return {
+        doc_id: existingDocId,
+        doc_url: `https://app.clickup.com/${workspace_id}/docs/${existingDocId}`,
+      }
     } catch (err) {
       const e = err as { response?: { status?: number; data?: unknown }; message?: string }
-      console.error(`[clickup] update failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
-      throw err
+      if (e.response?.status === 404) {
+        // Doc was deleted in ClickUp — fall through to create a new one
+        console.log(`[clickup] doc ${existingDocId} not found (deleted?) — will create new doc`)
+        existingDocId = null
+      } else {
+        console.error(`[clickup] update failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
+        throw err
+      }
     }
+  }
 
-    return {
-      doc_id: existingDocId,
-      doc_url: `https://app.clickup.com/${workspace_id}/docs/${existingDocId}`,
-    }
-  } else {
+  if (!existingDocId) {
     // Create new doc — content goes in the body via visibility field is optional
     const docPayload: Record<string, unknown> = {
       name: title,

@@ -174,11 +174,6 @@ export async function POST(request: Request) {
 
       const contentChanged = !existingSpec || existingSpec.content_hash !== spec.hash
 
-      if (!contentChanged) {
-        console.log(`[publish] skipping spec path=${spec.path} — content unchanged (hash=${spec.hash})`)
-        continue
-      }
-
       // Upsert spec into ledger
       const { data: upsertedSpec, error: specError } = await supabase
         .from('specs')
@@ -220,13 +215,20 @@ export async function POST(request: Request) {
       for (const integration of targetIntegrations) {
         console.log(`[publish] upserting publish target spec=${upsertedSpec.id} integration=${integration.id} type=${integration.type}`)
 
-        // Fetch existing target to preserve external_page_id
+        // Fetch existing target to preserve external_page_id and check publish status
         const { data: existingTarget } = await supabase
           .from('spec_publish_targets')
-          .select('id, external_page_id')
+          .select('id, external_page_id, status')
           .eq('spec_id', upsertedSpec.id)
           .eq('integration_id', integration.id)
           .single()
+
+        // Skip if content unchanged AND already successfully published with a known remote doc
+        const alreadyPublished = existingTarget?.status === 'published' && !!existingTarget?.external_page_id
+        if (!contentChanged && alreadyPublished) {
+          console.log(`[publish] skipping spec path=${spec.path} integration=${integration.type} — unchanged and already published`)
+          continue
+        }
 
         const { data: target, error: targetError } = existingTarget
           ? await supabase
