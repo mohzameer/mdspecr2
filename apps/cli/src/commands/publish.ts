@@ -169,7 +169,9 @@ async function fetchProjectSpecDirs(apiUrl: string, projectId: string, token: st
       headers: { Authorization: `Bearer ${token}` },
     })
     if (res.ok) {
-      const data = await res.json() as { spec_dirs?: string[] }
+      const data = await res.json() as { spec_dirs?: string[]; mapped_dirs?: string[] }
+      // Prefer mapped_dirs (folders with active mappings) over spec_dirs
+      if (data.mapped_dirs && data.mapped_dirs.length > 0) return data.mapped_dirs
       if (data.spec_dirs && data.spec_dirs.length > 0) return data.spec_dirs
     }
   } catch {

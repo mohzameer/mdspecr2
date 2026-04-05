@@ -37,7 +37,15 @@ export async function GET(
       .single()
 
     if (!project) return NextResponse.json({ error: 'not found' }, { status: 404 })
-    return NextResponse.json({ spec_dirs: project.spec_dirs ?? [], name: project.name })
+
+    const { data: mappings } = await supabase
+      .from('folder_mappings')
+      .select('folder_path')
+      .eq('project_id', projectId)
+
+    const mapped_dirs = [...new Set((mappings ?? []).map((m) => m.folder_path))]
+
+    return NextResponse.json({ spec_dirs: project.spec_dirs ?? [], mapped_dirs, name: project.name })
   }
 
   // Browser path — session auth
