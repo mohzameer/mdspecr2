@@ -74,14 +74,34 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
     throw new UnrecoverableError(`Integration ${integration_id} not found`)
   }
 
-  // Fetch existing external_page_id if any (for updates)
-  const { data: target } = await supabase
-    .from('spec_publish_targets')
-    .select('external_page_id, retry_count')
-    .eq('id', spec_publish_target_id)
-    .single()
+  // Fetch existing target and current spec content_hash
+  const [{ data: target }, { data: currentSpec }] = await Promise.all([
+    supabase
+      .from('spec_publish_targets')
+      .select('external_page_id, retry_count')
+      .eq('id', spec_publish_target_id)
+      .single(),
+    supabase
+      .from('specs')
+      .select('content_hash')
+      .eq('id', spec_id)
+      .single(),
+  ])
 
+  // Skip if content hash matches what's in the DB AND remote doc exists
+  // (hash in job payload vs current DB hash — if they differ, content changed since enqueue)
+  // We only skip if external_page_id is set (already published) AND hashes match
   const existingPageId = target?.external_page_id ?? null
+  const specContentHash = frontmatter?._content_hash as string | undefined
+
+  if (existingPageId && specContentHash && currentSpec?.content_hash === specContentHash) {
+    console.log(`[publish] skipping spec ${spec_id} — content hash unchanged and already published (${existingPageId})`)
+    await supabase
+      .from('spec_publish_targets')
+      .update({ status: 'published' })
+      .eq('id', spec_publish_target_id)
+    return
+  }
   let credentials: Record<string, unknown>
   try {
     credentials = JSON.parse(integration.credentials)

@@ -164,16 +164,6 @@ export async function POST(request: Request) {
     for (const spec of specs) {
       console.log(`[publish] processing spec path=${spec.path}`)
 
-      // Check existing spec to detect content changes
-      const { data: existingSpec } = await supabase
-        .from('specs')
-        .select('id, content_hash')
-        .eq('project_id', project_id)
-        .eq('path', spec.path)
-        .single()
-
-      const contentChanged = !existingSpec || existingSpec.content_hash !== spec.hash
-
       // Upsert spec into ledger
       const { data: upsertedSpec, error: specError } = await supabase
         .from('specs')
@@ -199,7 +189,7 @@ export async function POST(request: Request) {
         continue
       }
 
-      console.log(`[publish] spec upserted id=${upsertedSpec.id} path=${spec.path} contentChanged=${contentChanged}`)
+      console.log(`[publish] spec upserted id=${upsertedSpec.id} path=${spec.path}`)
 
       // Determine target integrations (from frontmatter or all active)
       const frontmatterTargets = spec.frontmatter?.targets as Array<Record<string, string>> | undefined
@@ -222,13 +212,6 @@ export async function POST(request: Request) {
           .eq('spec_id', upsertedSpec.id)
           .eq('integration_id', integration.id)
           .single()
-
-        // Skip if content unchanged AND already successfully published with a known remote doc
-        const alreadyPublished = existingTarget?.status === 'published' && !!existingTarget?.external_page_id
-        if (!contentChanged && alreadyPublished) {
-          console.log(`[publish] skipping spec path=${spec.path} integration=${integration.type} — unchanged and already published`)
-          continue
-        }
 
         const { data: target, error: targetError } = existingTarget
           ? await supabase
@@ -265,7 +248,7 @@ export async function POST(request: Request) {
           project_id,
           content: spec.content,
           path: spec.path,
-          frontmatter: spec.frontmatter ?? {},
+          frontmatter: { ...(spec.frontmatter ?? {}), _content_hash: spec.hash },
           attempt: 0,
         }
 
