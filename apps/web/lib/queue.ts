@@ -6,8 +6,11 @@ import type { PublishSpecJobData, RunAgentJobData } from './types'
 // Shared between web (enqueue) and worker (consume).
 // ---------------------------------------------------------------------------
 
+const redisUrl = process.env.REDIS_URL!
 const connection = {
-  url: process.env.REDIS_URL!,
+  url: redisUrl,
+  maxRetriesPerRequest: null,
+  ...(redisUrl?.startsWith('rediss://') ? { tls: {} } : {}),
 }
 
 // ---------------------------------------------------------------------------

@@ -142,13 +142,19 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     // Fetch active integrations for this org
     // -------------------------------------------------------------------------
-    const { data: integrations } = await supabase
+    const { data: integrations, error: integrationsError } = await supabase
       .from('integrations')
       .select('id, type')
       .eq('org_id', project.org_id)
       .eq('status', 'connected')
 
+    console.log(`[publish] org=${project.org_id} integrations=${JSON.stringify(integrations)} error=${integrationsError?.message ?? 'none'}`)
+
     const activeIntegrations = integrations ?? []
+
+    if (activeIntegrations.length === 0) {
+      console.log(`[publish] no active integrations for org=${project.org_id} — nothing to enqueue`)
+    }
 
     // -------------------------------------------------------------------------
     // Process each spec
@@ -156,6 +162,8 @@ export async function POST(request: Request) {
     let queuedCount = 0
 
     for (const spec of specs) {
+      console.log(`[publish] processing spec path=${spec.path}`)
+
       // Upsert spec into ledger
       const { data: upsertedSpec, error: specError } = await supabase
         .from('specs')
@@ -176,7 +184,12 @@ export async function POST(request: Request) {
         .select('id')
         .single()
 
-      if (specError || !upsertedSpec) continue
+      if (specError || !upsertedSpec) {
+        console.error(`[publish] spec upsert failed path=${spec.path} error=${specError?.message}`)
+        continue
+      }
+
+      console.log(`[publish] spec upserted id=${upsertedSpec.id} path=${spec.path}`)
 
       // Determine target integrations (from frontmatter or all active)
       const frontmatterTargets = spec.frontmatter?.targets as Array<Record<string, string>> | undefined
@@ -185,11 +198,14 @@ export async function POST(request: Request) {
       if (frontmatterTargets && frontmatterTargets.length > 0) {
         const targetTypes = frontmatterTargets.flatMap((t) => Object.keys(t))
         targetIntegrations = activeIntegrations.filter((i) => targetTypes.includes(i.type))
+        console.log(`[publish] frontmatter targets=${JSON.stringify(targetTypes)} matched integrations=${targetIntegrations.map(i => i.type).join(',')}`)
       }
 
       // Upsert spec_publish_targets and enqueue jobs
       for (const integration of targetIntegrations) {
-        const { data: target } = await supabase
+        console.log(`[publish] upserting publish target spec=${upsertedSpec.id} integration=${integration.id} type=${integration.type}`)
+
+        const { data: target, error: targetError } = await supabase
           .from('spec_publish_targets')
           .upsert(
             {
@@ -205,7 +221,10 @@ export async function POST(request: Request) {
           .select('id')
           .single()
 
-        if (!target) continue
+        if (!target) {
+          console.error(`[publish] publish target upsert failed spec=${upsertedSpec.id} integration=${integration.id} error=${targetError?.message}`)
+          continue
+        }
 
         const jobData: PublishSpecJobData = {
           spec_id: upsertedSpec.id,
@@ -219,8 +238,13 @@ export async function POST(request: Request) {
           attempt: 0,
         }
 
-        await publishQueue.add(`publish:${upsertedSpec.id}:${integration.id}`, jobData)
-        queuedCount++
+        try {
+          const job = await publishQueue.add(`publish:${upsertedSpec.id}:${integration.id}`, jobData)
+          console.log(`[publish] job enqueued id=${job.id} spec=${upsertedSpec.id} integration=${integration.type}`)
+          queuedCount++
+        } catch (queueErr) {
+          console.error(`[publish] failed to enqueue job spec=${upsertedSpec.id} integration=${integration.type} error=${(queueErr as Error).message}`)
+        }
       }
     }
 

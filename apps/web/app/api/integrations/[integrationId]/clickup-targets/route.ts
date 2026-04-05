@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/db-server'
-import axios from 'axios'
 
 const CLICKUP_API = 'https://api.clickup.com/api/v2'
 
@@ -44,22 +43,31 @@ export async function GET(
   const headers = { Authorization: credentials.api_token }
 
   try {
-    const spacesRes = await axios.get(
+    const spacesRes = await fetch(
       `${CLICKUP_API}/team/${credentials.workspace_id}/space?archived=false`,
       { headers }
     )
-    const spaces: Array<{ id: string; name: string }> = spacesRes.data.spaces ?? []
+    if (spacesRes.status === 401 || spacesRes.status === 403) {
+      return NextResponse.json({ error: 'clickup_auth_failed' }, { status: 502 })
+    }
+    if (!spacesRes.ok) {
+      return NextResponse.json({ error: 'clickup_fetch_failed' }, { status: 502 })
+    }
+    const spacesData = await spacesRes.json()
+    const spaces: Array<{ id: string; name: string }> = spacesData.spaces ?? []
 
     const targets: Array<{ id: string; name: string; kind: 'space' | 'folder'; space_name?: string }> =
       spaces.map((s) => ({ id: `space:${s.id}`, name: s.name, kind: 'space' }))
 
     const folderResults = await Promise.allSettled(
       spaces.map(async (space) => {
-        const res = await axios.get(
+        const res = await fetch(
           `${CLICKUP_API}/space/${space.id}/folder?archived=false`,
           { headers }
         )
-        const folders: Array<{ id: string; name: string }> = res.data.folders ?? []
+        if (!res.ok) return []
+        const data = await res.json()
+        const folders: Array<{ id: string; name: string }> = data.folders ?? []
         return folders.map((f) => ({
           id: `folder:${f.id}`,
           name: f.name,
@@ -74,11 +82,7 @@ export async function GET(
     }
 
     return NextResponse.json(targets)
-  } catch (err) {
-    const status = (err as { response?: { status?: number } }).response?.status
-    if (status === 401 || status === 403) {
-      return NextResponse.json({ error: 'clickup_auth_failed' }, { status: 502 })
-    }
+  } catch {
     return NextResponse.json({ error: 'clickup_fetch_failed' }, { status: 502 })
   }
 }
