@@ -3,7 +3,7 @@ import { createWorkerSupabaseClient } from '../lib/supabase.js'
 import { rateLimit } from '../lib/rateLimiter.js'
 import { publishToNotion } from '../adapters/notion.js'
 import { publishToConfluence } from '../adapters/confluence.js'
-import { publishToClickUp } from '../adapters/clickup.js'
+import { publishToClickUp, clickUpDocExists } from '../adapters/clickup.js'
 import { resolveFolderMapping } from '../lib/resolveFolderMapping.js'
 import { agentsQueue } from '../lib/queue.js'
 
@@ -74,39 +74,55 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
     throw new UnrecoverableError(`Integration ${integration_id} not found`)
   }
 
-  // Fetch existing target and current spec content_hash
-  const [{ data: target }, { data: currentSpec }] = await Promise.all([
-    supabase
-      .from('spec_publish_targets')
-      .select('external_page_id, retry_count')
-      .eq('id', spec_publish_target_id)
-      .single(),
-    supabase
-      .from('specs')
-      .select('content_hash')
-      .eq('id', spec_id)
-      .single(),
-  ])
+  // Fetch existing external_page_id if any (for updates)
+  const { data: target } = await supabase
+    .from('spec_publish_targets')
+    .select('external_page_id, retry_count')
+    .eq('id', spec_publish_target_id)
+    .single()
 
-  // Skip if content hash matches what's in the DB AND remote doc exists
-  // (hash in job payload vs current DB hash — if they differ, content changed since enqueue)
-  // We only skip if external_page_id is set (already published) AND hashes match
-  const existingPageId = target?.external_page_id ?? null
-  const specContentHash = frontmatter?._content_hash as string | undefined
-
-  if (existingPageId && specContentHash && currentSpec?.content_hash === specContentHash) {
-    console.log(`[publish] skipping spec ${spec_id} — content hash unchanged and already published (${existingPageId})`)
-    await supabase
-      .from('spec_publish_targets')
-      .update({ status: 'published' })
-      .eq('id', spec_publish_target_id)
-    return
-  }
+  let existingPageId = target?.external_page_id ?? null
   let credentials: Record<string, unknown>
   try {
     credentials = JSON.parse(integration.credentials)
   } catch {
     throw new UnrecoverableError('Invalid integration credentials JSON')
+  }
+
+  // For ClickUp: if we have an existing doc ID, verify it still exists remotely.
+  // If deleted, clear existingPageId so the adapter recreates it.
+  if (target_type === 'clickup' && existingPageId) {
+    const remoteExists = await clickUpDocExists(
+      { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string },
+      existingPageId
+    )
+    if (!remoteExists) {
+      console.log(`[publish] clickup doc ${existingPageId} no longer exists — will recreate`)
+      existingPageId = null
+      await supabase
+        .from('spec_publish_targets')
+        .update({ external_page_id: null, external_url: null })
+        .eq('id', spec_publish_target_id)
+    }
+  }
+
+  // Skip if remote doc exists and content hash hasn't changed
+  if (existingPageId) {
+    const { data: currentSpec } = await supabase
+      .from('specs')
+      .select('content_hash')
+      .eq('id', spec_id)
+      .single()
+
+    const jobContentHash = frontmatter?._content_hash as string | undefined
+    if (jobContentHash && currentSpec?.content_hash === jobContentHash) {
+      console.log(`[publish] skipping spec ${spec_id} — remote exists and content unchanged`)
+      await supabase
+        .from('spec_publish_targets')
+        .update({ status: 'published' })
+        .eq('id', spec_publish_target_id)
+      return
+    }
   }
 
   const spec = { path, content, frontmatter }
