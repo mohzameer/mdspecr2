@@ -45,12 +45,15 @@ export async function PATCH(
   if (!canEdit) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
   const body = await req.json()
-  // Only template_id is patchable — null means remove agent assignment
-  const { template_id } = body
+  const { template_id, target_id } = body
+
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if ('template_id' in body) patch.template_id = template_id ?? null
+  if ('target_id' in body) patch.target_id = target_id ?? null
 
   const { data: mapping, error } = await supabase
     .from('folder_mappings')
-    .update({ template_id: template_id ?? null, updated_at: new Date().toISOString() })
+    .update(patch)
     .eq('id', mappingId)
     .eq('project_id', projectId)
     .select()

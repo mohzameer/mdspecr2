@@ -5,8 +5,11 @@ import { Queue } from 'bullmq'
 // Used by the worker to enqueue downstream jobs after agent processing.
 // ---------------------------------------------------------------------------
 
+const redisUrl = process.env.REDIS_URL!
 const connection = {
-  url: process.env.REDIS_URL!,
+  url: redisUrl,
+  maxRetriesPerRequest: null,
+  ...(redisUrl?.startsWith('rediss://') ? { tls: {} } : {}),
 }
 
 export const publishQueue = new Queue('publish', {

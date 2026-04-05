@@ -2,18 +2,6 @@
 
 import { useRef, useState } from 'react'
 
-const POOL_ITEMS = [
-  { id: 'acceptance_criteria', label: 'Acceptance Criteria' },
-  { id: 'non_functional_requirements', label: 'Non-Functional Requirements' },
-  { id: 'api_contract', label: 'API Contract' },
-  { id: 'sequence_flow', label: 'Sequence Flow' },
-  { id: 'error_handling', label: 'Error Handling' },
-  { id: 'security_considerations', label: 'Security Considerations' },
-  { id: 'performance_benchmarks', label: 'Performance Benchmarks' },
-  { id: 'dependencies', label: 'Dependencies' },
-  { id: 'open_questions', label: 'Open Questions' },
-]
-
 const MAX_CHARS = 4000
 
 interface Props {
@@ -40,24 +28,6 @@ export function TemplateEditor({
   const [instructions, setInstructions] = useState(initialInstructions)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  function insertPoolItem(itemId: string) {
-    const ta = textareaRef.current
-    if (!ta) return
-    const token = `{{${itemId}}}`
-    const start = ta.selectionStart
-    const end = ta.selectionEnd
-    const next = instructions.slice(0, start) + token + instructions.slice(end)
-    if (next.length > MAX_CHARS) return
-    setInstructions(next)
-    // Restore cursor after inserted token
-    requestAnimationFrame(() => {
-      ta.selectionStart = start + token.length
-      ta.selectionEnd = start + token.length
-      ta.focus()
-    })
-  }
 
   async function save() {
     if (!name.trim()) { setError('Name is required.'); return }
@@ -97,6 +67,7 @@ export function TemplateEditor({
           className="block w-full rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
         />
       </div>
+
       <div>
         <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Description (optional)</label>
         <input
@@ -106,6 +77,7 @@ export function TemplateEditor({
           className="block w-full rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
         />
       </div>
+
       <div>
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Instructions</label>
@@ -114,30 +86,20 @@ export function TemplateEditor({
           </span>
         </div>
         <textarea
-          ref={textareaRef}
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
-          rows={12}
+          rows={16}
           className="block w-full rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zinc-500 resize-y"
-          placeholder="You are a technical documentation agent. Transform the provided spec…"
+          placeholder={`You are a technical documentation agent. Transform the provided spec into a structured task document.\n\n## Background\nSummarise the context and motivation.\n\n## Acceptance Criteria\nList clear, testable conditions.\n\n## Testing Plan\nDescribe how this should be tested.`}
         />
+        <p className="text-xs text-zinc-400 mt-1">
+          Write your section headings and extraction instructions directly.
+          Use <span className="font-mono text-zinc-500">{'{{target_integration}}'}</span> to reference the publish destination.
+        </p>
       </div>
-      <div>
-        <p className="text-xs text-zinc-500 mb-1.5">Insert pool item:</p>
-        <div className="flex flex-wrap gap-1.5">
-          {POOL_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => insertPoolItem(item.id)}
-              className="rounded bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs font-mono text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-            >
-              {`{{${item.id}}}`}
-            </button>
-          ))}
-        </div>
-      </div>
+
       {error && <p className="text-xs text-red-500">{error}</p>}
+
       <div className="flex gap-2">
         <button
           onClick={save}

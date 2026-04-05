@@ -17,7 +17,12 @@ import { createServer } from 'node:http'
 import { publishProcessor } from './processors/publishProcessor.js'
 import { agentProcessor } from './processors/agentProcessor.js'
 
-const connection = { url: process.env.REDIS_URL! }
+const redisUrl = process.env.REDIS_URL!
+const connection = {
+  url: redisUrl,
+  maxRetriesPerRequest: null,
+  ...(redisUrl?.startsWith('rediss://') ? { tls: {} } : {}),
+}
 
 // Publish worker: 5 concurrent jobs, exponential backoff handled by BullMQ
 const publishWorker = new Worker('publish', publishProcessor, {

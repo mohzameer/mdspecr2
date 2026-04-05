@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { TemplateEditor } from './TemplateEditor'
+import { TEMPLATE_PRESETS, type TemplatePreset } from './templatePresets'
 
 interface TemplateWithCount {
   id: string
@@ -22,20 +23,31 @@ interface Props {
   onTemplatesChange: (templates: TemplateWithCount[]) => void
 }
 
-type EditorMode = { type: 'new' } | { type: 'edit'; template: TemplateWithCount } | { type: 'clone'; template: TemplateWithCount } | null
+type EditorMode =
+  | { type: 'new' }
+  | { type: 'preset'; preset: TemplatePreset }
+  | { type: 'edit'; template: TemplateWithCount }
+  | { type: 'clone'; template: TemplateWithCount }
+  | null
+
+type View = 'list' | 'gallery'
 
 export function TemplatesTab({ projectId, templates, canEdit, onTemplatesChange }: Props) {
   const [editorMode, setEditorMode] = useState<EditorMode>(null)
+  const [view, setView] = useState<View>('list')
   const [deleting, setDeleting] = useState<string | null>(null)
 
+  // Presets not yet added to this project (match by name)
+  const existingNames = new Set(templates.map((t) => t.name.toLowerCase()))
+  const availablePresets = TEMPLATE_PRESETS.filter(
+    (p) => !existingNames.has(p.name.toLowerCase())
+  )
+
   async function handleSave() {
-    // Refetch templates from API
     const res = await fetch(`/api/projects/${projectId}/templates`)
-    if (res.ok) {
-      const updated = await res.json()
-      onTemplatesChange(updated)
-    }
+    if (res.ok) onTemplatesChange(await res.json())
     setEditorMode(null)
+    setView('list')
   }
 
   async function deleteTemplate(templateId: string) {
@@ -46,40 +58,118 @@ export function TemplatesTab({ projectId, templates, canEdit, onTemplatesChange 
     setDeleting(null)
   }
 
+  // ── Editor view ──────────────────────────────────────────────────────────
   if (editorMode) {
+    const isPreset = editorMode.type === 'preset'
     const isClone = editorMode.type === 'clone'
     const isEdit = editorMode.type === 'edit'
-    const template = (isEdit || isClone) ? editorMode.template : null
+
+    const initName = isPreset
+      ? editorMode.preset.name
+      : isClone
+      ? `Copy of ${editorMode.template.name}`
+      : isEdit
+      ? editorMode.template.name
+      : ''
+
+    const initDescription = isPreset
+      ? editorMode.preset.description
+      : isClone || isEdit
+      ? editorMode.template.description ?? ''
+      : ''
+
+    const initInstructions = isPreset
+      ? editorMode.preset.instructions
+      : isClone || isEdit
+      ? editorMode.template.instructions
+      : ''
+
+    const title = isPreset
+      ? editorMode.preset.name
+      : isClone
+      ? `Clone: ${editorMode.template.name}`
+      : isEdit
+      ? `Edit: ${editorMode.template.name}`
+      : 'New Template'
 
     return (
       <div>
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 mb-4">
-          {editorMode.type === 'new' ? 'New Template' : isClone ? `Clone: ${template?.name}` : `Edit: ${template?.name}`}
-        </h2>
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 mb-4">{title}</h2>
         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
           <TemplateEditor
             projectId={projectId}
-            templateId={isEdit ? template?.id : undefined}
-            initialName={isClone ? `Copy of ${template?.name}` : (template?.name ?? '')}
-            initialDescription={template?.description ?? ''}
-            initialInstructions={template?.instructions ?? ''}
+            templateId={isEdit ? editorMode.template.id : undefined}
+            initialName={initName}
+            initialDescription={initDescription}
+            initialInstructions={initInstructions}
             onSave={handleSave}
-            onCancel={() => setEditorMode(null)}
+            onCancel={() => { setEditorMode(null) }}
           />
         </div>
       </div>
     )
   }
 
+  // ── Gallery view ─────────────────────────────────────────────────────────
+  if (view === 'gallery') {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Choose a template</h2>
+          <button
+            onClick={() => setView('list')}
+            className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
+          >
+            ← Back
+          </button>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {TEMPLATE_PRESETS.map((preset) => {
+            const alreadyAdded = existingNames.has(preset.name.toLowerCase())
+            return (
+              <button
+                key={preset.id}
+                disabled={alreadyAdded}
+                onClick={() => setEditorMode({ type: 'preset', preset })}
+                className={[
+                  'rounded-lg border p-4 text-left transition-colors',
+                  alreadyAdded
+                    ? 'border-zinc-100 dark:border-zinc-800 opacity-40 cursor-default'
+                    : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-zinc-400 dark:hover:border-zinc-600 hover:shadow-sm',
+                ].join(' ')}
+              >
+                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 mb-1">
+                  {preset.name}
+                  {alreadyAdded && <span className="ml-2 text-xs font-normal text-zinc-400">added</span>}
+                </p>
+                <p className="text-xs text-zinc-500 mb-2 leading-relaxed">{preset.description}</p>
+                <p className="text-xs text-zinc-400">Best for: {preset.bestFor}</p>
+              </button>
+            )
+          })}
+          {/* Blank template option */}
+          <button
+            onClick={() => setEditorMode({ type: 'new' })}
+            className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-4 text-left hover:border-zinc-500 dark:hover:border-zinc-500 transition-colors"
+          >
+            <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1">Blank Template</p>
+            <p className="text-xs text-zinc-400">Start from scratch with an empty template.</p>
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── List view ─────────────────────────────────────────────────────────────
   return (
     <div>
       {canEdit && (
         <div className="flex justify-end mb-4">
           <button
-            onClick={() => setEditorMode({ type: 'new' })}
+            onClick={() => setView('gallery')}
             className="rounded bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
           >
-            + New Template
+            + Add Template
           </button>
         </div>
       )}
@@ -96,8 +186,16 @@ export function TemplatesTab({ projectId, templates, canEdit, onTemplatesChange 
           <tbody>
             {templates.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-4 py-6 text-sm text-zinc-400 text-center">
-                  No templates yet.
+                <td colSpan={3} className="px-4 py-8 text-center">
+                  <p className="text-sm text-zinc-500 mb-3">No templates yet.</p>
+                  {canEdit && (
+                    <button
+                      onClick={() => setView('gallery')}
+                      className="rounded bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-sm font-medium text-white dark:text-zinc-900"
+                    >
+                      Browse templates
+                    </button>
+                  )}
                 </td>
               </tr>
             ) : (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface Integration {
   id: string
@@ -21,8 +21,16 @@ interface FolderMapping {
   folder_path: string
   integration_id: string
   template_id: string | null
+  target_id: string | null
   integrations: { id: string; type: string; status: string; config: Record<string, unknown> | null } | null
   templates: { id: string; name: string } | null
+}
+
+interface ClickUpTarget {
+  id: string
+  name: string
+  kind: 'space' | 'folder'
+  space_name?: string
 }
 
 interface Props {
@@ -53,7 +61,61 @@ export function FolderMappingsTab({
   const [addingFolder, setAddingFolder] = useState<string | null>(null)
   const [newFolderPath, setNewFolderPath] = useState('')
   const [newIntegrationId, setNewIntegrationId] = useState('')
+  const [newTargetId, setNewTargetId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [savingMappingId, setSavingMappingId] = useState<string | null>(null)
+  const [clickupTargets, setClickupTargets] = useState<ClickUpTarget[]>([])
+  const [loadingTargets, setLoadingTargets] = useState(false)
+  // Cache of ClickUp targets keyed by integration id, for existing mapping rows
+  const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
+
+  // When a ClickUp integration is selected in the add form, fetch its spaces/folders
+  useEffect(() => {
+    const integration = availableIntegrations.find((i) => i.id === newIntegrationId)
+    if (!integration || integration.type !== 'clickup') {
+      setClickupTargets([])
+      setNewTargetId('')
+      return
+    }
+    // Reuse cache if already loaded
+    if (targetsCache[newIntegrationId]) {
+      setClickupTargets(targetsCache[newIntegrationId])
+      return
+    }
+    setLoadingTargets(true)
+    setClickupTargets([])
+    setNewTargetId('')
+    fetch(`/api/integrations/${newIntegrationId}/clickup-targets`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setClickupTargets(data)
+          setTargetsCache((prev) => ({ ...prev, [newIntegrationId]: data }))
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingTargets(false))
+  }, [newIntegrationId, availableIntegrations])
+
+  // Pre-load ClickUp targets for all ClickUp integrations already in mappings
+  useEffect(() => {
+    const clickupIntegrationIds = [...new Set(
+      mappings
+        .filter((m) => m.integrations?.type === 'clickup')
+        .map((m) => m.integration_id)
+    )]
+    for (const id of clickupIntegrationIds) {
+      if (targetsCache[id]) continue
+      fetch(`/api/integrations/${id}/clickup-targets`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setTargetsCache((prev) => ({ ...prev, [id]: data }))
+          }
+        })
+        .catch(() => {})
+    }
+  }, [mappings])
 
   // Group mappings by folder_path
   const byFolder = mappings.reduce<Record<string, FolderMapping[]>>((acc, m) => {
@@ -76,21 +138,31 @@ export function FolderMappingsTab({
     }
   }
 
+  function resetAddForm() {
+    setAddingFolder(null)
+    setNewFolderPath('')
+    setNewIntegrationId('')
+    setNewTargetId('')
+    setClickupTargets([])
+  }
+
   async function addMapping(folderPath: string, integrationId: string) {
     if (!folderPath.trim() || !integrationId) return
     setSaving(true)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ folder_path: folderPath.trim(), integration_id: integrationId }),
+      body: JSON.stringify({
+        folder_path: folderPath.trim(),
+        integration_id: integrationId,
+        target_id: newTargetId || null,
+      }),
     })
     if (res.ok) {
       const newMapping: FolderMapping = await res.json()
       onMappingsChange([...mappings, { ...newMapping, integrations: availableIntegrations.find(i => i.id === integrationId) ?? null, templates: null }])
     }
-    setAddingFolder(null)
-    setNewFolderPath('')
-    setNewIntegrationId('')
+    resetAddForm()
     setSaving(false)
   }
 
@@ -100,6 +172,7 @@ export function FolderMappingsTab({
   }
 
   async function updateTemplate(mappingId: string, templateId: string | null) {
+    setSavingMappingId(mappingId)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -109,6 +182,21 @@ export function FolderMappingsTab({
       const updated = await res.json()
       onMappingsChange(mappings.map((m) => m.id === mappingId ? { ...m, template_id: updated.template_id } : m))
     }
+    setSavingMappingId(null)
+  }
+
+  async function updateTarget(mappingId: string, targetId: string | null) {
+    setSavingMappingId(mappingId)
+    const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_id: targetId }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      onMappingsChange(mappings.map((m) => m.id === mappingId ? { ...m, target_id: updated.target_id } : m))
+    }
+    setSavingMappingId(null)
   }
 
   function renderFolderRow(folderPath: string) {
@@ -116,30 +204,33 @@ export function FolderMappingsTab({
     return (
       <tr key={folderPath} className="border-t border-zinc-100 dark:border-zinc-800">
         <td className="py-3 pr-4 font-mono text-sm text-zinc-700 dark:text-zinc-300 align-top">
-          {folderPath}/
+          {folderPath.replace(/\/+$/, '')}/
         </td>
         <td className="py-3 pr-4 align-top">
           <div className="flex flex-wrap gap-1.5 items-center">
-            {folderMappings.map((m) => (
-              <span
-                key={m.id}
-                className="inline-flex items-center gap-1 rounded bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:text-zinc-300"
-              >
-                {integrationLabels[m.integrations?.type ?? ''] ?? m.integrations?.type ?? '—'}
-                {canEdit && (
-                  <button
-                    onClick={() => removeMapping(m.id)}
-                    className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-100 leading-none ml-0.5"
-                    title="Remove"
-                  >
-                    ×
-                  </button>
-                )}
-              </span>
-            ))}
+            {folderMappings.map((m) => {
+              const label = integrationLabels[m.integrations?.type ?? ''] ?? m.integrations?.type ?? '—'
+              return (
+                <span
+                  key={m.id}
+                  className="inline-flex items-center gap-1 rounded bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:text-zinc-300"
+                >
+                  {label}
+                  {canEdit && (
+                    <button
+                      onClick={() => removeMapping(m.id)}
+                      className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-100 leading-none ml-0.5"
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              )
+            })}
             {canEdit && availableIntegrations.length > 0 && (
               <button
-                onClick={() => { setAddingFolder(folderPath); setNewFolderPath(folderPath); setNewIntegrationId('') }}
+                onClick={() => { resetAddForm(); setAddingFolder(folderPath); setNewFolderPath(folderPath) }}
                 className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 border border-dashed border-zinc-300 dark:border-zinc-700 rounded px-1.5 py-0.5"
               >
                 + Add
@@ -147,24 +238,68 @@ export function FolderMappingsTab({
             )}
           </div>
         </td>
-        <td className="py-3 align-top">
-          {/* Each mapping row within this folder may have a different template — show for the first one,
-              or allow per-mapping if multiple. For simplicity, use the first mapping's template. */}
+        <td className="py-3 pr-4 align-top">
           {folderMappings.length > 0 ? (
-            <select
-              disabled={!canEdit}
-              value={folderMappings[0].template_id ?? ''}
-              onChange={(e) => updateTemplate(folderMappings[0].id, e.target.value || null)}
-              className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-            >
-              <option value="">None</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+            <div className="relative inline-flex items-center gap-1.5">
+              <select
+                disabled={!canEdit || savingMappingId === folderMappings[0].id}
+                value={folderMappings[0].template_id ?? ''}
+                onChange={(e) => updateTemplate(folderMappings[0].id, e.target.value || null)}
+                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+              >
+                <option value="">None</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              {savingMappingId === folderMappings[0].id && (
+                <svg className="animate-spin h-3 w-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+              )}
+            </div>
           ) : (
             <span className="text-xs text-zinc-400">—</span>
           )}
+        </td>
+        <td className="py-3 align-top">
+          <div className="space-y-1">
+            {folderMappings
+              .filter((m) => m.integrations?.type === 'clickup')
+              .map((m) => {
+                const targets = targetsCache[m.integration_id] ?? []
+                const isLoaded = !!targetsCache[m.integration_id]
+                const isSaving = savingMappingId === m.id
+                return (
+                  <div key={m.id} className="inline-flex items-center gap-1.5">
+                    <select
+                      disabled={!canEdit || !isLoaded || isSaving}
+                      value={m.target_id ?? ''}
+                      onChange={(e) => updateTarget(m.id, e.target.value || null)}
+                      className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                    >
+                      <option value="">{isLoaded ? 'Workspace root' : 'Loading…'}</option>
+                      {targets.filter((t) => t.kind === 'space').map((t) => (
+                        <option key={t.id} value={t.id}>{t.name} (space)</option>
+                      ))}
+                      {targets.filter((t) => t.kind === 'folder').map((t) => (
+                        <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
+                      ))}
+                    </select>
+                    {isSaving && (
+                      <svg className="animate-spin h-3 w-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                    )}
+                  </div>
+                )
+              })}
+            {folderMappings.every((m) => m.integrations?.type !== 'clickup') && (
+              <span className="text-xs text-zinc-400">—</span>
+            )}
+          </div>
         </td>
       </tr>
     )
@@ -205,6 +340,28 @@ export function FolderMappingsTab({
               ))}
             </select>
           </div>
+          {newIntegrationId && availableIntegrations.find((i) => i.id === newIntegrationId)?.type === 'clickup' && (
+            <div>
+              <label className="text-xs text-zinc-500 mb-1 block">ClickUp destination (space or folder)</label>
+              {loadingTargets ? (
+                <p className="text-xs text-zinc-400">Loading…</p>
+              ) : (
+                <select
+                  value={newTargetId}
+                  onChange={(e) => setNewTargetId(e.target.value)}
+                  className="w-full rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                >
+                  <option value="">Workspace root (no folder)</option>
+                  {clickupTargets.filter((t) => t.kind === 'space').map((t) => (
+                    <option key={t.id} value={t.id}>{t.name} (space)</option>
+                  ))}
+                  {clickupTargets.filter((t) => t.kind === 'folder').map((t) => (
+                    <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => addMapping(newFolderPath, newIntegrationId)}
@@ -214,7 +371,7 @@ export function FolderMappingsTab({
               {saving ? 'Adding…' : 'Add'}
             </button>
             <button
-              onClick={() => { setAddingFolder(null); setNewFolderPath(''); setNewIntegrationId('') }}
+              onClick={resetAddForm}
               className="rounded border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400"
             >
               Cancel
@@ -228,7 +385,7 @@ export function FolderMappingsTab({
         const folders = bySpecDir[dir] ?? []
         return (
           <div key={dir}>
-            <p className="text-xs font-mono text-zinc-500 mb-2">{dir}/</p>
+            <p className="text-xs font-mono text-zinc-500 mb-2">{dir.replace(/\/+$/, '')}/</p>
             <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
               <table className="w-full text-left">
                 <thead>
@@ -236,16 +393,17 @@ export function FolderMappingsTab({
                     <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">Folder</th>
                     <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">Integrations</th>
                     <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
+                    <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">ClickUp Destination</th>
                   </tr>
                 </thead>
                 <tbody className="px-4">
                   {folders.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="px-4 py-4 text-xs text-zinc-400">
+                      <td colSpan={4} className="px-4 py-4 text-xs text-zinc-400">
                         No folders mapped yet.{' '}
                         {canEdit && availableIntegrations.length > 0 && (
                           <button
-                            onClick={() => { setAddingFolder('new'); setNewFolderPath(dir + '/'); setNewIntegrationId('') }}
+                            onClick={() => { resetAddForm(); setAddingFolder('new'); setNewFolderPath(dir.replace(/\/+$/, '') + '/') }}
                             className="underline hover:text-zinc-700"
                           >
                             Map a folder
@@ -261,10 +419,10 @@ export function FolderMappingsTab({
             </div>
             {canEdit && availableIntegrations.length > 0 && folders.length > 0 && (
               <button
-                onClick={() => { setAddingFolder('new'); setNewFolderPath(dir + '/'); setNewIntegrationId('') }}
+                onClick={() => { resetAddForm(); setAddingFolder('new'); setNewFolderPath(dir.replace(/\/+$/, '') + '/') }}
                 className="mt-2 text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
               >
-                + Map another folder in {dir}/
+                + Map another folder in {dir.replace(/\/+$/, '')}/
               </button>
             )}
           </div>

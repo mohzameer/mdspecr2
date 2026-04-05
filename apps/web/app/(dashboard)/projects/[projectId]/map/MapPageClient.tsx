@@ -29,6 +29,7 @@ interface FolderMapping {
   folder_path: string
   integration_id: string
   template_id: string | null
+  target_id: string | null
   integrations: { id: string; type: string; status: string; config: Record<string, unknown> | null } | null
   templates: { id: string; name: string } | null
 }

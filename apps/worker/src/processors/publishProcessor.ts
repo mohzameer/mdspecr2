@@ -91,6 +91,28 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
 
   const spec = { path, content, frontmatter }
 
+  // Look up folder-mapping target_id for ClickUp destination routing
+  let folderMappingTargetId: string | null = null
+  if (target_type === 'clickup') {
+    const { getAncestorFolders } = await import('../lib/folderHierarchy.js')
+    const ancestors = getAncestorFolders(path).slice().reverse()
+    if (ancestors.length > 0) {
+      const { data: mappings } = await supabase
+        .from('folder_mappings')
+        .select('folder_path, target_id')
+        .eq('project_id', project_id)
+        .eq('integration_id', integration_id)
+        .in('folder_path', ancestors.map((a) => a.path))
+        .not('target_id', 'is', null)
+      if (mappings && mappings.length > 0) {
+        for (const a of ancestors) {
+          const match = mappings.find((m) => m.folder_path === a.path && m.target_id)
+          if (match) { folderMappingTargetId = match.target_id; break }
+        }
+      }
+    }
+  }
+
   // Apply rate limiting
   await rateLimit(target_type)
 
@@ -126,7 +148,8 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
             workspace_id: credentials.workspace_id as string,
           },
           spec,
-          existingPageId
+          existingPageId,
+          folderMappingTargetId
         )
         break
 

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/db'
 import { OrgSwitcher } from './OrgSwitcher'
@@ -27,6 +28,8 @@ const navItems = [
 export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   async function signOut() {
     const supabase = createSupabaseBrowserClient()
@@ -52,15 +55,15 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
         {navItems.map((item) => {
-          const active = item.href === '/dashboard'
+          const active = mounted && (item.href === '/dashboard'
             ? pathname === '/dashboard'
-            : pathname.startsWith(item.href)
+            : pathname.startsWith(item.href))
           return (
             <div key={item.href}>
               <Link
                 href={item.href}
                 className={cn(
-                  buttonVariants({ variant: active ? 'secondary' : 'ghost', size: 'sm' }),
+                  buttonVariants({ variant: active ? 'secondary' : 'ghost', size: 'default' }),
                   'w-full justify-start gap-2.5'
                 )}
               >
@@ -69,10 +72,10 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
               </Link>
 
               {/* Projects sub-list — renders immediately after the Projects item */}
-              {item.href === '/projects' && projects.length > 0 && pathname.startsWith('/projects') && (
+              {mounted && item.href === '/projects' && projects.length > 0 && pathname.startsWith('/projects') && (
                 <div className="mt-0.5 pl-5 space-y-0.5">
                   {projects.map((project) => {
-                    const projectActive = pathname.startsWith(`/projects/${project.id}`)
+                    const projectActive = mounted && pathname.startsWith(`/projects/${project.id}`)
                     const projectSubNav = [
                       { href: `/projects/${project.id}/specs`, label: 'Specs' },
                       { href: `/projects/${project.id}/map`, label: 'Map' },
@@ -84,7 +87,7 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
                         <Link
                           href={`/projects/${project.id}/specs`}
                           className={cn(
-                            buttonVariants({ variant: projectActive ? 'secondary' : 'ghost', size: 'xs' }),
+                            buttonVariants({ variant: projectActive ? 'secondary' : 'ghost', size: 'sm' }),
                             'w-full justify-start truncate'
                           )}
                         >
@@ -93,14 +96,14 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
                         {projectActive && (
                           <div className="mt-0.5 pl-4 space-y-0.5">
                             {projectSubNav.map((sub) => {
-                              const subActive = pathname.startsWith(sub.href)
+                              const subActive = mounted && pathname.startsWith(sub.href)
                               return (
                                 <Link
                                   key={sub.href}
                                   href={sub.href}
                                   className={cn(
-                                    buttonVariants({ variant: subActive ? 'secondary' : 'ghost', size: 'xs' }),
-                                    'w-full justify-start text-xs'
+                                    buttonVariants({ variant: subActive ? 'secondary' : 'ghost', size: 'sm' }),
+                                    'w-full justify-start'
                                   )}
                                 >
                                   {sub.label}
@@ -122,7 +125,7 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
       {/* Footer */}
       <Separator />
       <div className="p-3">
-        <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={signOut}>
+        <Button variant="ghost" size="default" className="w-full justify-start text-muted-foreground" onClick={signOut}>
           Sign out
         </Button>
       </div>
