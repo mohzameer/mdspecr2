@@ -36,6 +36,14 @@ const agentsWorker = new Worker('agents', agentProcessor, {
   concurrency: 3,
 })
 
+publishWorker.on('error', (err) => {
+  console.error('[publish] worker error:', err)
+})
+
+agentsWorker.on('error', (err) => {
+  console.error('[agents] worker error:', err)
+})
+
 publishWorker.on('completed', (job) => {
   console.log(`[publish] ✓ job ${job.id} completed`)
 })
@@ -61,6 +69,16 @@ async function shutdown() {
 
 process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
+
+process.on('uncaughtException', (err) => {
+  console.error('[worker] uncaughtException:', err)
+  process.exit(1)
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[worker] unhandledRejection:', reason)
+  process.exit(1)
+})
 
 // Health check server — lets Railway verify the container is up
 const PORT = process.env.PORT ?? 3001
