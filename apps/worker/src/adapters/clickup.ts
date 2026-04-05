@@ -7,6 +7,7 @@ export interface ClickUpCredentials {
 }
 
 const CLICKUP_API = 'https://api.clickup.com/api/v2'
+const CLICKUP_API_V3 = 'https://api.clickup.com/api/v3'
 
 function authHeaders(token: string) {
   return { Authorization: token }
@@ -75,32 +76,40 @@ export async function publishToClickUp(
   console.log(`[clickup] publish start — workspace=${workspace_id} existingDocId=${existingDocId ?? 'none'} targetId=${targetId ?? 'none'} title="${title}"`)
 
   if (existingDocId) {
-    console.log(`[clickup] updating doc ${existingDocId}`)
+    // Fetch the existing doc's pages, then update the first page
+    console.log(`[clickup] fetching pages for doc ${existingDocId}`)
     try {
-      const updateRes = await axios.put(
-        `${CLICKUP_API}/workspaces/${workspace_id}/docs/${existingDocId}`,
-        { name: title, content: spec.content },
+      const pagesRes = await axios.get(
+        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${existingDocId}/pages`,
         { headers }
       )
-      console.log(`[clickup] update response status=${updateRes.status} data=${JSON.stringify(updateRes.data)}`)
+      console.log(`[clickup] pages response status=${pagesRes.status} data=${JSON.stringify(pagesRes.data)}`)
+
+      const pages: Array<{ id: string }> = pagesRes.data?.data ?? pagesRes.data?.pages ?? []
+
+      if (pages.length > 0) {
+        // Update the first page with new content
+        const pageId = pages[0].id
+        console.log(`[clickup] updating page ${pageId} in doc ${existingDocId}`)
+        const updateRes = await axios.put(
+          `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${existingDocId}/pages/${pageId}`,
+          { name: title, content: spec.content },
+          { headers }
+        )
+        console.log(`[clickup] page update response status=${updateRes.status}`)
+      } else {
+        // No pages yet — create one
+        console.log(`[clickup] no pages found, creating page in doc ${existingDocId}`)
+        await axios.post(
+          `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${existingDocId}/pages`,
+          { name: title, content: spec.content },
+          { headers }
+        )
+      }
     } catch (err) {
       const e = err as { response?: { status?: number; data?: unknown }; message?: string }
       console.error(`[clickup] update failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
       throw err
-    }
-
-    // Link to task if task_id in frontmatter
-    const taskId = spec.frontmatter?.task_id as string | undefined
-    if (taskId) {
-      try {
-        await axios.post(
-          `${CLICKUP_API}/task/${taskId}/doc`,
-          { doc_id: existingDocId },
-          { headers }
-        )
-      } catch {
-        // Non-fatal: task linking can fail
-      }
     }
 
     return {
@@ -108,54 +117,55 @@ export async function publishToClickUp(
       doc_url: `https://app.clickup.com/${workspace_id}/docs/${existingDocId}`,
     }
   } else {
-    // Create new doc
-    const payload: Record<string, unknown> = {
+    // Create new doc — content goes in the body via visibility field is optional
+    const docPayload: Record<string, unknown> = {
       name: title,
-      content: spec.content,
-      workspace_id: workspace_id,
+      visibility: 'PUBLIC',
     }
 
     // Folder mapping target takes precedence over frontmatter target
+    // parent.type: 4 = Space, 5 = Folder
     if (targetId?.startsWith('space:')) {
-      payload.parent = { id: targetId.slice(6), type: 4 }
+      docPayload.parent = { id: targetId.slice(6), type: 4 }
     } else if (targetId?.startsWith('folder:')) {
-      payload.parent = { id: targetId.slice(7), type: 6 }
-    } else if (clickupTarget?.startsWith('doc_')) {
-      payload.parent = { id: clickupTarget, type: 'doc' }
+      docPayload.parent = { id: targetId.slice(7), type: 5 }
+    } else if (clickupTarget) {
+      // fallback: treat as a raw parent id
+      docPayload.parent = { id: clickupTarget, type: 4 }
     }
 
-    console.log(`[clickup] creating doc — payload=${JSON.stringify(payload)}`)
+    console.log(`[clickup] creating doc — payload=${JSON.stringify(docPayload)}`)
 
-    let resData: Record<string, unknown>
+    let docId: string
     try {
       const res = await axios.post(
-        `${CLICKUP_API}/workspaces/${workspace_id}/docs`,
-        payload,
+        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs`,
+        docPayload,
         { headers }
       )
-      console.log(`[clickup] create response status=${res.status} data=${JSON.stringify(res.data)}`)
-      resData = res.data
+      console.log(`[clickup] create doc response status=${res.status} data=${JSON.stringify(res.data)}`)
+      // Response wraps the doc in a `data` key: { data: { id, name, ... } }
+      docId = (res.data?.data?.id ?? res.data?.id) as string
+      console.log(`[clickup] resolved docId=${docId}`)
     } catch (err) {
       const e = err as { response?: { status?: number; data?: unknown }; message?: string }
-      console.error(`[clickup] create failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
+      console.error(`[clickup] create doc failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
       throw err
     }
 
-    const docId = (resData?.id ?? (resData?.doc as Record<string, unknown>)?.id) as string
-    console.log(`[clickup] resolved docId=${docId}`)
-
-    // Link to task if task_id in frontmatter
-    const taskId = spec.frontmatter?.task_id as string | undefined
-    if (taskId && docId) {
-      try {
-        await axios.post(
-          `${CLICKUP_API}/task/${taskId}/doc`,
-          { doc_id: docId },
-          { headers }
-        )
-      } catch {
-        // Non-fatal
-      }
+    // Create the first page with spec content
+    console.log(`[clickup] creating page in doc ${docId}`)
+    try {
+      const pageRes = await axios.post(
+        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+        { name: title, content: spec.content },
+        { headers }
+      )
+      console.log(`[clickup] create page response status=${pageRes.status} data=${JSON.stringify(pageRes.data)}`)
+    } catch (err) {
+      const e = err as { response?: { status?: number; data?: unknown }; message?: string }
+      // Non-fatal: doc was created, page content failed — log and continue
+      console.error(`[clickup] create page failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
     }
 
     return {
