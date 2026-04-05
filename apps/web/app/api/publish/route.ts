@@ -164,6 +164,21 @@ export async function POST(request: Request) {
     for (const spec of specs) {
       console.log(`[publish] processing spec path=${spec.path}`)
 
+      // Check existing spec to detect content changes
+      const { data: existingSpec } = await supabase
+        .from('specs')
+        .select('id, content_hash')
+        .eq('project_id', project_id)
+        .eq('path', spec.path)
+        .single()
+
+      const contentChanged = !existingSpec || existingSpec.content_hash !== spec.hash
+
+      if (!contentChanged) {
+        console.log(`[publish] skipping spec path=${spec.path} — content unchanged (hash=${spec.hash})`)
+        continue
+      }
+
       // Upsert spec into ledger
       const { data: upsertedSpec, error: specError } = await supabase
         .from('specs')
@@ -189,7 +204,7 @@ export async function POST(request: Request) {
         continue
       }
 
-      console.log(`[publish] spec upserted id=${upsertedSpec.id} path=${spec.path}`)
+      console.log(`[publish] spec upserted id=${upsertedSpec.id} path=${spec.path} contentChanged=${contentChanged}`)
 
       // Determine target integrations (from frontmatter or all active)
       const frontmatterTargets = spec.frontmatter?.targets as Array<Record<string, string>> | undefined
@@ -201,30 +216,44 @@ export async function POST(request: Request) {
         console.log(`[publish] frontmatter targets=${JSON.stringify(targetTypes)} matched integrations=${targetIntegrations.map(i => i.type).join(',')}`)
       }
 
-      // Upsert spec_publish_targets and enqueue jobs
+      // Upsert spec_publish_targets — preserve external_page_id on conflict
       for (const integration of targetIntegrations) {
         console.log(`[publish] upserting publish target spec=${upsertedSpec.id} integration=${integration.id} type=${integration.type}`)
 
-        const { data: target, error: targetError } = await supabase
+        // Fetch existing target to preserve external_page_id
+        const { data: existingTarget } = await supabase
           .from('spec_publish_targets')
-          .upsert(
-            {
-              spec_id: upsertedSpec.id,
-              integration_id: integration.id,
-              target_type: integration.type,
-              status: 'queued',
-              retry_count: 0,
-              last_error: null,
-            },
-            { onConflict: 'spec_id,integration_id' }
-          )
-          .select('id')
+          .select('id, external_page_id')
+          .eq('spec_id', upsertedSpec.id)
+          .eq('integration_id', integration.id)
           .single()
+
+        const { data: target, error: targetError } = existingTarget
+          ? await supabase
+              .from('spec_publish_targets')
+              .update({ status: 'queued', retry_count: 0, last_error: null })
+              .eq('id', existingTarget.id)
+              .select('id, external_page_id')
+              .single()
+          : await supabase
+              .from('spec_publish_targets')
+              .insert({
+                spec_id: upsertedSpec.id,
+                integration_id: integration.id,
+                target_type: integration.type,
+                status: 'queued',
+                retry_count: 0,
+                last_error: null,
+              })
+              .select('id, external_page_id')
+              .single()
 
         if (!target) {
           console.error(`[publish] publish target upsert failed spec=${upsertedSpec.id} integration=${integration.id} error=${targetError?.message}`)
           continue
         }
+
+        console.log(`[publish] publish target id=${target.id} external_page_id=${target.external_page_id ?? 'none'}`)
 
         const jobData: PublishSpecJobData = {
           spec_id: upsertedSpec.id,
