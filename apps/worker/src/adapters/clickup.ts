@@ -126,21 +126,22 @@ export async function publishToClickUp(
 
     console.log(`[clickup] creating doc — payload=${JSON.stringify(payload)}`)
 
-    let res: Awaited<ReturnType<typeof axios.post>>
+    let resData: Record<string, unknown>
     try {
-      res = await axios.post(
+      const res = await axios.post(
         `${CLICKUP_API}/workspaces/${workspace_id}/docs`,
         payload,
         { headers }
       )
       console.log(`[clickup] create response status=${res.status} data=${JSON.stringify(res.data)}`)
+      resData = res.data
     } catch (err) {
       const e = err as { response?: { status?: number; data?: unknown }; message?: string }
       console.error(`[clickup] create failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
       throw err
     }
 
-    const docId = res.data?.id ?? res.data?.doc?.id as string
+    const docId = (resData?.id ?? (resData?.doc as Record<string, unknown>)?.id) as string
     console.log(`[clickup] resolved docId=${docId}`)
 
     // Link to task if task_id in frontmatter
