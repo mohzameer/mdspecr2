@@ -17,8 +17,12 @@ export interface ClickUpTarget {
   id: string       // prefixed: 'space:{id}' or 'folder:{id}'
   name: string
   kind: 'space' | 'folder'
-  space_name?: string // parent space name for folder entries
+  space_name?: string
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 export async function listClickUpTargets(credentials: ClickUpCredentials): Promise<ClickUpTarget[]> {
   const { api_token, workspace_id } = credentials
@@ -69,132 +73,223 @@ export async function clickUpDocExists(credentials: ClickUpCredentials, docId: s
   } catch (err) {
     const status = (err as { response?: { status?: number } }).response?.status
     if (status === 404) return false
-    throw err // unexpected error — let caller decide
+    throw err
   }
 }
 
-export async function publishToClickUp(
+// Create a doc and update the auto-created first page with content.
+// Returns { doc_id, page_id }.
+async function createDoc(
+  credentials: ClickUpCredentials,
+  name: string,
+  content: string,
+  targetId?: string | null
+): Promise<{ doc_id: string; page_id: string }> {
+  const { api_token, workspace_id } = credentials
+  const headers = authHeaders(api_token)
+
+  const docPayload: Record<string, unknown> = { name, visibility: 'PUBLIC' }
+
+  if (targetId?.startsWith('space:')) {
+    docPayload.parent = { id: targetId.slice(6), type: 4 }
+  } else if (targetId?.startsWith('folder:')) {
+    docPayload.parent = { id: targetId.slice(7), type: 5 }
+  }
+
+  console.log(`[clickup] creating doc name="${name}" payload=${JSON.stringify(docPayload)}`)
+  const res = await axios.post(
+    `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs`,
+    docPayload,
+    { headers }
+  )
+  console.log(`[clickup] create doc status=${res.status} data=${JSON.stringify(res.data)}`)
+  const docId = (res.data?.data?.id ?? res.data?.id) as string
+
+  // ClickUp auto-creates a first page — fetch and update it instead of creating a second
+  const pagesRes = await axios.get(
+    `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+    { headers }
+  )
+  const pages: Array<{ id: string }> = pagesRes.data?.data ?? pagesRes.data?.pages ?? []
+
+  let pageId: string
+  if (pages.length > 0) {
+    pageId = pages[0].id
+    console.log(`[clickup] updating auto-created page ${pageId} in doc ${docId}`)
+    await axios.put(
+      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${pageId}`,
+      { name, content },
+      { headers }
+    )
+  } else {
+    console.log(`[clickup] no auto-created page found, creating page in doc ${docId}`)
+    const pageRes = await axios.post(
+      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+      { name, content },
+      { headers }
+    )
+    pageId = pageRes.data?.data?.id ?? pageRes.data?.id as string
+  }
+
+  return { doc_id: docId, page_id: pageId }
+}
+
+// ---------------------------------------------------------------------------
+// Single-file mode: one spec → one standalone doc
+// Returns doc_id (stored as external_page_id on the spec_publish_target)
+// ---------------------------------------------------------------------------
+export async function publishSingleSpec(
   credentials: ClickUpCredentials,
   spec: { path: string; content: string; frontmatter: Record<string, unknown> },
-  existingDocIdParam?: string | null,
+  existingDocId: string | null,
   targetId?: string | null
 ): Promise<{ doc_id: string; doc_url: string }> {
   const { api_token, workspace_id } = credentials
   const title = getSpecTitle(spec.path, spec.frontmatter)
   const headers = authHeaders(api_token)
 
-  // Check frontmatter for explicit clickup target
-  const targets = spec.frontmatter?.targets as Array<Record<string, string>> | undefined
-  const clickupTarget = targets?.find((t) => 'clickup' in t)?.clickup
-
-  let existingDocId: string | null = existingDocIdParam ?? null
-
-  console.log(`[clickup] publish start — workspace=${workspace_id} existingDocId=${existingDocId ?? 'none'} targetId=${targetId ?? 'none'} title="${title}"`)
+  console.log(`[clickup:single] start — existingDocId=${existingDocId ?? 'none'} title="${title}"`)
 
   if (existingDocId) {
-    // Fetch the existing doc's pages, then update the first page
-    console.log(`[clickup] fetching pages for doc ${existingDocId}`)
+    // Update the first page of the existing doc
     try {
       const pagesRes = await axios.get(
         `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${existingDocId}/pages`,
         { headers }
       )
-      console.log(`[clickup] pages response status=${pagesRes.status} data=${JSON.stringify(pagesRes.data)}`)
-
       const pages: Array<{ id: string }> = pagesRes.data?.data ?? pagesRes.data?.pages ?? []
 
       if (pages.length > 0) {
-        const pageId = pages[0].id
-        console.log(`[clickup] updating page ${pageId} in doc ${existingDocId}`)
-        const updateRes = await axios.put(
-          `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${existingDocId}/pages/${pageId}`,
+        await axios.put(
+          `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${existingDocId}/pages/${pages[0].id}`,
           { name: title, content: spec.content },
           { headers }
         )
-        console.log(`[clickup] page update response status=${updateRes.status}`)
+        console.log(`[clickup:single] updated page ${pages[0].id}`)
       } else {
-        console.log(`[clickup] no pages found, creating page in doc ${existingDocId}`)
         await axios.post(
           `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${existingDocId}/pages`,
           { name: title, content: spec.content },
           { headers }
         )
+        console.log(`[clickup:single] created page in doc ${existingDocId}`)
       }
-
       return {
         doc_id: existingDocId,
         doc_url: `https://app.clickup.com/${workspace_id}/docs/${existingDocId}`,
       }
     } catch (err) {
-      const e = err as { response?: { status?: number; data?: unknown }; message?: string }
-      if (e.response?.status === 404) {
-        // Doc was deleted in ClickUp — fall through to create a new one
-        console.log(`[clickup] doc ${existingDocId} not found (deleted?) — will create new doc`)
-        existingDocId = null
-      } else {
-        console.error(`[clickup] update failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
-        throw err
-      }
+      const e = err as { response?: { status?: number } }
+      if (e.response?.status !== 404) throw err
+      console.log(`[clickup:single] doc ${existingDocId} deleted — recreating`)
     }
   }
 
-  if (!existingDocId) { // either first publish or 404 fallthrough
-    // Create new doc — content goes in the body via visibility field is optional
-    const docPayload: Record<string, unknown> = {
-      name: title,
-      visibility: 'PUBLIC',
-    }
+  // Create new doc
+  const { doc_id } = await createDoc(credentials, title, spec.content, targetId)
+  return {
+    doc_id,
+    doc_url: `https://app.clickup.com/${workspace_id}/docs/${doc_id}`,
+  }
+}
 
-    // Folder mapping target takes precedence over frontmatter target
-    // parent.type: 4 = Space, 5 = Folder
+// ---------------------------------------------------------------------------
+// Multi-file mode: folder → one doc, each spec → one page inside it
+// Returns { doc_id (folder doc), page_id (this spec's page) }
+// ---------------------------------------------------------------------------
+export async function publishSpecAsPage(
+  credentials: ClickUpCredentials,
+  spec: { path: string; content: string; frontmatter: Record<string, unknown> },
+  folderDocId: string | null,       // existing folder-level doc id, or null to create
+  existingPageId: string | null,    // existing page id for this spec, or null
+  folderName: string,
+  targetId?: string | null
+): Promise<{ doc_id: string; page_id: string; doc_url: string }> {
+  const { api_token, workspace_id } = credentials
+  const title = getSpecTitle(spec.path, spec.frontmatter)
+  const headers = authHeaders(api_token)
+
+  console.log(`[clickup:multi] start — folderDocId=${folderDocId ?? 'none'} existingPageId=${existingPageId ?? 'none'} title="${title}"`)
+
+  // Ensure folder doc exists
+  let docId = folderDocId
+  if (!docId) {
+    console.log(`[clickup:multi] creating folder doc "${folderName}"`)
+    const docPayload: Record<string, unknown> = { name: folderName, visibility: 'PUBLIC' }
     if (targetId?.startsWith('space:')) {
       docPayload.parent = { id: targetId.slice(6), type: 4 }
     } else if (targetId?.startsWith('folder:')) {
       docPayload.parent = { id: targetId.slice(7), type: 5 }
-    } else if (clickupTarget) {
-      // fallback: treat as a raw parent id
-      docPayload.parent = { id: clickupTarget, type: 4 }
     }
+    const res = await axios.post(
+      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs`,
+      docPayload,
+      { headers }
+    )
+    console.log(`[clickup:multi] folder doc created status=${res.status} data=${JSON.stringify(res.data)}`)
+    docId = (res.data?.data?.id ?? res.data?.id) as string
 
-    console.log(`[clickup] creating doc — payload=${JSON.stringify(docPayload)}`)
-
-    let docId: string
-    try {
-      const res = await axios.post(
-        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs`,
-        docPayload,
+    // Update the auto-created first page to be a table of contents / intro placeholder
+    const pagesRes = await axios.get(
+      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+      { headers }
+    )
+    const autoPages: Array<{ id: string }> = pagesRes.data?.data ?? pagesRes.data?.pages ?? []
+    if (autoPages.length > 0) {
+      await axios.put(
+        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${autoPages[0].id}`,
+        { name: folderName, content: '' },
         { headers }
-      )
-      console.log(`[clickup] create doc response status=${res.status} data=${JSON.stringify(res.data)}`)
-      // Response wraps the doc in a `data` key: { data: { id, name, ... } }
-      docId = (res.data?.data?.id ?? res.data?.id) as string
-      console.log(`[clickup] resolved docId=${docId}`)
-    } catch (err) {
-      const e = err as { response?: { status?: number; data?: unknown }; message?: string }
-      console.error(`[clickup] create doc failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
-      throw err
-    }
-
-    // Create the first page with spec content
-    console.log(`[clickup] creating page in doc ${docId}`)
-    try {
-      const pageRes = await axios.post(
-        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-        { name: title, content: spec.content },
-        { headers }
-      )
-      console.log(`[clickup] create page response status=${pageRes.status} data=${JSON.stringify(pageRes.data)}`)
-    } catch (err) {
-      const e = err as { response?: { status?: number; data?: unknown }; message?: string }
-      // Non-fatal: doc was created, page content failed — log and continue
-      console.error(`[clickup] create page failed status=${e.response?.status} data=${JSON.stringify(e.response?.data)} message=${e.message}`)
-    }
-
-    return {
-      doc_id: docId,
-      doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}`,
+      ).catch(() => {}) // non-fatal
     }
   }
 
-  throw new Error('[clickup] unexpected state: no doc created or updated')
+  // Create or update the spec's page within the folder doc
+  if (existingPageId) {
+    try {
+      await axios.put(
+        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${existingPageId}`,
+        { name: title, content: spec.content },
+        { headers }
+      )
+      console.log(`[clickup:multi] updated page ${existingPageId}`)
+      return {
+        doc_id: docId,
+        page_id: existingPageId,
+        doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}`,
+      }
+    } catch (err) {
+      const e = err as { response?: { status?: number } }
+      if (e.response?.status !== 404) throw err
+      console.log(`[clickup:multi] page ${existingPageId} deleted — recreating`)
+    }
+  }
+
+  // Create new page
+  console.log(`[clickup:multi] creating page "${title}" in doc ${docId}`)
+  const pageRes = await axios.post(
+    `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+    { name: title, content: spec.content },
+    { headers }
+  )
+  console.log(`[clickup:multi] page created status=${pageRes.status} data=${JSON.stringify(pageRes.data)}`)
+  const pageId = (pageRes.data?.data?.id ?? pageRes.data?.id) as string
+
+  return {
+    doc_id: docId,
+    page_id: pageId,
+    doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}`,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy export kept for backward compat — routes to single mode
+// ---------------------------------------------------------------------------
+export async function publishToClickUp(
+  credentials: ClickUpCredentials,
+  spec: { path: string; content: string; frontmatter: Record<string, unknown> },
+  existingDocIdParam?: string | null,
+  targetId?: string | null
+): Promise<{ doc_id: string; doc_url: string }> {
+  return publishSingleSpec(credentials, spec, existingDocIdParam ?? null, targetId)
 }

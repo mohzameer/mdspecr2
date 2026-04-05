@@ -3,7 +3,7 @@ import { createWorkerSupabaseClient } from '../lib/supabase.js'
 import { rateLimit } from '../lib/rateLimiter.js'
 import { publishToNotion } from '../adapters/notion.js'
 import { publishToConfluence } from '../adapters/confluence.js'
-import { publishToClickUp, clickUpDocExists } from '../adapters/clickup.js'
+import { publishSingleSpec, publishSpecAsPage, clickUpDocExists } from '../adapters/clickup.js'
 import { resolveFolderMapping } from '../lib/resolveFolderMapping.js'
 import { agentsQueue } from '../lib/queue.js'
 
@@ -127,23 +127,31 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
 
   const spec = { path, content, frontmatter }
 
-  // Look up folder-mapping target_id for ClickUp destination routing
+  // Look up folder mapping for ClickUp routing (target_id, clickup_doc_id, folder name)
   let folderMappingTargetId: string | null = null
+  let folderMappingId: string | null = null
+  let folderMappingClickupDocId: string | null = null
+  let folderMappingPath: string | null = null
   if (target_type === 'clickup') {
     const { getAncestorFolders } = await import('../lib/folderHierarchy.js')
     const ancestors = getAncestorFolders(path).slice().reverse()
     if (ancestors.length > 0) {
       const { data: mappings } = await supabase
         .from('folder_mappings')
-        .select('folder_path, target_id')
+        .select('id, folder_path, target_id, clickup_doc_id')
         .eq('project_id', project_id)
         .eq('integration_id', integration_id)
         .in('folder_path', ancestors.map((a) => a.path))
-        .not('target_id', 'is', null)
       if (mappings && mappings.length > 0) {
         for (const a of ancestors) {
-          const match = mappings.find((m) => m.folder_path === a.path && m.target_id)
-          if (match) { folderMappingTargetId = match.target_id; break }
+          const match = mappings.find((m) => m.folder_path === a.path)
+          if (match) {
+            folderMappingTargetId = match.target_id ?? null
+            folderMappingId = match.id
+            folderMappingClickupDocId = match.clickup_doc_id ?? null
+            folderMappingPath = match.folder_path
+            break
+          }
         }
       }
     }
@@ -177,17 +185,56 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
         )
         break
 
-      case 'clickup':
-        result = await publishToClickUp(
-          {
-            api_token: credentials.api_token as string,
-            workspace_id: credentials.workspace_id as string,
-          },
-          spec,
-          existingPageId,
-          folderMappingTargetId
-        )
+      case 'clickup': {
+        const clickupCreds = {
+          api_token: credentials.api_token as string,
+          workspace_id: credentials.workspace_id as string,
+        }
+
+        // Count sibling specs in the same folder to determine single vs multi-page mode
+        let siblingCount = 0
+        if (folderMappingPath) {
+          const { count } = await supabase
+            .from('specs')
+            .select('*', { count: 'exact', head: true })
+            .eq('project_id', project_id)
+            .like('path', `${folderMappingPath}%`)
+          siblingCount = count ?? 0
+        }
+
+        const isMultiMode = siblingCount > 1
+
+        console.log(`[publish] clickup mode=${isMultiMode ? 'multi' : 'single'} siblings=${siblingCount} folderDocId=${folderMappingClickupDocId ?? 'none'}`)
+
+        if (isMultiMode && folderMappingId) {
+          const folderName = folderMappingPath?.replace(/\/+$/, '').split('/').pop() ?? 'Specs'
+          const multiResult = await publishSpecAsPage(
+            clickupCreds,
+            spec,
+            folderMappingClickupDocId,
+            existingPageId,
+            folderName,
+            folderMappingTargetId
+          )
+          // Save folder doc id back to folder_mapping if newly created
+          if (!folderMappingClickupDocId && multiResult.doc_id) {
+            await supabase
+              .from('folder_mappings')
+              .update({ clickup_doc_id: multiResult.doc_id })
+              .eq('id', folderMappingId)
+          }
+          // Store the page_id as external_page_id so we can update it next time
+          result = { doc_id: multiResult.page_id, doc_url: multiResult.doc_url }
+        } else {
+          result = await publishSingleSpec(
+            clickupCreds,
+            spec,
+            existingPageId,
+            folderMappingTargetId
+          )
+        }
         break
+      }
 
       default:
         throw new UnrecoverableError(`Unknown target type: ${target_type}`)
