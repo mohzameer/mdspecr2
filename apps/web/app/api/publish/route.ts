@@ -157,11 +157,30 @@ export async function POST(request: Request) {
     }
 
     // -------------------------------------------------------------------------
+    // Filter specs to only those under mapped folders
+    // -------------------------------------------------------------------------
+    const { data: folderMappings } = await supabase
+      .from('folder_mappings')
+      .select('folder_path')
+      .eq('project_id', project_id)
+
+    const mappedPaths = [...new Set((folderMappings ?? []).map((m) => m.folder_path.replace(/\/+$/, '')))]
+
+    const specsToProcess = specs.filter((s) => {
+      const normalised = s.path.replace(/^\//, '')
+      return mappedPaths.some((mp) => normalised === mp || normalised.startsWith(mp + '/'))
+    })
+
+    if (specsToProcess.length < specs.length) {
+      console.log(`[publish] filtered ${specs.length - specsToProcess.length} spec(s) outside mapped folders`)
+    }
+
+    // -------------------------------------------------------------------------
     // Process each spec
     // -------------------------------------------------------------------------
     let queuedCount = 0
 
-    for (const spec of specs) {
+    for (const spec of specsToProcess) {
       console.log(`[publish] processing spec path=${spec.path}`)
 
       // Upsert spec into ledger
@@ -265,8 +284,15 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     // Response
     // -------------------------------------------------------------------------
+    const filteredCount = specs.length - specsToProcess.length
+
     return Response.json(
-      { accepted: true, queued: queuedCount, ...(upgradeNudge ? { upgrade_nudge: true } : {}) },
+      {
+        accepted: true,
+        queued: queuedCount,
+        ...(filteredCount > 0 ? { filtered: filteredCount } : {}),
+        ...(upgradeNudge ? { upgrade_nudge: true } : {}),
+      },
       { status: 202 }
     )
   } catch (err) {

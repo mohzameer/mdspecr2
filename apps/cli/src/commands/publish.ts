@@ -137,16 +137,15 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(1)
   }
 
-  const result = await response.json() as { accepted: boolean; queued: number; upgrade_nudge?: boolean }
-
-  // Print results
-  for (const spec of specs) {
-    console.log(`✓ Queued     ${spec.path}`)
-  }
+  const result = await response.json() as { accepted: boolean; queued: number; filtered?: number; upgrade_nudge?: boolean }
 
   const skipped = specsToPublish.length - specs.length
   if (skipped > 0) {
     console.log(`— Skipped    ${skipped} spec(s) (read errors)`)
+  }
+
+  if (result.filtered && result.filtered > 0) {
+    console.log(`— Filtered   ${result.filtered} spec(s) outside mapped folders`)
   }
 
   console.log(`\n✓ ${result.queued} spec(s) queued for publishing`)
