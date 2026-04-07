@@ -28,12 +28,20 @@ const connection = {
 const publishWorker = new Worker('publish', publishProcessor, {
   connection,
   concurrency: 5,
+  stalledInterval: 30_000,
+  lockDuration: 30_000,
+  lockRenewTime: 15_000,
+  drainDelay: 30,
 })
 
 // Agent worker: 3 concurrent jobs
 const agentsWorker = new Worker('agents', agentProcessor, {
   connection,
   concurrency: 3,
+  stalledInterval: 30_000,
+  lockDuration: 30_000,
+  lockRenewTime: 15_000,
+  drainDelay: 30,
 })
 
 publishWorker.on('error', (err) => {
