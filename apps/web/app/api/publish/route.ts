@@ -164,7 +164,7 @@ export async function POST(request: Request) {
       .select('folder_path')
       .eq('project_id', project_id)
 
-    const mappedPaths = [...new Set((folderMappings ?? []).map((m) => m.folder_path.replace(/^\/+/, '').replace(/\/+$/, '')))]
+    const mappedPaths = [...new Set((folderMappings ?? []).map((m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '')))]  // normalise legacy entries that may have slashes
 
     const specsToProcess = specs.filter((s) => {
       const normalised = s.path.replace(/^\//, '')

@@ -98,7 +98,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     .upsert(
       {
         project_id: projectId,
-        folder_path: folder_path.trim(),
+        folder_path: folder_path.trim().replace(/^\//, '').replace(/\/$/, ''),
         integration_id,
         template_id: template_id ?? null,
         target_id: target_id ?? null,
