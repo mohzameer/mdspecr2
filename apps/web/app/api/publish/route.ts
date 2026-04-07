@@ -1,7 +1,9 @@
 import bcrypt from 'bcryptjs'
 import { createSupabaseServiceClient } from '@/lib/db-server'
-import { publishQueue } from '@/lib/queue'
+import { Client } from '@upstash/qstash'
 import type { PublishPayload, PublishSpecJobData } from '@/lib/types'
+
+const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
 
 export async function POST(request: Request) {
   try {
@@ -272,8 +274,12 @@ export async function POST(request: Request) {
         }
 
         try {
-          const job = await publishQueue.add(`publish:${upsertedSpec.id}:${integration.id}`, jobData)
-          console.log(`[publish] job enqueued id=${job.id} spec=${upsertedSpec.id} integration=${integration.type}`)
+          await qstash.publishJSON({
+            url: `${process.env.NEXT_PUBLIC_APP_URL}/api/worker/process`,
+            body: jobData,
+            retries: 5,
+          })
+          console.log(`[publish] job enqueued via qstash spec=${upsertedSpec.id} integration=${integration.type}`)
           queuedCount++
         } catch (queueErr) {
           console.error(`[publish] failed to enqueue job spec=${upsertedSpec.id} integration=${integration.type} error=${(queueErr as Error).message}`)
