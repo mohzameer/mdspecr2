@@ -105,12 +105,18 @@ async function createDoc(
   console.log(`[clickup] create doc status=${res.status} data=${JSON.stringify(res.data)}`)
   const docId = (res.data?.data?.id ?? res.data?.id) as string
 
-  // ClickUp auto-creates a first page — fetch and update it instead of creating a second
-  const pagesRes = await axios.get(
-    `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-    { headers }
-  )
-  const pages: Array<{ id: string }> = pagesRes.data?.data ?? pagesRes.data?.pages ?? []
+  // ClickUp auto-creates a first page — retry fetch until it appears, then update it
+  let pages: Array<{ id: string }> = []
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 500))
+    const pagesRes = await axios.get(
+      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+      { headers }
+    )
+    pages = pagesRes.data?.data ?? pagesRes.data?.pages ?? []
+    if (pages.length > 0) break
+    console.log(`[clickup] waiting for auto-created page (attempt ${attempt + 1})`)
+  }
 
   let pageId: string
   if (pages.length > 0) {
@@ -122,7 +128,7 @@ async function createDoc(
       { headers }
     )
   } else {
-    console.log(`[clickup] no auto-created page found, creating page in doc ${docId}`)
+    console.log(`[clickup] auto-created page never appeared, creating page in doc ${docId}`)
     const pageRes = await axios.post(
       `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
       { name, content },
