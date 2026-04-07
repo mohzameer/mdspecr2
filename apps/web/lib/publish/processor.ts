@@ -21,8 +21,13 @@ export async function runPublishJob(
   const { spec_id, spec_publish_target_id, integration_id, target_type, content, path, frontmatter, project_id } = data
   const supabase = createSupabaseServiceClient()
 
-  // Agent routing
-  const resolution = await resolveFolderMapping(supabase, project_id, path, frontmatter)
+  // Agent routing — skip if already processed by agent
+  if (frontmatter._agent_processed) {
+    console.log(`[publish] skipping agent routing — content already transformed`)
+  }
+  const resolution = frontmatter._agent_processed
+    ? { shouldRunAgent: false, templateId: null, trigger: null }
+    : await resolveFolderMapping(supabase, project_id, path, frontmatter)
 
   if (resolution.shouldRunAgent && resolution.templateId) {
     const { data: agentRun } = await supabase

@@ -89,7 +89,7 @@ export async function runAgentJob(
     project_id,
     content: transformedContent,
     path: spec?.path ?? '',
-    frontmatter: (spec?.frontmatter as Record<string, unknown>) ?? {},
+    frontmatter: { ...((spec?.frontmatter as Record<string, unknown>) ?? {}), _agent_processed: true },
     attempt: 0,
   })
 
