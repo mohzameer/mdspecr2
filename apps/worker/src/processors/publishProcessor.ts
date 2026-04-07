@@ -137,21 +137,25 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
     const { getAncestorFolders } = await import('../lib/folderHierarchy.js')
     const ancestors = getAncestorFolders(path).slice().reverse()
     if (ancestors.length > 0) {
+      // Normalise ancestor paths and build variants to handle legacy DB entries with leading/trailing slashes
+      const normalisedPaths = ancestors.map((a) => a.path)
+      const pathVariants = [...new Set(normalisedPaths.flatMap((p) => [p, `/${p}`, `${p}/`, `/${p}/`]))]
       const { data: mappings } = await supabase
         .from('folder_mappings')
         .select('id, folder_path, target_id, clickup_doc_id, clickup_page_id')
         .eq('project_id', project_id)
         .eq('integration_id', integration_id)
-        .in('folder_path', ancestors.map((a) => a.path))
+        .in('folder_path', pathVariants)
       if (mappings && mappings.length > 0) {
         for (const a of ancestors) {
-          const match = mappings.find((m) => m.folder_path === a.path)
+          const norm = a.path
+          const match = mappings.find((m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '') === norm)
           if (match) {
             folderMappingTargetId = match.target_id ?? null
             folderMappingId = match.id
             folderMappingClickupDocId = match.clickup_doc_id ?? null
             folderMappingClickupPageId = match.clickup_page_id ?? null
-            folderMappingPath = match.folder_path
+            folderMappingPath = norm
             break
           }
         }
