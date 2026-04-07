@@ -212,7 +212,9 @@ export async function runPublishJob(
           const folderName = groupingPath.split('/').pop() ?? 'Specs'
 
           // Look up or create a folder_mappings row for the subfolder to persist doc/page IDs
-          let subfolderMapping = await supabase
+          let subRow: { id: string; clickup_doc_id: string | null; clickup_page_id: string | null } | null = null
+
+          const { data: existingSub } = await supabase
             .from('folder_mappings')
             .select('id, clickup_doc_id, clickup_page_id')
             .eq('project_id', project_id)
@@ -220,18 +222,20 @@ export async function runPublishJob(
             .eq('folder_path', groupingPath)
             .single()
 
-          if (!subfolderMapping.data) {
+          if (existingSub) {
+            subRow = existingSub
+          } else {
             const { data: created } = await supabase
               .from('folder_mappings')
               .insert({ project_id, integration_id, folder_path: groupingPath })
               .select('id, clickup_doc_id, clickup_page_id')
               .single()
-            subfolderMapping = { data: created, error: null }
+            subRow = created
           }
 
-          const subId = subfolderMapping.data?.id ?? null
-          const subDocId = subfolderMapping.data?.clickup_doc_id ?? null
-          const subPageId = subfolderMapping.data?.clickup_page_id ?? null
+          const subId = subRow?.id ?? null
+          const subDocId = subRow?.clickup_doc_id ?? null
+          const subPageId = subRow?.clickup_page_id ?? null
 
           const multiResult = await publishSpecAsPage(
             clickupCreds,
