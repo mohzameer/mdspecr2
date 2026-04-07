@@ -88,7 +88,11 @@ async function createDoc(
   const { api_token, workspace_id } = credentials
   const headers = authHeaders(api_token)
 
-  const docPayload: Record<string, unknown> = { name, visibility: 'PUBLIC' }
+  const docPayload: Record<string, unknown> = {
+    name,
+    visibility: 'PUBLIC',
+    create_page: false,
+  }
 
   if (targetId?.startsWith('space:')) {
     docPayload.parent = { id: targetId.slice(6), type: 4 }
@@ -96,46 +100,23 @@ async function createDoc(
     docPayload.parent = { id: targetId.slice(7), type: 5 }
   }
 
-  console.log(`[clickup] creating doc name="${name}" payload=${JSON.stringify(docPayload)}`)
+  console.log(`[clickup] creating doc name="${name}"`)
   const res = await axios.post(
     `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs`,
     docPayload,
     { headers }
   )
-  console.log(`[clickup] create doc status=${res.status} data=${JSON.stringify(res.data)}`)
   const docId = (res.data?.data?.id ?? res.data?.id) as string
+  console.log(`[clickup] doc created id=${docId}`)
 
-  // ClickUp auto-creates a first page — retry fetch until it appears, then update it
-  let pages: Array<{ id: string }> = []
-  for (let attempt = 0; attempt < 5; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 500))
-    const pagesRes = await axios.get(
-      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-      { headers }
-    )
-    pages = pagesRes.data?.data ?? pagesRes.data?.pages ?? []
-    if (pages.length > 0) break
-    console.log(`[clickup] waiting for auto-created page (attempt ${attempt + 1})`)
-  }
-
-  let pageId: string
-  if (pages.length > 0) {
-    pageId = pages[0].id
-    console.log(`[clickup] updating auto-created page ${pageId} in doc ${docId}`)
-    await axios.put(
-      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${pageId}`,
-      { name, content },
-      { headers }
-    )
-  } else {
-    console.log(`[clickup] auto-created page never appeared, creating page in doc ${docId}`)
-    const pageRes = await axios.post(
-      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-      { name, content },
-      { headers }
-    )
-    pageId = pageRes.data?.data?.id ?? pageRes.data?.id as string
-  }
+  // Create our single page with the content
+  const pageRes = await axios.post(
+    `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+    { name, content },
+    { headers }
+  )
+  const pageId = (pageRes.data?.data?.id ?? pageRes.data?.id) as string
+  console.log(`[clickup] page created id=${pageId}`)
 
   return { doc_id: docId, page_id: pageId }
 }
