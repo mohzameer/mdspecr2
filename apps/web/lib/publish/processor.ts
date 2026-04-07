@@ -187,36 +187,68 @@ export async function runPublishJob(
           workspace_id: credentials.workspace_id as string,
         }
 
+        // The immediate parent of this spec determines the grouping unit.
+        // If the immediate parent IS the mapping folder, always single mode.
+        // If the immediate parent is a subfolder of the mapping folder, group by that subfolder.
+        const immediateParent = path.split('/').slice(0, -1).join('/')
+        const isDirectlyInMappingFolder = immediateParent === folderMappingPath
+
         let siblingCount = 0
-        if (folderMappingPath) {
+        let groupingPath = immediateParent
+        if (!isDirectlyInMappingFolder && groupingPath) {
           const { count } = await supabase
             .from('specs')
             .select('*', { count: 'exact', head: true })
             .eq('project_id', project_id)
-            .like('path', `${folderMappingPath}%`)
+            .like('path', `${groupingPath}/%`)
           siblingCount = count ?? 0
         }
 
-        const isMultiMode = siblingCount > 1
+        const isMultiMode = !isDirectlyInMappingFolder && siblingCount > 1
 
-        console.log(`[publish] clickup spec=${spec_id} path=${path} mode=${isMultiMode ? 'multi' : 'single'} siblings=${siblingCount}`)
+        console.log(`[publish] clickup spec=${spec_id} path=${path} immediateParent=${immediateParent} mode=${isMultiMode ? 'multi' : 'single'} siblings=${siblingCount}`)
 
         if (isMultiMode && folderMappingId) {
-          const folderName = folderMappingPath?.replace(/\/+$/, '').split('/').pop() ?? 'Specs'
+          const folderName = groupingPath.split('/').pop() ?? 'Specs'
+
+          // Look up or create a folder_mappings row for the subfolder to persist doc/page IDs
+          let subfolderMapping = await supabase
+            .from('folder_mappings')
+            .select('id, clickup_doc_id, clickup_page_id')
+            .eq('project_id', project_id)
+            .eq('integration_id', integration_id)
+            .eq('folder_path', groupingPath)
+            .single()
+
+          if (!subfolderMapping.data) {
+            const { data: created } = await supabase
+              .from('folder_mappings')
+              .insert({ project_id, integration_id, folder_path: groupingPath })
+              .select('id, clickup_doc_id, clickup_page_id')
+              .single()
+            subfolderMapping = { data: created, error: null }
+          }
+
+          const subId = subfolderMapping.data?.id ?? null
+          const subDocId = subfolderMapping.data?.clickup_doc_id ?? null
+          const subPageId = subfolderMapping.data?.clickup_page_id ?? null
+
           const multiResult = await publishSpecAsPage(
             clickupCreds,
             spec,
-            folderMappingClickupDocId,
-            folderMappingClickupPageId,
+            subDocId,
+            subPageId,
             existingPageId,
             folderName,
             folderMappingTargetId
           )
-          const mappingUpdates: Record<string, string> = {}
-          if (!folderMappingClickupDocId && multiResult.doc_id) mappingUpdates.clickup_doc_id = multiResult.doc_id
-          if (!folderMappingClickupPageId && multiResult.folder_page_id) mappingUpdates.clickup_page_id = multiResult.folder_page_id
-          if (Object.keys(mappingUpdates).length > 0) {
-            await supabase.from('folder_mappings').update(mappingUpdates).eq('id', folderMappingId)
+          if (subId) {
+            const mappingUpdates: Record<string, string> = {}
+            if (!subDocId && multiResult.doc_id) mappingUpdates.clickup_doc_id = multiResult.doc_id
+            if (!subPageId && multiResult.folder_page_id) mappingUpdates.clickup_page_id = multiResult.folder_page_id
+            if (Object.keys(mappingUpdates).length > 0) {
+              await supabase.from('folder_mappings').update(mappingUpdates).eq('id', subId)
+            }
           }
           result = { doc_id: multiResult.page_id, doc_url: multiResult.doc_url }
         } else {
