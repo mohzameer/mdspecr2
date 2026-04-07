@@ -131,6 +131,7 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
   let folderMappingTargetId: string | null = null
   let folderMappingId: string | null = null
   let folderMappingClickupDocId: string | null = null
+  let folderMappingClickupPageId: string | null = null
   let folderMappingPath: string | null = null
   if (target_type === 'clickup') {
     const { getAncestorFolders } = await import('../lib/folderHierarchy.js')
@@ -138,7 +139,7 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
     if (ancestors.length > 0) {
       const { data: mappings } = await supabase
         .from('folder_mappings')
-        .select('id, folder_path, target_id, clickup_doc_id')
+        .select('id, folder_path, target_id, clickup_doc_id, clickup_page_id')
         .eq('project_id', project_id)
         .eq('integration_id', integration_id)
         .in('folder_path', ancestors.map((a) => a.path))
@@ -149,6 +150,7 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
             folderMappingTargetId = match.target_id ?? null
             folderMappingId = match.id
             folderMappingClickupDocId = match.clickup_doc_id ?? null
+            folderMappingClickupPageId = match.clickup_page_id ?? null
             folderMappingPath = match.folder_path
             break
           }
@@ -212,18 +214,19 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
             clickupCreds,
             spec,
             folderMappingClickupDocId,
+            folderMappingClickupPageId,
             existingPageId,
             folderName,
             folderMappingTargetId
           )
-          // Save folder doc id back to folder_mapping if newly created
-          if (!folderMappingClickupDocId && multiResult.doc_id) {
-            await supabase
-              .from('folder_mappings')
-              .update({ clickup_doc_id: multiResult.doc_id })
-              .eq('id', folderMappingId)
+          // Save doc id and folder root page id back to folder_mapping if newly created
+          const mappingUpdates: Record<string, string> = {}
+          if (!folderMappingClickupDocId && multiResult.doc_id) mappingUpdates.clickup_doc_id = multiResult.doc_id
+          if (!folderMappingClickupPageId && multiResult.folder_page_id) mappingUpdates.clickup_page_id = multiResult.folder_page_id
+          if (Object.keys(mappingUpdates).length > 0) {
+            await supabase.from('folder_mappings').update(mappingUpdates).eq('id', folderMappingId)
           }
-          // Store the page_id as external_page_id so we can update it next time
+          // Store the sub-page id as external_page_id so we can update it next time
           result = { doc_id: multiResult.page_id, doc_url: multiResult.doc_url }
         } else {
           result = await publishSingleSpec(

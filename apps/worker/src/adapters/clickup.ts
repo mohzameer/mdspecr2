@@ -188,21 +188,22 @@ export async function publishSpecAsPage(
   credentials: ClickUpCredentials,
   spec: { path: string; content: string; frontmatter: Record<string, unknown> },
   folderDocId: string | null,       // existing folder-level doc id, or null to create
-  existingPageId: string | null,    // existing page id for this spec, or null
+  folderPageId: string | null,      // existing folder root page id, or null to create
+  existingPageId: string | null,    // existing sub-page id for this spec, or null
   folderName: string,
   targetId?: string | null
-): Promise<{ doc_id: string; page_id: string; doc_url: string }> {
+): Promise<{ doc_id: string; folder_page_id: string; page_id: string; doc_url: string }> {
   const { api_token, workspace_id } = credentials
   const title = getSpecTitle(spec.path, spec.frontmatter)
   const headers = authHeaders(api_token)
 
-  console.log(`[clickup:multi] start — folderDocId=${folderDocId ?? 'none'} existingPageId=${existingPageId ?? 'none'} title="${title}"`)
+  console.log(`[clickup:multi] start — folderDocId=${folderDocId ?? 'none'} folderPageId=${folderPageId ?? 'none'} existingPageId=${existingPageId ?? 'none'} title="${title}"`)
 
   // Ensure folder doc exists
   let docId = folderDocId
   if (!docId) {
     console.log(`[clickup:multi] creating folder doc "${folderName}"`)
-    const docPayload: Record<string, unknown> = { name: folderName, visibility: 'PUBLIC' }
+    const docPayload: Record<string, unknown> = { name: folderName, visibility: 'PUBLIC', create_page: false }
     if (targetId?.startsWith('space:')) {
       docPayload.parent = { id: targetId.slice(6), type: 4 }
     } else if (targetId?.startsWith('folder:')) {
@@ -213,25 +214,24 @@ export async function publishSpecAsPage(
       docPayload,
       { headers }
     )
-    console.log(`[clickup:multi] folder doc created status=${res.status} data=${JSON.stringify(res.data)}`)
     docId = (res.data?.data?.id ?? res.data?.id) as string
-
-    // Update the auto-created first page to be a table of contents / intro placeholder
-    const pagesRes = await axios.get(
-      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-      { headers }
-    )
-    const autoPages: Array<{ id: string }> = pagesRes.data?.data ?? pagesRes.data?.pages ?? []
-    if (autoPages.length > 0) {
-      await axios.put(
-        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${autoPages[0].id}`,
-        { name: folderName, content: '' },
-        { headers }
-      ).catch(() => {}) // non-fatal
-    }
+    console.log(`[clickup:multi] folder doc created id=${docId}`)
   }
 
-  // Create or update the spec's page within the folder doc
+  // Ensure folder root page exists (this is the main page specs nest under)
+  let rootPageId = folderPageId
+  if (!rootPageId) {
+    console.log(`[clickup:multi] creating folder root page "${folderName}"`)
+    const rootPageRes = await axios.post(
+      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+      { name: folderName, content: '' },
+      { headers }
+    )
+    rootPageId = (rootPageRes.data?.data?.id ?? rootPageRes.data?.id) as string
+    console.log(`[clickup:multi] folder root page created id=${rootPageId}`)
+  }
+
+  // Create or update the spec's sub-page under the folder root page
   if (existingPageId) {
     try {
       await axios.put(
@@ -239,31 +239,33 @@ export async function publishSpecAsPage(
         { name: title, content: spec.content },
         { headers }
       )
-      console.log(`[clickup:multi] updated page ${existingPageId}`)
+      console.log(`[clickup:multi] updated sub-page ${existingPageId}`)
       return {
         doc_id: docId,
+        folder_page_id: rootPageId,
         page_id: existingPageId,
         doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}`,
       }
     } catch (err) {
       const e = err as { response?: { status?: number } }
       if (e.response?.status !== 404) throw err
-      console.log(`[clickup:multi] page ${existingPageId} deleted — recreating`)
+      console.log(`[clickup:multi] sub-page ${existingPageId} deleted — recreating`)
     }
   }
 
-  // Create new page
-  console.log(`[clickup:multi] creating page "${title}" in doc ${docId}`)
+  // Create new sub-page nested under the folder root page
+  console.log(`[clickup:multi] creating sub-page "${title}" under folder page ${rootPageId}`)
   const pageRes = await axios.post(
     `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-    { name: title, content: spec.content },
+    { name: title, content: spec.content, parent_page_id: rootPageId },
     { headers }
   )
-  console.log(`[clickup:multi] page created status=${pageRes.status} data=${JSON.stringify(pageRes.data)}`)
   const pageId = (pageRes.data?.data?.id ?? pageRes.data?.id) as string
+  console.log(`[clickup:multi] sub-page created id=${pageId}`)
 
   return {
     doc_id: docId,
+    folder_page_id: rootPageId,
     page_id: pageId,
     doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}`,
   }
