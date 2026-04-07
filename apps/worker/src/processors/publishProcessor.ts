@@ -206,7 +206,11 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
 
         const isMultiMode = siblingCount > 1
 
-        console.log(`[publish] clickup mode=${isMultiMode ? 'multi' : 'single'} siblings=${siblingCount} folderDocId=${folderMappingClickupDocId ?? 'none'}`)
+        console.log(`[publish] clickup spec=${spec_id} path=${path}`)
+        console.log(`[publish] folderMappingId=${folderMappingId ?? 'none'} folderMappingPath=${folderMappingPath ?? 'none'}`)
+        console.log(`[publish] mode=${isMultiMode ? 'multi' : 'single'} siblings=${siblingCount}`)
+        console.log(`[publish] folderDocId=${folderMappingClickupDocId ?? 'none'} folderPageId=${folderMappingClickupPageId ?? 'none'}`)
+        console.log(`[publish] existingPageId=${existingPageId ?? 'none'}`)
 
         if (isMultiMode && folderMappingId) {
           const folderName = folderMappingPath?.replace(/\/+$/, '').split('/').pop() ?? 'Specs'
