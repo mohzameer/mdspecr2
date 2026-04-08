@@ -222,17 +222,39 @@ export async function publishSpecAsPage(
   }
 
   let rootPageId = folderPageId
-  if (!rootPageId) {
-    // Check if ClickUp auto-created a page despite create_page:false
+
+  // Always verify the root page actually exists in the doc — the user may have
+  // deleted it in ClickUp even though the doc itself survived. A stale rootPageId
+  // causes sub-page POSTs to 404 on parent_page_id.
+  let existingPages: Array<{ id: string; parent_page_id?: string | null }> = []
+  if (rootPageId) {
     const existingPagesRes = await axios.get(
       `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
       { headers }
     )
-    const existingPages: Array<{ id: string }> = existingPagesRes.data?.data ?? existingPagesRes.data?.pages ?? []
+    existingPages = existingPagesRes.data?.data ?? existingPagesRes.data?.pages ?? []
+    const stillThere = existingPages.some((p) => p.id === rootPageId)
+    if (!stillThere) {
+      console.log(`[clickup:multi] folder root page ${rootPageId} no longer exists — reconciling`)
+      rootPageId = null
+    }
+  }
 
-    if (existingPages.length > 0) {
-      rootPageId = existingPages[0].id
-      console.log(`[clickup:multi] reusing auto-created page as folder root id=${rootPageId}`)
+  if (!rootPageId) {
+    if (existingPages.length === 0) {
+      const existingPagesRes = await axios.get(
+        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+        { headers }
+      )
+      existingPages = existingPagesRes.data?.data ?? existingPagesRes.data?.pages ?? []
+    }
+
+    // Prefer a top-level page (no parent) so we don't accidentally re-root under a sub-page.
+    const topLevel = existingPages.find((p) => !p.parent_page_id) ?? existingPages[0]
+
+    if (topLevel) {
+      rootPageId = topLevel.id
+      console.log(`[clickup:multi] reusing existing page as folder root id=${rootPageId}`)
       await axios.put(
         `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${rootPageId}`,
         { name: folderName, content: '' },
