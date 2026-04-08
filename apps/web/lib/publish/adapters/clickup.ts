@@ -99,13 +99,32 @@ async function createDoc(
   const docId = (res.data?.data?.id ?? res.data?.id) as string
   console.log(`[clickup] doc created id=${docId}`)
 
-  const pageRes = await axios.post(
+  // Check if ClickUp auto-created a page despite create_page:false
+  const existingPagesRes = await axios.get(
     `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-    { name, content },
     { headers }
   )
-  const pageId = (pageRes.data?.data?.id ?? pageRes.data?.id) as string
-  console.log(`[clickup] page created id=${pageId}`)
+  const existingPages: Array<{ id: string }> = existingPagesRes.data?.data ?? existingPagesRes.data?.pages ?? []
+
+  let pageId: string
+  if (existingPages.length > 0) {
+    // Update the auto-created page instead of creating a second one
+    pageId = existingPages[0].id
+    console.log(`[clickup] updating auto-created page id=${pageId}`)
+    await axios.put(
+      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${pageId}`,
+      { name, content },
+      { headers }
+    )
+  } else {
+    const pageRes = await axios.post(
+      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+      { name, content },
+      { headers }
+    )
+    pageId = (pageRes.data?.data?.id ?? pageRes.data?.id) as string
+    console.log(`[clickup] page created id=${pageId}`)
+  }
 
   return { doc_id: docId, page_id: pageId }
 }
@@ -193,13 +212,30 @@ export async function publishSpecAsPage(
 
   let rootPageId = folderPageId
   if (!rootPageId) {
-    const rootPageRes = await axios.post(
+    // Check if ClickUp auto-created a page despite create_page:false
+    const existingPagesRes = await axios.get(
       `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-      { name: folderName, content: '' },
       { headers }
     )
-    rootPageId = (rootPageRes.data?.data?.id ?? rootPageRes.data?.id) as string
-    console.log(`[clickup:multi] folder root page created id=${rootPageId}`)
+    const existingPages: Array<{ id: string }> = existingPagesRes.data?.data ?? existingPagesRes.data?.pages ?? []
+
+    if (existingPages.length > 0) {
+      rootPageId = existingPages[0].id
+      console.log(`[clickup:multi] reusing auto-created page as folder root id=${rootPageId}`)
+      await axios.put(
+        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${rootPageId}`,
+        { name: folderName, content: '' },
+        { headers }
+      )
+    } else {
+      const rootPageRes = await axios.post(
+        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+        { name: folderName, content: '' },
+        { headers }
+      )
+      rootPageId = (rootPageRes.data?.data?.id ?? rootPageRes.data?.id) as string
+      console.log(`[clickup:multi] folder root page created id=${rootPageId}`)
+    }
   }
 
   if (existingPageId) {
