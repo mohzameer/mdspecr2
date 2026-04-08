@@ -165,6 +165,7 @@ export async function POST(request: Request) {
       .from('folder_mappings')
       .select('folder_path')
       .eq('project_id', project_id)
+      .is('clickup_doc_id', null)  // exclude auto-created subfolder bookkeeping rows
 
     const mappedPaths = [...new Set((folderMappings ?? []).map((m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '')))]  // normalise legacy entries that may have slashes
 

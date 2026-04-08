@@ -139,6 +139,7 @@ export async function runPublishJob(
         .eq('project_id', project_id)
         .eq('integration_id', integration_id)
         .in('folder_path', pathVariants)
+        .is('clickup_doc_id', null)  // exclude auto-created subfolder grouping rows — those are bookkeeping, not user mappings
       if (mappings && mappings.length > 0) {
         for (const a of ancestors) {
           const norm = a.path
