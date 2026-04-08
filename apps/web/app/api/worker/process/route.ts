@@ -5,7 +5,22 @@ import type { PublishGroupJobData } from '@/lib/types'
 export const maxDuration = 300
 
 async function handler(req: Request): Promise<Response> {
-  const data = (await req.json()) as PublishGroupJobData
+  let data: PublishGroupJobData
+  try {
+    data = (await req.json()) as PublishGroupJobData
+  } catch (parseErr) {
+    console.error('[worker/process] body parse failed:', parseErr)
+    return Response.json({ status: 'failed', error: 'invalid_body' })
+  }
+
+  // Diagnose malformed payloads instead of crashing on `.length` of undefined.
+  if (!data || typeof data !== 'object' || !Array.isArray((data as PublishGroupJobData).specs)) {
+    console.error(
+      `[worker/process] malformed job payload — keys=${data ? Object.keys(data).join(',') : 'null'} ` +
+      `specsType=${typeof (data as { specs?: unknown })?.specs}`
+    )
+    return Response.json({ status: 'failed', error: 'malformed_payload' })
+  }
 
   try {
     await runPublishGroup(data)
