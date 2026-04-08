@@ -1,55 +1,63 @@
-import { createSupabaseServiceClient } from '@/lib/db-server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildPrompt } from './prompt'
 import { callLLM } from './llm'
-import type { RunAgentJobData } from '@/lib/types'
+import type { IntegrationType } from '@/lib/types'
 
-export async function runAgentJob(
-  data: RunAgentJobData,
-  enqueuePublishJob: (jobData: object) => Promise<void>
-): Promise<void> {
-  const {
-    spec_id,
-    spec_publish_target_id,
-    integration_id,
-    project_id,
-    template_id,
-    trigger,
-    raw_content,
-    target_integration_type,
-    agent_run_id,
-  } = data
-
-  const supabase = createSupabaseServiceClient()
-
-  await supabase
+// Runs the agent inline (no QStash hop). Inserts an agent_runs row, calls the
+// LLM, persists the transformed content, and returns it to the caller so the
+// same worker invocation can continue straight into the publish step.
+export async function runAgentInline(
+  supabase: SupabaseClient,
+  specId: string,
+  templateId: string,
+  trigger: 'folder_mapping' | 'frontmatter',
+  rawContent: string,
+  targetIntegrationType: IntegrationType
+): Promise<string> {
+  const { data: agentRun, error: insertError } = await supabase
     .from('agent_runs')
-    .update({ status: 'running' })
-    .eq('id', agent_run_id)
+    .insert({
+      spec_id: specId,
+      template_id: templateId,
+      trigger,
+      raw_content: rawContent,
+      status: 'running',
+    })
+    .select('id')
+    .single()
 
-  let templateInstructions: string
-  try {
-    const { data: template, error } = await supabase
-      .from('templates')
-      .select('instructions')
-      .eq('id', template_id)
-      .single()
-
-    if (error || !template) throw new Error(`Template ${template_id} not found`)
-    templateInstructions = template.instructions
-  } catch (err) {
-    await supabase
-      .from('agent_runs')
-      .update({ status: 'failed', error: (err as Error).message, completed_at: new Date().toISOString() })
-      .eq('id', agent_run_id)
-    throw err
+  if (insertError || !agentRun) {
+    throw new Error(`Failed to create agent_run record: ${insertError?.message ?? 'unknown'}`)
   }
 
-  const prompt = buildPrompt(templateInstructions, raw_content, target_integration_type)
   const startMs = Date.now()
 
-  let transformedContent: string
   try {
-    transformedContent = await callLLM(prompt)
+    const { data: template, error: templateError } = await supabase
+      .from('templates')
+      .select('instructions')
+      .eq('id', templateId)
+      .single()
+
+    if (templateError || !template) {
+      throw new Error(`Template ${templateId} not found`)
+    }
+
+    const prompt = buildPrompt(template.instructions, rawContent, targetIntegrationType)
+    const transformed = await callLLM(prompt)
+
+    await supabase
+      .from('agent_runs')
+      .update({
+        status: 'completed',
+        transformed_content: transformed,
+        duration_ms: Date.now() - startMs,
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', agentRun.id)
+
+    console.log(`[agent] ✓ ${trigger} — spec ${specId} transformed in ${Date.now() - startMs}ms`)
+    return transformed
   } catch (err) {
     await supabase
       .from('agent_runs')
@@ -59,39 +67,7 @@ export async function runAgentJob(
         duration_ms: Date.now() - startMs,
         completed_at: new Date().toISOString(),
       })
-      .eq('id', agent_run_id)
+      .eq('id', agentRun.id)
     throw err
   }
-
-  const durationMs = Date.now() - startMs
-
-  await supabase
-    .from('agent_runs')
-    .update({
-      status: 'completed',
-      transformed_content: transformedContent,
-      duration_ms: durationMs,
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', agent_run_id)
-
-  const { data: spec } = await supabase
-    .from('specs')
-    .select('path, frontmatter')
-    .eq('id', spec_id)
-    .single()
-
-  await enqueuePublishJob({
-    spec_id,
-    spec_publish_target_id,
-    integration_id,
-    target_type: target_integration_type,
-    project_id,
-    content: transformedContent,
-    path: spec?.path ?? '',
-    frontmatter: { ...((spec?.frontmatter as Record<string, unknown>) ?? {}), _agent_processed: true },
-    attempt: 0,
-  })
-
-  console.log(`[agent] ✓ ${trigger} — spec ${spec_id} transformed in ${durationMs}ms → publish enqueued`)
 }

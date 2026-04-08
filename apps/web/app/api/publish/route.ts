@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { createSupabaseServiceClient } from '@/lib/db-server'
 import { Client } from '@upstash/qstash'
-import type { PublishPayload, PublishSpecJobData } from '@/lib/types'
+import type { PublishPayload, PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
 
 const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
 
@@ -178,14 +178,16 @@ export async function POST(request: Request) {
     }
 
     // -------------------------------------------------------------------------
-    // Process each spec
+    // Upsert specs + publish targets, accumulate into groups keyed by
+    // (integration_id, immediateParent). All specs in a group will be
+    // processed sequentially by a single worker invocation, eliminating the
+    // cross-worker race on shared ClickUp folder docs.
     // -------------------------------------------------------------------------
-    let queuedCount = 0
+    const groups = new Map<string, { integration_id: string; target_type: IntegrationType; specs: PublishGroupSpec[] }>()
 
     for (const spec of specsToProcess) {
       console.log(`[publish] processing spec path=${spec.path}`)
 
-      // Upsert spec into ledger
       const { data: upsertedSpec, error: specError } = await supabase
         .from('specs')
         .upsert(
@@ -222,11 +224,10 @@ export async function POST(request: Request) {
         console.log(`[publish] frontmatter targets=${JSON.stringify(targetTypes)} matched integrations=${targetIntegrations.map(i => i.type).join(',')}`)
       }
 
-      // Upsert spec_publish_targets — preserve external_page_id on conflict
-      for (const integration of targetIntegrations) {
-        console.log(`[publish] upserting publish target spec=${upsertedSpec.id} integration=${integration.id} type=${integration.type}`)
+      const immediateParent = spec.path.split('/').slice(0, -1).join('/')
 
-        // Fetch existing target to preserve external_page_id and check publish status
+      for (const integration of targetIntegrations) {
+        // Upsert the publish target row
         const { data: existingTarget } = await supabase
           .from('spec_publish_targets')
           .select('id, external_page_id, status')
@@ -259,31 +260,47 @@ export async function POST(request: Request) {
           continue
         }
 
-        console.log(`[publish] publish target id=${target.id} external_page_id=${target.external_page_id ?? 'none'}`)
-
-        const jobData: PublishSpecJobData = {
+        // Accumulate into the correct group
+        const groupKey = `${integration.id}::${immediateParent}`
+        let group = groups.get(groupKey)
+        if (!group) {
+          group = { integration_id: integration.id, target_type: integration.type as IntegrationType, specs: [] }
+          groups.set(groupKey, group)
+        }
+        group.specs.push({
           spec_id: upsertedSpec.id,
           spec_publish_target_id: target.id,
-          integration_id: integration.id,
-          target_type: integration.type as any,
-          project_id,
-          content: spec.content,
           path: spec.path,
-          frontmatter: { ...(spec.frontmatter ?? {}), _content_hash: spec.hash },
-          attempt: 0,
-        }
+          content: spec.content,
+          content_hash: spec.hash,
+          frontmatter: spec.frontmatter ?? {},
+        })
+      }
+    }
 
-        try {
-          await qstash.publishJSON({
-            url: `${process.env.NEXT_PUBLIC_APP_URL}/api/worker/process`,
-            body: jobData,
-            retries: 5,
-          })
-          console.log(`[publish] job enqueued via qstash spec=${upsertedSpec.id} integration=${integration.type}`)
-          queuedCount++
-        } catch (queueErr) {
-          console.error(`[publish] failed to enqueue job spec=${upsertedSpec.id} integration=${integration.type} error=${(queueErr as Error).message}`)
-        }
+    // -------------------------------------------------------------------------
+    // Enqueue one QStash job per group
+    // -------------------------------------------------------------------------
+    let queuedCount = 0
+
+    for (const [groupKey, group] of groups) {
+      const jobData: PublishGroupJobData = {
+        project_id,
+        integration_id: group.integration_id,
+        target_type: group.target_type,
+        specs: group.specs,
+      }
+
+      try {
+        await qstash.publishJSON({
+          url: `${process.env.NEXT_PUBLIC_APP_URL}/api/worker/process`,
+          body: jobData,
+          retries: 5,
+        })
+        console.log(`[publish] group enqueued key=${groupKey} specs=${group.specs.length}`)
+        queuedCount += group.specs.length
+      } catch (queueErr) {
+        console.error(`[publish] failed to enqueue group key=${groupKey} error=${(queueErr as Error).message}`)
       }
     }
 

@@ -29,34 +29,29 @@ export interface PublishPayload {
 }
 
 // ---------------------------------------------------------------------------
-// BullMQ job data shapes
+// QStash job data shapes
 // ---------------------------------------------------------------------------
 
-export interface PublishSpecJobData {
+// A single spec inside a group job. The group carries shared context
+// (integration, project, target_type) at the top level.
+export interface PublishGroupSpec {
   spec_id: string
   spec_publish_target_id: string
+  path: string
+  content: string
+  content_hash: string
+  frontmatter: Record<string, unknown>
+}
+
+// All specs in a group share the same (integration_id, immediateParent).
+// The worker resolves folder-mapping state once and processes specs sequentially,
+// eliminating cross-worker races on shared ClickUp folder docs.
+export interface PublishGroupJobData {
+  project_id: string
   integration_id: string
   target_type: IntegrationType
-  project_id: string
-  content: string
-  path: string
-  frontmatter: Record<string, unknown>
-  attempt: number
+  specs: PublishGroupSpec[]
 }
-
-export interface RunAgentJobData {
-  spec_id: string
-  spec_publish_target_id: string
-  integration_id: string
-  project_id: string
-  template_id: string
-  trigger: 'folder_mapping' | 'frontmatter'
-  raw_content: string
-  target_integration_type: IntegrationType
-  agent_run_id: string
-}
-
-export type JobData = PublishSpecJobData | RunAgentJobData
 
 // ---------------------------------------------------------------------------
 // Database row types (mirrors Supabase schema exactly)
