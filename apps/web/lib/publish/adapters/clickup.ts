@@ -197,6 +197,17 @@ export async function publishSpecAsPage(
 
   console.log(`[clickup:multi] start — folderDocId=${folderDocId ?? 'none'} folderPageId=${folderPageId ?? 'none'} existingPageId=${existingPageId ?? 'none'} title="${title}"`)
 
+  // If a prior folder doc id is provided, verify it still exists in ClickUp.
+  // If the user deleted it we must discard the stale id (and the stale root-page id) and recreate.
+  if (folderDocId) {
+    const stillExists = await clickUpDocExists(credentials, folderDocId)
+    if (!stillExists) {
+      console.log(`[clickup:multi] folder doc ${folderDocId} no longer exists — recreating`)
+      folderDocId = null
+      folderPageId = null
+    }
+  }
+
   let docId = folderDocId
   if (!docId) {
     const docPayload: Record<string, unknown> = { name: folderName, visibility: 'PUBLIC', create_page: false }

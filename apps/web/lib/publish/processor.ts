@@ -248,9 +248,11 @@ export async function runPublishJob(
             folderMappingTargetId
           )
           if (subId) {
+            // Update whenever the returned ids differ from what we passed in — covers both
+            // first-time creation (subDocId was null) and recreation after the remote doc was deleted.
             const mappingUpdates: Record<string, string> = {}
-            if (!subDocId && multiResult.doc_id) mappingUpdates.clickup_doc_id = multiResult.doc_id
-            if (!subPageId && multiResult.folder_page_id) mappingUpdates.clickup_page_id = multiResult.folder_page_id
+            if (multiResult.doc_id && multiResult.doc_id !== subDocId) mappingUpdates.clickup_doc_id = multiResult.doc_id
+            if (multiResult.folder_page_id && multiResult.folder_page_id !== subPageId) mappingUpdates.clickup_page_id = multiResult.folder_page_id
             if (Object.keys(mappingUpdates).length > 0) {
               await supabase.from('folder_mappings').update(mappingUpdates).eq('id', subId)
             }
