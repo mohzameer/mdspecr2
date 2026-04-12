@@ -34,12 +34,10 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(1)
   }
 
-  // Fetch project config (always, so we can log scanning folders)
+  // Fetch project config
   const projectConfig = await fetchProjectConfig(apiUrl, options.project, token)
-  const scanDirsDisplay = (projectConfig.spec_dirs ?? []).map((d) => d === '' || d === '/' ? '/ (root)' : d)
-  console.log(`— Scanning folders: ${scanDirsDisplay.length > 0 ? scanDirsDisplay.join(', ') : '(none)'}`)
 
-  // Determine spec directories
+  // Determine spec directories (--dirs flag overrides project config)
   let specDirs: string[]
   if (options.dirs) {
     specDirs = options.dirs.split(',').map((d) => d.trim())
@@ -48,6 +46,9 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
   } else {
     specDirs = ['specs', 'docs/specs', 'docs/rfc']
   }
+
+  const scanDirsDisplay = specDirs.map((d) => d === '' || d === '/' || d === '.' ? '/ (root)' : d)
+  console.log(`— Scanning folders: ${scanDirsDisplay.join(', ')}`)
 
   // Get git info
   const repoName = getRepoName()
