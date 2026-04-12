@@ -262,8 +262,11 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
     }
   }
 
-  // Skip if content unchanged
-  if (existingPageId) {
+  // Skip if content unchanged — but in multi-mode only if the folder doc already exists.
+  // If there's no shared doc yet, we must publish to create the folder structure even
+  // if content is the same (e.g. transitioning from single-mode to multi-mode).
+  const canSkip = existingPageId && (!ctx.isMultiMode || ctx.sharedSubDocId)
+  if (canSkip) {
     const { data: currentSpec } = await supabase
       .from('specs')
       .select('content_hash')

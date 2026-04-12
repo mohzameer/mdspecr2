@@ -4,6 +4,8 @@ import { createSupabaseServerClient } from '@/lib/db-server'
 import type { Spec, SpecPublishTarget } from '@/lib/types'
 import { DeleteAllSpecsButton } from './DeleteAllSpecsButton'
 
+export const dynamic = 'force-dynamic'
+
 interface SpecNode {
   type: 'file'
   spec: Spec & { targets: SpecPublishTarget[] }
