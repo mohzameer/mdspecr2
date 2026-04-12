@@ -210,7 +210,11 @@ export async function POST(request: Request) {
         console.log(`[publish] frontmatter targets=${JSON.stringify(targetTypes)} matched integrations=${targetIntegrations.map(i => i.type).join(',')}`)
       }
 
-      const immediateParent = spec.path.split('/').slice(0, -1).join('/')
+      // Group by root folder so all specs under the same top-level directory
+      // are processed by one worker and share a single ClickUp doc.
+      // Root-level specs (no folder) use an empty string as the group key.
+      const pathParts = spec.path.split('/')
+      const rootFolder = pathParts.length > 1 ? pathParts[0] : ''
 
       for (const integration of targetIntegrations) {
         // Upsert the publish target row
@@ -247,7 +251,7 @@ export async function POST(request: Request) {
         }
 
         // Accumulate into the correct group
-        const groupKey = `${integration.id}::${immediateParent}`
+        const groupKey = `${integration.id}::${rootFolder}`
         let group = groups.get(groupKey)
         if (!group) {
           group = { integration_id: integration.id, target_type: integration.type as IntegrationType, specs: [] }

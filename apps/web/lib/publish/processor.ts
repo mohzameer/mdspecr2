@@ -4,7 +4,6 @@ import { publishToNotion } from './adapters/notion'
 import { publishToConfluence } from './adapters/confluence'
 import { publishSingleSpec, publishSpecAsPage, clickUpDocExists } from './adapters/clickup'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
-import { getAncestorFolders } from '@/lib/folder-hierarchy'
 import { runAgentInline } from '@/lib/agents/processor'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
 
@@ -28,6 +27,8 @@ interface GroupContext {
   groupFolderName: string | null
   sharedSubRowId: string | null
   sharedSubDocId: string | null
+  // In-memory cache: sub-folder path → ClickUp section page ID (created on demand)
+  sectionPageIds: Map<string, string>
 }
 
 export async function runPublishGroup(data: PublishGroupJobData): Promise<void> {
@@ -74,6 +75,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     groupFolderName: null,
     sharedSubRowId: null,
     sharedSubDocId: null,
+    sectionPageIds: new Map(),
   }
 
   if (target_type === 'clickup') {
@@ -122,46 +124,34 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
 async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): Promise<void> {
   const { supabase, project_id, integration_id, credentials } = ctx
 
-  const immediateParent = samplePath.split('/').slice(0, -1).join('/')
-
-  // Root-level specs (no parent folder) use single mode — one doc per spec
-  if (!immediateParent) return
+  // Root folder = first path segment. Root-level specs use single mode.
+  const rootFolder = samplePath.split('/')[0] === samplePath ? '' : samplePath.split('/')[0]
+  if (!rootFolder) return
 
   // Resolve folder mapping for ClickUp destination (space/folder target).
   // Mappings are optional — they only control WHERE in ClickUp the doc lands.
-  const ancestors = getAncestorFolders(samplePath).slice().reverse()
-  if (ancestors.length > 0) {
-    const normalisedPaths = ancestors.map((a) => a.path)
-    const pathVariants = [...new Set(normalisedPaths.flatMap((p) => [p, `/${p}`, `${p}/`, `/${p}/`]))]
+  const pathVariants = [rootFolder, `/${rootFolder}`, `${rootFolder}/`, `/${rootFolder}/`]
 
-    const { data: mappings } = await supabase
-      .from('folder_mappings')
-      .select('id, folder_path, target_id')
-      .eq('project_id', project_id)
-      .eq('integration_id', integration_id)
-      .in('folder_path', pathVariants)
-      .is('clickup_doc_id', null) // exclude auto-created subfolder bookkeeping rows
+  const { data: mappings } = await supabase
+    .from('folder_mappings')
+    .select('id, folder_path, target_id')
+    .eq('project_id', project_id)
+    .eq('integration_id', integration_id)
+    .in('folder_path', pathVariants)
+    .is('clickup_doc_id', null)
 
-    if (mappings && mappings.length > 0) {
-      for (const a of ancestors) {
-        const match = mappings.find(
-          (m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '') === a.path
-        )
-        if (match) {
-          ctx.folderMappingTargetId = match.target_id ?? null
-          ctx.folderMappingId = match.id
-          ctx.folderMappingPath = a.path
-          break
-        }
-      }
-    }
+  if (mappings && mappings.length > 0) {
+    const match = mappings[0]
+    ctx.folderMappingTargetId = match.target_id ?? null
+    ctx.folderMappingId = match.id
+    ctx.folderMappingPath = rootFolder
   }
 
-  // All specs with a parent folder use multi mode: one doc per folder, specs as sub-pages.
-  // Folder mappings only influence the ClickUp destination (target_id), not the grouping itself.
+  // All specs with a root folder use multi mode: one doc per root folder,
+  // sub-folders become section pages, specs are pages (under section or direct).
   ctx.isMultiMode = true
-  ctx.groupingPath = immediateParent
-  ctx.groupFolderName = immediateParent.split('/').pop() ?? 'Specs'
+  ctx.groupingPath = rootFolder
+  ctx.groupFolderName = rootFolder
 
   // Lookup or create the subfolder bookkeeping row (single-flight here because
   // this is the only worker processing this group)
@@ -318,7 +308,8 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
           ctx.sharedSubDocId,
           existingPageId,
           ctx.groupFolderName,
-          ctx.folderMappingTargetId
+          ctx.folderMappingTargetId,
+          ctx.sectionPageIds
         )
 
         // First spec in the group may create the shared doc — persist its ID

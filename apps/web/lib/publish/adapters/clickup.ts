@@ -184,19 +184,29 @@ export async function publishSingleSpec(
 
 // Publish a spec as a direct top-level page inside a shared folder doc.
 // No intermediate root page — specs appear directly under the doc.
+// Publish a spec as a page inside a shared folder doc.
+// Specs directly in the root folder are top-level pages.
+// Specs in sub-folders get a section page (created once, reused for siblings).
 export async function publishSpecAsPage(
   credentials: ClickUpCredentials,
   spec: { path: string; content: string; frontmatter: Record<string, unknown> },
   folderDocId: string | null,
   existingPageId: string | null,
   folderName: string,
-  targetId?: string | null
+  targetId?: string | null,
+  sectionPageIds?: Map<string, string>
 ): Promise<{ doc_id: string; page_id: string; doc_url: string }> {
   const { api_token, workspace_id } = credentials
   const title = getSpecTitle(spec.path, spec.frontmatter)
   const headers = authHeaders(api_token)
 
-  console.log(`[clickup:multi] start — folderDocId=${folderDocId ?? 'none'} existingPageId=${existingPageId ?? 'none'} title="${title}"`)
+  // Derive sub-folder path relative to root folder (e.g. "specs/Main docs" → "Main docs")
+  const pathParts = spec.path.split('/')
+  // pathParts[0] = rootFolder, pathParts[-1] = filename
+  // subFolder = everything between root and filename
+  const subFolder = pathParts.length > 2 ? pathParts.slice(1, -1).join('/') : null
+
+  console.log(`[clickup:multi] start — folderDocId=${folderDocId ?? 'none'} subFolder=${subFolder ?? 'none'} existingPageId=${existingPageId ?? 'none'} title="${title}"`)
 
   // Verify the folder doc still exists; recreate if deleted
   if (folderDocId) {
@@ -204,6 +214,7 @@ export async function publishSpecAsPage(
     if (!stillExists) {
       console.log(`[clickup:multi] folder doc ${folderDocId} no longer exists — recreating`)
       folderDocId = null
+      sectionPageIds?.clear()
     }
   }
 
@@ -218,21 +229,24 @@ export async function publishSpecAsPage(
     const res = await axios.post(`${CLICKUP_API_V3}/workspaces/${workspace_id}/docs`, docPayload, { headers })
     docId = (res.data?.data?.id ?? res.data?.id) as string
     console.log(`[clickup:multi] folder doc created id=${docId}`)
+  }
 
-    // Delete any auto-created page so the doc starts empty
-    const autoPagesRes = await axios.get(
-      `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-      { headers }
-    )
-    const autoPages: Array<{ id: string }> = autoPagesRes.data?.data ?? autoPagesRes.data?.pages ?? []
-    for (const p of autoPages) {
-      try {
-        await axios.delete(
-          `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${p.id}`,
-          { headers }
-        )
-      } catch { /* ignore */ }
+  // Resolve (or create) the section page for sub-folders
+  let parentPageId: string | undefined
+  if (subFolder && sectionPageIds) {
+    let sectionId = sectionPageIds.get(subFolder)
+    if (!sectionId) {
+      const sectionName = subFolder.split('/').pop() ?? subFolder
+      const sectionRes = await axios.post(
+        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
+        { name: sectionName, content: '' },
+        { headers }
+      )
+      sectionId = (sectionRes.data?.data?.id ?? sectionRes.data?.id) as string
+      sectionPageIds.set(subFolder, sectionId)
+      console.log(`[clickup:multi] section page created subFolder="${subFolder}" id=${sectionId}`)
     }
+    parentPageId = sectionId
   }
 
   // Update existing page if we have a stored page ID
@@ -252,14 +266,17 @@ export async function publishSpecAsPage(
     }
   }
 
-  // Create as a direct top-level page (no parent_page_id)
+  // Create page — under section if sub-folder, otherwise top-level
+  const pagePayload: Record<string, unknown> = { name: title, content: spec.content }
+  if (parentPageId) pagePayload.parent_page_id = parentPageId
+
   const pageRes = await axios.post(
     `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-    { name: title, content: spec.content },
+    pagePayload,
     { headers }
   )
   const pageId = (pageRes.data?.data?.id ?? pageRes.data?.id) as string
-  console.log(`[clickup:multi] page created id=${pageId}`)
+  console.log(`[clickup:multi] page created id=${pageId} parent=${parentPageId ?? 'none'}`)
 
   return { doc_id: docId, page_id: pageId, doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}` }
 }
