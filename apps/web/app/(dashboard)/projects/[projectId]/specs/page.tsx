@@ -120,7 +120,7 @@ export default async function SpecsPage({ params }: { params: Promise<{ projectI
     .from('specs')
     .select('*, spec_publish_targets(*)')
     .eq('project_id', projectId)
-    .order('path')
+    .order('updated_at', { ascending: false, nullsFirst: false })
 
   const specsWithTargets = (specs ?? []).map((s) => ({
     ...s,

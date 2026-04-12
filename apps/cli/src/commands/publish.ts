@@ -237,7 +237,12 @@ async function discoverSpecFiles(specDirs: string[]): Promise<string[]> {
   const results: string[] = []
   const cwd = process.cwd()
 
-  for (const dir of specDirs) {
+  // If root "/" is configured, scan only from project root and skip all
+  // other subfolder entries to avoid duplicate processing.
+  const hasRoot = specDirs.some((d) => d.trim() === '/' || d.trim() === '')
+  const dirsToScan = hasRoot ? ['/'] : specDirs
+
+  for (const dir of dirsToScan) {
     const absDir = join(cwd, dir.replace(/^\//, ''))
     try {
       await collectMdFiles(absDir, cwd, results)

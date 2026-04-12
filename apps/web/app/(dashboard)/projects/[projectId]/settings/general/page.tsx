@@ -86,6 +86,11 @@ export default function GeneralSettingsPage() {
         </div>
         <div>
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Spec directories</label>
+          {specDirs.includes('/') && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
+              Root folder <span className="font-mono">/</span> is set — other subfolder entries will be skipped during scanning.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2 mb-2">
             {specDirs.map((dir) => (
               <span key={dir} className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 text-xs font-mono px-2 py-1 rounded">
