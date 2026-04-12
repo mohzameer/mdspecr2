@@ -80,6 +80,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   if (folder_path.includes('..')) return NextResponse.json({ error: 'invalid_folder_path' }, { status: 400 })
   if (!integration_id) return NextResponse.json({ error: 'integration_id_required' }, { status: 400 })
 
+  // Normalize path: strip leading/trailing slashes. "/" (root) becomes the
+  // empty string "", which is the sentinel stored in the DB for root mappings.
+  const raw = folder_path.trim()
+  const normalizedPath = raw === '/' ? '' : raw.replace(/^\//, '').replace(/\/$/, '')
+
   // Verify integration belongs to this org and is connected
   const { data: integration } = await supabase
     .from('integrations')
@@ -98,7 +103,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     .upsert(
       {
         project_id: projectId,
-        folder_path: folder_path.trim().replace(/^\//, '').replace(/\/$/, ''),
+        folder_path: normalizedPath,
         integration_id,
         template_id: template_id ?? null,
         target_id: target_id ?? null,
@@ -109,6 +114,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     .select()
     .single()
 
-  if (error || !mapping) return NextResponse.json({ error: 'create_failed' }, { status: 500 })
+  if (error || !mapping) return NextResponse.json({ error: error?.message ?? 'create_failed' }, { status: 500 })
   return NextResponse.json(mapping, { status: 201 })
 }

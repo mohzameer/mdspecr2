@@ -170,7 +170,7 @@ export async function POST(request: Request) {
 
     const specsToProcess = specs.filter((s) => {
       const normalised = s.path.replace(/^\//, '')
-      return mappedPaths.some((mp) => normalised === mp || normalised.startsWith(mp + '/'))
+      return mappedPaths.some((mp) => mp === '' || normalised === mp || normalised.startsWith(mp + '/'))
     })
 
     if (specsToProcess.length < specs.length) {
