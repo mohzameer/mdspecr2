@@ -182,29 +182,28 @@ export async function publishSingleSpec(
   }
 }
 
+// Publish a spec as a direct top-level page inside a shared folder doc.
+// No intermediate root page — specs appear directly under the doc.
 export async function publishSpecAsPage(
   credentials: ClickUpCredentials,
   spec: { path: string; content: string; frontmatter: Record<string, unknown> },
   folderDocId: string | null,
-  folderPageId: string | null,
   existingPageId: string | null,
   folderName: string,
   targetId?: string | null
-): Promise<{ doc_id: string; folder_page_id: string; page_id: string; doc_url: string }> {
+): Promise<{ doc_id: string; page_id: string; doc_url: string }> {
   const { api_token, workspace_id } = credentials
   const title = getSpecTitle(spec.path, spec.frontmatter)
   const headers = authHeaders(api_token)
 
-  console.log(`[clickup:multi] start — folderDocId=${folderDocId ?? 'none'} folderPageId=${folderPageId ?? 'none'} existingPageId=${existingPageId ?? 'none'} title="${title}"`)
+  console.log(`[clickup:multi] start — folderDocId=${folderDocId ?? 'none'} existingPageId=${existingPageId ?? 'none'} title="${title}"`)
 
-  // If a prior folder doc id is provided, verify it still exists in ClickUp.
-  // If the user deleted it we must discard the stale id (and the stale root-page id) and recreate.
+  // Verify the folder doc still exists; recreate if deleted
   if (folderDocId) {
     const stillExists = await clickUpDocExists(credentials, folderDocId)
     if (!stillExists) {
       console.log(`[clickup:multi] folder doc ${folderDocId} no longer exists — recreating`)
       folderDocId = null
-      folderPageId = null
     }
   }
 
@@ -219,58 +218,24 @@ export async function publishSpecAsPage(
     const res = await axios.post(`${CLICKUP_API_V3}/workspaces/${workspace_id}/docs`, docPayload, { headers })
     docId = (res.data?.data?.id ?? res.data?.id) as string
     console.log(`[clickup:multi] folder doc created id=${docId}`)
-  }
 
-  let rootPageId = folderPageId
-
-  // Always verify the root page actually exists in the doc — the user may have
-  // deleted it in ClickUp even though the doc itself survived. A stale rootPageId
-  // causes sub-page POSTs to 404 on parent_page_id.
-  let existingPages: Array<{ id: string; parent_page_id?: string | null }> = []
-  if (rootPageId) {
-    const existingPagesRes = await axios.get(
+    // Delete any auto-created page so the doc starts empty
+    const autoPagesRes = await axios.get(
       `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
       { headers }
     )
-    existingPages = existingPagesRes.data?.data ?? existingPagesRes.data?.pages ?? []
-    const stillThere = existingPages.some((p) => p.id === rootPageId)
-    if (!stillThere) {
-      console.log(`[clickup:multi] folder root page ${rootPageId} no longer exists — reconciling`)
-      rootPageId = null
+    const autoPages: Array<{ id: string }> = autoPagesRes.data?.data ?? autoPagesRes.data?.pages ?? []
+    for (const p of autoPages) {
+      try {
+        await axios.delete(
+          `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${p.id}`,
+          { headers }
+        )
+      } catch { /* ignore */ }
     }
   }
 
-  if (!rootPageId) {
-    if (existingPages.length === 0) {
-      const existingPagesRes = await axios.get(
-        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-        { headers }
-      )
-      existingPages = existingPagesRes.data?.data ?? existingPagesRes.data?.pages ?? []
-    }
-
-    // Prefer a top-level page (no parent) so we don't accidentally re-root under a sub-page.
-    const topLevel = existingPages.find((p) => !p.parent_page_id) ?? existingPages[0]
-
-    if (topLevel) {
-      rootPageId = topLevel.id
-      console.log(`[clickup:multi] reusing existing page as folder root id=${rootPageId}`)
-      await axios.put(
-        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages/${rootPageId}`,
-        { name: folderName, content: '' },
-        { headers }
-      )
-    } else {
-      const rootPageRes = await axios.post(
-        `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-        { name: folderName, content: '' },
-        { headers }
-      )
-      rootPageId = (rootPageRes.data?.data?.id ?? rootPageRes.data?.id) as string
-      console.log(`[clickup:multi] folder root page created id=${rootPageId}`)
-    }
-  }
-
+  // Update existing page if we have a stored page ID
   if (existingPageId) {
     try {
       await axios.put(
@@ -278,22 +243,23 @@ export async function publishSpecAsPage(
         { name: title, content: spec.content },
         { headers }
       )
-      console.log(`[clickup:multi] updated sub-page ${existingPageId}`)
-      return { doc_id: docId, folder_page_id: rootPageId, page_id: existingPageId, doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}` }
+      console.log(`[clickup:multi] updated page ${existingPageId}`)
+      return { doc_id: docId, page_id: existingPageId, doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}` }
     } catch (err) {
       const e = err as { response?: { status?: number } }
       if (e.response?.status !== 404) throw err
-      console.log(`[clickup:multi] sub-page ${existingPageId} deleted — recreating`)
+      console.log(`[clickup:multi] page ${existingPageId} deleted — recreating`)
     }
   }
 
+  // Create as a direct top-level page (no parent_page_id)
   const pageRes = await axios.post(
     `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
-    { name: title, content: spec.content, parent_page_id: rootPageId },
+    { name: title, content: spec.content },
     { headers }
   )
   const pageId = (pageRes.data?.data?.id ?? pageRes.data?.id) as string
-  console.log(`[clickup:multi] sub-page created id=${pageId}`)
+  console.log(`[clickup:multi] page created id=${pageId}`)
 
-  return { doc_id: docId, folder_page_id: rootPageId, page_id: pageId, doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}` }
+  return { doc_id: docId, page_id: pageId, doc_url: `https://app.clickup.com/${workspace_id}/docs/${docId}` }
 }

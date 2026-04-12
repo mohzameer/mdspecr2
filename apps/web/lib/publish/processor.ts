@@ -28,7 +28,6 @@ interface GroupContext {
   groupFolderName: string | null
   sharedSubRowId: string | null
   sharedSubDocId: string | null
-  sharedSubPageId: string | null
 }
 
 export async function runPublishGroup(data: PublishGroupJobData): Promise<void> {
@@ -75,7 +74,6 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     groupFolderName: null,
     sharedSubRowId: null,
     sharedSubDocId: null,
-    sharedSubPageId: null,
   }
 
   if (target_type === 'clickup') {
@@ -191,10 +189,9 @@ async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): 
 
   ctx.sharedSubRowId = sub.id
   ctx.sharedSubDocId = sub.clickup_doc_id
-  ctx.sharedSubPageId = sub.clickup_page_id
 
   // Verify the stored doc still exists in ClickUp. If it was deleted, clear
-  // the stale IDs so the first spec to publish will create a fresh one.
+  // the stale ID so the first spec to publish will create a fresh one.
   if (ctx.sharedSubDocId) {
     const clickupCreds = {
       api_token: credentials.api_token as string,
@@ -204,7 +201,6 @@ async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): 
     if (!stillExists) {
       console.log(`[publish] group multi-mode — stored folder doc ${ctx.sharedSubDocId} missing, will recreate`)
       ctx.sharedSubDocId = null
-      ctx.sharedSubPageId = null
       await supabase
         .from('folder_mappings')
         .update({ clickup_doc_id: null, clickup_page_id: null })
@@ -212,7 +208,7 @@ async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): 
     }
   }
 
-  console.log(`[publish] group multi-mode — mapping=${ctx.folderMappingPath ?? 'none'} grouping=${ctx.groupingPath} docId=${ctx.sharedSubDocId ?? 'none'} rootPageId=${ctx.sharedSubPageId ?? 'none'}`)
+  console.log(`[publish] group multi-mode — mapping=${ctx.folderMappingPath ?? 'none'} grouping=${ctx.groupingPath} docId=${ctx.sharedSubDocId ?? 'none'}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -320,26 +316,21 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
           clickupCreds,
           specPayload,
           ctx.sharedSubDocId,
-          ctx.sharedSubPageId,
           existingPageId,
           ctx.groupFolderName,
           ctx.folderMappingTargetId
         )
 
-        // First spec in the group creates the shared doc/root page — propagate
-        // those IDs to the context so subsequent specs reuse them, and persist
-        // to the bookkeeping row.
-        const updates: Record<string, string> = {}
+        // First spec in the group may create the shared doc — persist its ID
+        // to the bookkeeping row and propagate to context for subsequent specs.
         if (multiResult.doc_id && multiResult.doc_id !== ctx.sharedSubDocId) {
           ctx.sharedSubDocId = multiResult.doc_id
-          updates.clickup_doc_id = multiResult.doc_id
-        }
-        if (multiResult.folder_page_id && multiResult.folder_page_id !== ctx.sharedSubPageId) {
-          ctx.sharedSubPageId = multiResult.folder_page_id
-          updates.clickup_page_id = multiResult.folder_page_id
-        }
-        if (ctx.sharedSubRowId && Object.keys(updates).length > 0) {
-          await supabase.from('folder_mappings').update(updates).eq('id', ctx.sharedSubRowId)
+          if (ctx.sharedSubRowId) {
+            await supabase
+              .from('folder_mappings')
+              .update({ clickup_doc_id: multiResult.doc_id })
+              .eq('id', ctx.sharedSubRowId)
+          }
         }
 
         result = { doc_id: multiResult.page_id, doc_url: multiResult.doc_url }
