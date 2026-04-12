@@ -18,7 +18,10 @@ export async function PATCH(
   }
 
   const { error } = await supabase.from('projects').update(update).eq('id', projectId)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    console.error('[project update] supabase error:', error)
+    return NextResponse.json({ error: error.message || error.code || JSON.stringify(error) }, { status: 500 })
+  }
 
   return NextResponse.json({ ok: true })
 }
