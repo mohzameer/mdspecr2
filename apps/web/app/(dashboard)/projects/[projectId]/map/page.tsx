@@ -15,7 +15,7 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
     .single()
   if (!project) notFound()
 
-  const [orgMemberRes, projectMemberRes, mappingsRes, integrationsRes, templatesRes] = await Promise.all([
+  const [orgMemberRes, projectMemberRes, mappingsRes, integrationsRes, templatesRes, specsRes] = await Promise.all([
     supabase
       .from('org_members')
       .select('role')
@@ -44,6 +44,10 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
       .eq('project_id', projectId)
       .order('is_default', { ascending: false })
       .order('created_at', { ascending: true }),
+    supabase
+      .from('specs')
+      .select('path')
+      .eq('project_id', projectId),
   ])
 
   const canEdit =
@@ -58,14 +62,23 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
 
   const templates = (templatesRes.data ?? []).map((t) => ({ ...t, folder_count: countMap[t.id] ?? 0 }))
 
+  function extractFolder(specPath: string): string {
+    const normalised = specPath.replace(/^\//, '')
+    const lastSlash = normalised.lastIndexOf('/')
+    return lastSlash === -1 ? '' : normalised.slice(0, lastSlash)
+  }
+
+  const discoveredFolders = [...new Set((specsRes.data ?? []).map((s) => extractFolder(s.path)))]
+    .sort((a, b) => a.localeCompare(b))
+
   return (
     <MapPageClient
       projectId={projectId}
       projectName={project.name}
-      specDirs={project.spec_dirs ?? []}
       initialMappings={mappingsRes.data ?? []}
       availableIntegrations={integrationsRes.data ?? []}
       initialTemplates={templates}
+      initialDiscoveredFolders={discoveredFolders}
       canEdit={!!canEdit}
     />
   )

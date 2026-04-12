@@ -37,10 +37,10 @@ interface FolderMapping {
 interface MapPageClientProps {
   projectId: string
   projectName: string
-  specDirs: string[]
   initialMappings: FolderMapping[]
   availableIntegrations: Integration[]
   initialTemplates: TemplateWithCount[]
+  initialDiscoveredFolders: string[]
   canEdit: boolean
 }
 
@@ -49,15 +49,16 @@ type Tab = 'folder-mappings' | 'templates'
 export function MapPageClient({
   projectId,
   projectName,
-  specDirs,
   initialMappings,
   availableIntegrations,
   initialTemplates,
+  initialDiscoveredFolders,
   canEdit,
 }: MapPageClientProps) {
   const [activeTab, setActiveTab] = useState<Tab>('folder-mappings')
   const [mappings, setMappings] = useState(initialMappings)
   const [templates, setTemplates] = useState(initialTemplates)
+  const discoveredFolders = initialDiscoveredFolders ?? []
 
   return (
     <div className="p-8 max-w-5xl">
@@ -86,11 +87,11 @@ export function MapPageClient({
       {activeTab === 'folder-mappings' && (
         <FolderMappingsTab
           projectId={projectId}
-          specDirs={specDirs}
           mappings={mappings}
           availableIntegrations={availableIntegrations}
           templates={templates}
           canEdit={canEdit}
+          discoveredFolders={discoveredFolders}
           onMappingsChange={setMappings}
         />
       )}

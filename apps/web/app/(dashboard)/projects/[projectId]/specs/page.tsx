@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect, notFound } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/db-server'
 import type { Spec, SpecPublishTarget } from '@/lib/types'
+import { DeleteAllSpecsButton } from './DeleteAllSpecsButton'
 
 interface SpecNode {
   type: 'file'
@@ -139,6 +140,9 @@ export default async function SpecsPage({ params }: { params: Promise<{ projectI
           )}
         </div>
         <div className="flex gap-2">
+          {specsWithTargets.length > 0 && (
+            <DeleteAllSpecsButton projectId={projectId} count={specsWithTargets.length} />
+          )}
           <Link
             href={`/api/projects/${projectId}/download-zip`}
             className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"

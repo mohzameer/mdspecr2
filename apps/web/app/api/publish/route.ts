@@ -158,24 +158,10 @@ export async function POST(request: Request) {
       console.log(`[publish] no active integrations for org=${project.org_id} — nothing to enqueue`)
     }
 
-    // -------------------------------------------------------------------------
-    // Filter specs to only those under mapped folders
-    // -------------------------------------------------------------------------
-    const { data: folderMappings } = await supabase
-      .from('folder_mappings')
-      .select('folder_path')
-      .eq('project_id', project_id)
-
-    const mappedPaths = [...new Set((folderMappings ?? []).map((m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '')))]  // normalise legacy entries that may have slashes
-
-    const specsToProcess = specs.filter((s) => {
-      const normalised = s.path.replace(/^\//, '')
-      return mappedPaths.some((mp) => mp === '' || normalised === mp || normalised.startsWith(mp + '/'))
-    })
-
-    if (specsToProcess.length < specs.length) {
-      console.log(`[publish] filtered ${specs.length - specsToProcess.length} spec(s) outside mapped folders`)
-    }
+    // All specs within the scanning directories are processed. Folder mappings
+    // control which integration/template applies per folder — not which specs
+    // are allowed through. Folders are auto-detected from the spec paths.
+    const specsToProcess = specs
 
     // -------------------------------------------------------------------------
     // Upsert specs + publish targets, accumulate into groups keyed by
@@ -307,13 +293,10 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     // Response
     // -------------------------------------------------------------------------
-    const filteredCount = specs.length - specsToProcess.length
-
     return Response.json(
       {
         accepted: true,
         queued: queuedCount,
-        ...(filteredCount > 0 ? { filtered: filteredCount } : {}),
         ...(upgradeNudge ? { upgrade_nudge: true } : {}),
       },
       { status: 202 }

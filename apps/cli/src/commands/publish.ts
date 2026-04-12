@@ -34,13 +34,19 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(1)
   }
 
+  // Fetch project config (always, so we can log scanning folders)
+  const projectConfig = await fetchProjectConfig(apiUrl, options.project, token)
+  const scanDirsDisplay = (projectConfig.spec_dirs ?? []).map((d) => d === '' || d === '/' ? '/ (root)' : d)
+  console.log(`— Scanning folders: ${scanDirsDisplay.length > 0 ? scanDirsDisplay.join(', ') : '(none)'}`)
+
   // Determine spec directories
   let specDirs: string[]
   if (options.dirs) {
     specDirs = options.dirs.split(',').map((d) => d.trim())
+  } else if (projectConfig.spec_dirs && projectConfig.spec_dirs.length > 0) {
+    specDirs = projectConfig.spec_dirs
   } else {
-    // Fetch from project config API
-    specDirs = await fetchProjectSpecDirs(apiUrl, options.project, token)
+    specDirs = ['specs', 'docs/specs', 'docs/rfc']
   }
 
   // Get git info
@@ -137,15 +143,11 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(1)
   }
 
-  const result = await response.json() as { accepted: boolean; queued: number; filtered?: number; upgrade_nudge?: boolean }
+  const result = await response.json() as { accepted: boolean; queued: number; upgrade_nudge?: boolean }
 
   const skipped = specsToPublish.length - specs.length
   if (skipped > 0) {
     console.log(`— Skipped    ${skipped} spec(s) (read errors)`)
-  }
-
-  if (result.filtered && result.filtered > 0) {
-    console.log(`— Filtered   ${result.filtered} spec(s) outside mapped folders`)
   }
 
   console.log(`\n✓ ${result.queued} spec(s) queued for publishing`)
@@ -162,21 +164,19 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function fetchProjectSpecDirs(apiUrl: string, projectId: string, token: string): Promise<string[]> {
+async function fetchProjectConfig(apiUrl: string, projectId: string, token: string): Promise<{ spec_dirs: string[] }> {
   try {
     const res = await fetch(`${apiUrl}/api/projects/${projectId}/config`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     if (res.ok) {
-      const data = await res.json() as { spec_dirs?: string[]; mapped_dirs?: string[] }
-      // Prefer mapped_dirs (folders with active mappings) over spec_dirs
-      if (data.mapped_dirs && data.mapped_dirs.length > 0) return data.mapped_dirs
-      if (data.spec_dirs && data.spec_dirs.length > 0) return data.spec_dirs
+      const data = await res.json() as { spec_dirs?: string[] }
+      return { spec_dirs: data.spec_dirs ?? [] }
     }
   } catch {
     // Fallback to defaults
   }
-  return ['specs', 'docs/specs', 'docs/rfc']
+  return { spec_dirs: [] }
 }
 
 function getRepoName(): string {

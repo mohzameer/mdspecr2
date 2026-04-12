@@ -35,7 +35,7 @@ interface ClickUpTarget {
 
 interface Props {
   projectId: string
-  specDirs: string[]
+  discoveredFolders: string[]
   mappings: FolderMapping[]
   availableIntegrations: Integration[]
   templates: Template[]
@@ -51,119 +51,89 @@ const integrationLabels: Record<string, string> = {
 
 export function FolderMappingsTab({
   projectId,
-  specDirs,
+  discoveredFolders,
   mappings,
   availableIntegrations,
   templates,
   canEdit,
   onMappingsChange,
 }: Props) {
-  const [addingFolder, setAddingFolder] = useState<string | null>(null)
-  const [newFolderPath, setNewFolderPath] = useState('')
-  const [newIntegrationId, setNewIntegrationId] = useState('')
-  const [newTargetId, setNewTargetId] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [replaceAllIntegrationId, setReplaceAllIntegrationId] = useState('')
+  const [applyingAll, setApplyingAll] = useState(false)
+  const [removingAll, setRemovingAll] = useState(false)
   const [savingMappingId, setSavingMappingId] = useState<string | null>(null)
-  const [clickupTargets, setClickupTargets] = useState<ClickUpTarget[]>([])
-  const [loadingTargets, setLoadingTargets] = useState(false)
-  // Cache of ClickUp targets keyed by integration id, for existing mapping rows
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
-
-  // When a ClickUp integration is selected in the add form, fetch its spaces/folders
-  useEffect(() => {
-    const integration = availableIntegrations.find((i) => i.id === newIntegrationId)
-    if (!integration || integration.type !== 'clickup') {
-      setClickupTargets([])
-      setNewTargetId('')
-      return
-    }
-    // Reuse cache if already loaded
-    if (targetsCache[newIntegrationId]) {
-      setClickupTargets(targetsCache[newIntegrationId])
-      return
-    }
-    setLoadingTargets(true)
-    setClickupTargets([])
-    setNewTargetId('')
-    fetch(`/api/integrations/${newIntegrationId}/clickup-targets`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setClickupTargets(data)
-          setTargetsCache((prev) => ({ ...prev, [newIntegrationId]: data }))
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoadingTargets(false))
-  }, [newIntegrationId, availableIntegrations])
 
   // Pre-load ClickUp targets for all ClickUp integrations already in mappings
   useEffect(() => {
-    const clickupIntegrationIds = [...new Set(
+    const clickupIds = [...new Set(
       mappings
         .filter((m) => m.integrations?.type === 'clickup')
         .map((m) => m.integration_id)
     )]
-    for (const id of clickupIntegrationIds) {
+    for (const id of clickupIds) {
       if (targetsCache[id]) continue
       fetch(`/api/integrations/${id}/clickup-targets`)
         .then((r) => r.json())
         .then((data) => {
-          if (Array.isArray(data)) {
-            setTargetsCache((prev) => ({ ...prev, [id]: data }))
-          }
+          if (Array.isArray(data)) setTargetsCache((prev) => ({ ...prev, [id]: data }))
         })
         .catch(() => {})
     }
   }, [mappings])
 
-  // Group mappings by folder_path
-  const byFolder = mappings.reduce<Record<string, FolderMapping[]>>((acc, m) => {
-    acc[m.folder_path] = acc[m.folder_path] ?? []
-    acc[m.folder_path].push(m)
-    return acc
-  }, {})
+  // Only show folders that have active mappings. Discovered folders are shown
+  // as suggestions below for quickly adding new ones.
+  const mappedFolderPaths = (mappings ?? []).map((m) => m.folder_path.replace(/^\//, '').replace(/\/$/, ''))
+  const allFolders = [...new Set(mappedFolderPaths)].sort((a, b) => a.localeCompare(b))
 
-  // Group by spec dir prefix
-  const bySpecDir: Record<string, string[]> = {}
-  const unmatched: string[] = []
+  // Discovered folders not yet mapped — shown as suggestions
+  const unmappedDiscovered = (discoveredFolders ?? []).filter((f) => !allFolders.includes(f))
 
-  for (const folderPath of Object.keys(byFolder)) {
-    const matched = specDirs.find((sd) => folderPath.startsWith(sd))
-    if (matched) {
-      bySpecDir[matched] = bySpecDir[matched] ?? []
-      if (!bySpecDir[matched].includes(folderPath)) bySpecDir[matched].push(folderPath)
-    } else {
-      if (!unmatched.includes(folderPath)) unmatched.push(folderPath)
-    }
+  // Build a lookup: normalised folder_path → FolderMapping[]
+  const byFolder: Record<string, FolderMapping[]> = {}
+  for (const m of mappings) {
+    const key = m.folder_path.replace(/^\//, '').replace(/\/$/, '')
+    byFolder[key] = byFolder[key] ?? []
+    byFolder[key].push(m)
   }
 
-  function resetAddForm() {
-    setAddingFolder(null)
-    setNewFolderPath('')
-    setNewIntegrationId('')
-    setNewTargetId('')
-    setClickupTargets([])
+async function applyToAll() {
+    if (!replaceAllIntegrationId) return
+    setApplyingAll(true)
+    const updated = [...mappings]
+    for (const folder of allFolders) {
+      const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_path: folder || '/', integration_id: replaceAllIntegrationId }),
+      })
+      if (res.ok) {
+        const newMapping: FolderMapping = await res.json()
+        const integration = availableIntegrations.find((i) => i.id === replaceAllIntegrationId) ?? null
+        const idx = updated.findIndex((m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '') === folder)
+        if (idx !== -1) {
+          updated[idx] = { ...newMapping, integrations: integration, templates: null }
+        } else {
+          updated.push({ ...newMapping, integrations: integration, templates: null })
+        }
+      }
+    }
+    onMappingsChange(updated)
+    setApplyingAll(false)
   }
 
   async function addMapping(folderPath: string, integrationId: string) {
-    if (!folderPath.trim() || !integrationId) return
-    setSaving(true)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        folder_path: folderPath.trim(),
-        integration_id: integrationId,
-        target_id: newTargetId || null,
-      }),
+      body: JSON.stringify({ folder_path: folderPath || '/', integration_id: integrationId }),
     })
     if (res.ok) {
       const newMapping: FolderMapping = await res.json()
-      onMappingsChange([...mappings, { ...newMapping, integrations: availableIntegrations.find(i => i.id === integrationId) ?? null, templates: null }])
+      const integration = availableIntegrations.find((i) => i.id === integrationId) ?? null
+      onMappingsChange([...mappings, { ...newMapping, integrations: integration, templates: null }])
     }
-    resetAddForm()
-    setSaving(false)
   }
 
   async function removeMapping(mappingId: string) {
@@ -199,266 +169,221 @@ export function FolderMappingsTab({
     setSavingMappingId(null)
   }
 
-  function renderFolderRow(folderPath: string) {
-    const folderMappings = byFolder[folderPath] ?? []
-    return (
-      <tr key={folderPath} className="border-t border-zinc-100 dark:border-zinc-800">
-        <td className="py-3 pr-4 font-mono text-sm text-zinc-700 dark:text-zinc-300 align-top">
-          {folderPath.replace(/\/+$/, '')}/
-        </td>
-        <td className="py-3 pr-4 align-top">
-          <div className="flex flex-wrap gap-1.5 items-center">
-            {folderMappings.map((m) => {
-              const label = integrationLabels[m.integrations?.type ?? ''] ?? m.integrations?.type ?? '—'
-              return (
-                <span
-                  key={m.id}
-                  className="inline-flex items-center gap-1 rounded bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:text-zinc-300"
-                >
-                  {label}
-                  {canEdit && (
-                    <button
-                      onClick={() => removeMapping(m.id)}
-                      className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-100 leading-none ml-0.5"
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                  )}
-                </span>
-              )
-            })}
-            {canEdit && availableIntegrations.length > 0 && (
-              <button
-                onClick={() => { resetAddForm(); setAddingFolder(folderPath); setNewFolderPath(folderPath) }}
-                className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 border border-dashed border-zinc-300 dark:border-zinc-700 rounded px-1.5 py-0.5"
-              >
-                + Add
-              </button>
-            )}
-          </div>
-        </td>
-        <td className="py-3 pr-4 align-top">
-          {folderMappings.length > 0 ? (
-            <div className="relative inline-flex items-center gap-1.5">
-              <select
-                disabled={!canEdit || savingMappingId === folderMappings[0].id}
-                value={folderMappings[0].template_id ?? ''}
-                onChange={(e) => updateTemplate(folderMappings[0].id, e.target.value || null)}
-                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-              >
-                <option value="">None</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
-              {savingMappingId === folderMappings[0].id && (
-                <svg className="animate-spin h-3 w-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-              )}
-            </div>
-          ) : (
-            <span className="text-xs text-zinc-400">—</span>
-          )}
-        </td>
-        <td className="py-3 align-top">
-          <div className="space-y-1">
-            {folderMappings
-              .filter((m) => m.integrations?.type === 'clickup')
-              .map((m) => {
-                const targets = targetsCache[m.integration_id] ?? []
-                const isLoaded = !!targetsCache[m.integration_id]
-                const isSaving = savingMappingId === m.id
-                return (
-                  <div key={m.id} className="inline-flex items-center gap-1.5">
-                    <select
-                      disabled={!canEdit || !isLoaded || isSaving}
-                      value={m.target_id ?? ''}
-                      onChange={(e) => updateTarget(m.id, e.target.value || null)}
-                      className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-                    >
-                      <option value="">{isLoaded ? 'Workspace root' : 'Loading…'}</option>
-                      {targets.filter((t) => t.kind === 'space').map((t) => (
-                        <option key={t.id} value={t.id}>{t.name} (space)</option>
-                      ))}
-                      {targets.filter((t) => t.kind === 'folder').map((t) => (
-                        <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
-                      ))}
-                    </select>
-                    {isSaving && (
-                      <svg className="animate-spin h-3 w-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                      </svg>
-                    )}
-                  </div>
-                )
-              })}
-            {folderMappings.every((m) => m.integrations?.type !== 'clickup') && (
-              <span className="text-xs text-zinc-400">—</span>
-            )}
-          </div>
-        </td>
-      </tr>
+  async function setIntegration(folderPath: string, integrationId: string) {
+    // Remove existing mappings for this folder first, then add new one
+    const existing = byFolder[folderPath] ?? []
+    for (const m of existing) {
+      await fetch(`/api/projects/${projectId}/folder-mappings/${m.id}`, { method: 'DELETE' })
+    }
+    const withoutFolder = mappings.filter(
+      (m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '') !== folderPath
     )
+    if (!integrationId) {
+      onMappingsChange(withoutFolder)
+      return
+    }
+    const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_path: folderPath || '/', integration_id: integrationId }),
+    })
+    if (res.ok) {
+      const newMapping: FolderMapping = await res.json()
+      const integration = availableIntegrations.find((i) => i.id === integrationId) ?? null
+      onMappingsChange([...withoutFolder, { ...newMapping, integrations: integration, templates: null }])
+    }
   }
 
-  const allSpecDirs = [...specDirs, ...unmatched.map(() => '(other)')]
-  const specDirSet = new Set(specDirs)
+  async function removeAllMappings() {
+    if (!window.confirm(`Remove all ${mappings.length} folder mapping(s)? This cannot be undone.`)) return
+    setRemovingAll(true)
+    for (const m of mappings) {
+      await fetch(`/api/projects/${projectId}/folder-mappings/${m.id}`, { method: 'DELETE' })
+    }
+    onMappingsChange([])
+    setRemovingAll(false)
+  }
+
+  const spinner = (
+    <svg className="animate-spin h-3 w-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+    </svg>
+  )
 
   return (
-    <div className="space-y-8">
-      {/* Add mapping dialog */}
-      {addingFolder !== null && (
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3">
-          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-            Add integration for <span className="font-mono">{newFolderPath || 'new folder'}/</span>
-          </p>
-          {!specDirs.some((sd) => newFolderPath.startsWith(sd)) && (
-            <div>
-              <label className="text-xs text-zinc-500 mb-1 block">Folder path</label>
-              <input
-                value={newFolderPath}
-                onChange={(e) => setNewFolderPath(e.target.value)}
-                placeholder="specs/payments"
-                className="w-full rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zinc-500"
-              />
-            </div>
-          )}
-          <div>
-            <label className="text-xs text-zinc-500 mb-1 block">Integration</label>
-            <select
-              value={newIntegrationId}
-              onChange={(e) => setNewIntegrationId(e.target.value)}
-              className="w-full rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-            >
-              <option value="">Select integration…</option>
-              {availableIntegrations.map((i) => (
-                <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
-              ))}
-            </select>
-          </div>
-          {newIntegrationId && availableIntegrations.find((i) => i.id === newIntegrationId)?.type === 'clickup' && (
-            <div>
-              <label className="text-xs text-zinc-500 mb-1 block">ClickUp destination (space or folder)</label>
-              {loadingTargets ? (
-                <p className="text-xs text-zinc-400">Loading…</p>
-              ) : (
-                <select
-                  value={newTargetId}
-                  onChange={(e) => setNewTargetId(e.target.value)}
-                  className="w-full rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                >
-                  <option value="">Workspace root (no folder)</option>
-                  {clickupTargets.filter((t) => t.kind === 'space').map((t) => (
-                    <option key={t.id} value={t.id}>{t.name} (space)</option>
-                  ))}
-                  {clickupTargets.filter((t) => t.kind === 'folder').map((t) => (
-                    <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
-          <div className="flex gap-2">
+    <div className="space-y-4">
+      {/* Header */}
+      <p className="text-xs text-zinc-500">
+        Folders are auto-detected from published specs. Assign an integration to any folder to start publishing its specs.
+      </p>
+
+      {/* Replace all / Remove all */}
+      {canEdit && allFolders.length > 0 && (
+        <div className="flex items-center gap-2">
+          <select
+            value={replaceAllIntegrationId}
+            onChange={(e) => setReplaceAllIntegrationId(e.target.value)}
+            className="rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+          >
+            <option value="">Replace all integrations…</option>
+            {availableIntegrations.map((i) => (
+              <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
+            ))}
+          </select>
+          {replaceAllIntegrationId && (
             <button
-              onClick={() => addMapping(newFolderPath, newIntegrationId)}
-              disabled={saving || !newFolderPath.trim() || !newIntegrationId}
-              className="rounded bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50"
+              onClick={applyToAll}
+              disabled={applyingAll}
+              className="rounded bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50 transition-colors"
             >
-              {saving ? 'Adding…' : 'Add'}
+              {applyingAll ? 'Applying…' : 'Apply to all'}
             </button>
+          )}
+          {mappings.length > 0 && (
             <button
-              onClick={resetAddForm}
-              className="rounded border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400"
+              onClick={removeAllMappings}
+              disabled={removingAll}
+              className="ml-auto rounded border border-red-200 dark:border-red-900 px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50 transition-colors"
             >
-              Cancel
+              {removingAll ? 'Removing…' : 'Remove all'}
             </button>
-          </div>
+          )}
         </div>
       )}
 
-      {/* Spec directory tables */}
-      {specDirs.map((dir) => {
-        const folders = bySpecDir[dir] ?? []
-        return (
-          <div key={dir}>
-            <p className="text-xs font-mono text-zinc-500 mb-2">{dir.replace(/\/+$/, '')}/</p>
-            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-zinc-50 dark:bg-zinc-800/50">
-                    <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">Folder</th>
-                    <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">Integrations</th>
-                    <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
-                    <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">ClickUp Destination</th>
-                  </tr>
-                </thead>
-                <tbody className="px-4">
-                  {folders.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-4 text-xs text-zinc-400">
-                        No folders mapped yet.{' '}
-                        {canEdit && availableIntegrations.length > 0 && (
-                          <button
-                            onClick={() => { resetAddForm(); setAddingFolder('new'); setNewFolderPath(dir.replace(/\/+$/, '') + '/') }}
-                            className="underline hover:text-zinc-700"
+      {/* Folder table */}
+      {allFolders.length === 0 && unmappedDiscovered.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-8 text-center">
+          <p className="text-sm text-zinc-500">No specs published yet. Run the CLI to publish specs and folders will appear here.</p>
+        </div>
+      ) : allFolders.length === 0 ? null : (
+        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-800">
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Folder</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Integration</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">ClickUp Destination</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allFolders.map((folder) => {
+                const folderMappings = byFolder[folder] ?? []
+                const primaryMapping = folderMappings[0] ?? null
+                const currentIntegrationId = primaryMapping?.integration_id ?? ''
+                const displayPath = folder === '' ? '/ (root)' : `${folder}/`
+
+                return (
+                  <tr key={folder} className="border-t border-zinc-100 dark:border-zinc-800">
+                    {/* Folder path */}
+                    <td className="px-4 py-3 font-mono text-sm text-zinc-700 dark:text-zinc-300 align-middle">
+                      {displayPath}
+                    </td>
+
+                    {/* Integration selector */}
+                    <td className="px-4 py-3 align-middle">
+                      {canEdit ? (
+                        <select
+                          value={currentIntegrationId}
+                          onChange={(e) => setIntegration(folder, e.target.value)}
+                          className="rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                        >
+                          <option value="">None</option>
+                          {availableIntegrations.map((i) => (
+                            <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-zinc-500">
+                          {primaryMapping ? (integrationLabels[primaryMapping.integrations?.type ?? ''] ?? primaryMapping.integrations?.type ?? '—') : 'None'}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Template selector */}
+                    <td className="px-4 py-3 align-middle">
+                      {primaryMapping ? (
+                        <div className="relative inline-flex items-center gap-1.5">
+                          <select
+                            disabled={!canEdit || savingMappingId === primaryMapping.id}
+                            value={primaryMapping.template_id ?? ''}
+                            onChange={(e) => updateTemplate(primaryMapping.id, e.target.value || null)}
+                            className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                           >
-                            Map a folder
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ) : (
-                    folders.map((fp) => renderFolderRow(fp))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {canEdit && availableIntegrations.length > 0 && folders.length > 0 && (
-              <button
-                onClick={() => { resetAddForm(); setAddingFolder('new'); setNewFolderPath(dir.replace(/\/+$/, '') + '/') }}
-                className="mt-2 text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-              >
-                + Map another folder in {dir.replace(/\/+$/, '')}/
-              </button>
-            )}
-          </div>
-        )
-      })}
+                            <option value="">None</option>
+                            {templates.map((t) => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                          </select>
+                          {savingMappingId === primaryMapping.id && spinner}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-zinc-400">—</span>
+                      )}
+                    </td>
 
-      {/* Unmapped / other folders */}
-      {unmatched.length > 0 && (
+                    {/* ClickUp destination */}
+                    <td className="px-4 py-3 align-middle">
+                      {primaryMapping && primaryMapping.integrations?.type === 'clickup' ? (() => {
+                        const targets = targetsCache[primaryMapping.integration_id] ?? []
+                        const isLoaded = !!targetsCache[primaryMapping.integration_id]
+                        const isSaving = savingMappingId === primaryMapping.id
+                        return (
+                          <div className="inline-flex items-center gap-1.5">
+                            <select
+                              disabled={!canEdit || !isLoaded || isSaving}
+                              value={primaryMapping.target_id ?? ''}
+                              onChange={(e) => updateTarget(primaryMapping.id, e.target.value || null)}
+                              className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                            >
+                              <option value="">{isLoaded ? 'Workspace root' : 'Loading…'}</option>
+                              {targets.filter((t) => t.kind === 'space').map((t) => (
+                                <option key={t.id} value={t.id}>{t.name} (space)</option>
+                              ))}
+                              {targets.filter((t) => t.kind === 'folder').map((t) => (
+                                <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
+                              ))}
+                            </select>
+                            {isSaving && spinner}
+                          </div>
+                        )
+                      })() : (
+                        <span className="text-xs text-zinc-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Detected folders not yet mapped */}
+      {unmappedDiscovered.length > 0 && canEdit && (
         <div>
-          <p className="text-xs font-mono text-zinc-500 mb-2">(other)</p>
-          <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-zinc-50 dark:bg-zinc-800/50">
-                  <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">Folder</th>
-                  <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">Integrations</th>
-                  <th className="px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
-                </tr>
-              </thead>
-              <tbody>{unmatched.map((fp) => renderFolderRow(fp))}</tbody>
-            </table>
+          <p className="text-xs text-zinc-500 mb-2">Detected folders — assign an integration to start mapping:</p>
+          <div className="flex flex-wrap gap-2">
+            {unmappedDiscovered.map((folder) => (
+              <button
+                key={folder}
+                onClick={() => setIntegration(folder, availableIntegrations[0]?.id ?? '')}
+                className="flex items-center gap-1.5 rounded border border-dashed border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs font-mono text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
+              >
+                <span>+</span>
+                {folder === '' ? '/ (root)' : `${folder}/`}
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {specDirs.length === 0 && Object.keys(byFolder).length === 0 && (
+      {availableIntegrations.length === 0 && (
         <p className="text-sm text-zinc-400">
-          No spec directories configured. Add them in{' '}
-          <a href="settings/general" className="underline hover:text-zinc-700">Settings → General</a>.
-        </p>
-      )}
-
-      {canEdit && availableIntegrations.length === 0 && (
-        <p className="text-sm text-zinc-400">
-          No connected integrations. Connect one in{' '}
-          <a href="/integrations" className="underline hover:text-zinc-700">Integrations</a>.
+          No connected integrations.{' '}
+          <a href="/integrations" className="underline hover:text-zinc-700">Connect one in Integrations.</a>
         </p>
       )}
     </div>
