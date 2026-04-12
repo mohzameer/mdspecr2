@@ -124,47 +124,43 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
 async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): Promise<void> {
   const { supabase, project_id, integration_id, credentials } = ctx
 
-  // Resolve user-mapped ancestor folder
+  const immediateParent = samplePath.split('/').slice(0, -1).join('/')
+
+  // Root-level specs (no parent folder) use single mode — one doc per spec
+  if (!immediateParent) return
+
+  // Resolve folder mapping for ClickUp destination (space/folder target).
+  // Mappings are optional — they only control WHERE in ClickUp the doc lands.
   const ancestors = getAncestorFolders(samplePath).slice().reverse()
-  if (ancestors.length === 0) return
+  if (ancestors.length > 0) {
+    const normalisedPaths = ancestors.map((a) => a.path)
+    const pathVariants = [...new Set(normalisedPaths.flatMap((p) => [p, `/${p}`, `${p}/`, `/${p}/`]))]
 
-  const normalisedPaths = ancestors.map((a) => a.path)
-  const pathVariants = [...new Set(normalisedPaths.flatMap((p) => [p, `/${p}`, `${p}/`, `/${p}/`]))]
+    const { data: mappings } = await supabase
+      .from('folder_mappings')
+      .select('id, folder_path, target_id')
+      .eq('project_id', project_id)
+      .eq('integration_id', integration_id)
+      .in('folder_path', pathVariants)
+      .is('clickup_doc_id', null) // exclude auto-created subfolder bookkeeping rows
 
-  const { data: mappings } = await supabase
-    .from('folder_mappings')
-    .select('id, folder_path, target_id')
-    .eq('project_id', project_id)
-    .eq('integration_id', integration_id)
-    .in('folder_path', pathVariants)
-    .is('clickup_doc_id', null) // exclude auto-created subfolder bookkeeping rows
-
-  if (mappings && mappings.length > 0) {
-    for (const a of ancestors) {
-      const match = mappings.find(
-        (m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '') === a.path
-      )
-      if (match) {
-        ctx.folderMappingTargetId = match.target_id ?? null
-        ctx.folderMappingId = match.id
-        ctx.folderMappingPath = a.path
-        break
+    if (mappings && mappings.length > 0) {
+      for (const a of ancestors) {
+        const match = mappings.find(
+          (m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '') === a.path
+        )
+        if (match) {
+          ctx.folderMappingTargetId = match.target_id ?? null
+          ctx.folderMappingId = match.id
+          ctx.folderMappingPath = a.path
+          break
+        }
       }
     }
   }
 
-  if (!ctx.folderMappingId) return
-
-  // Decide single vs multi mode based on the group's immediateParent
-  const immediateParent = samplePath.split('/').slice(0, -1).join('/')
-  const isDirectlyInMappingFolder = immediateParent === ctx.folderMappingPath
-
-  if (isDirectlyInMappingFolder || !immediateParent) {
-    console.log(`[publish] group single-mode — mapping=${ctx.folderMappingPath}`)
-    return
-  }
-
-  // Multi mode: all specs in this group share a subfolder doc
+  // All specs with a parent folder use multi mode: one doc per folder, specs as sub-pages.
+  // Folder mappings only influence the ClickUp destination (target_id), not the grouping itself.
   ctx.isMultiMode = true
   ctx.groupingPath = immediateParent
   ctx.groupFolderName = immediateParent.split('/').pop() ?? 'Specs'
@@ -216,7 +212,7 @@ async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): 
     }
   }
 
-  console.log(`[publish] group multi-mode — mapping=${ctx.folderMappingPath} grouping=${ctx.groupingPath} docId=${ctx.sharedSubDocId ?? 'none'} rootPageId=${ctx.sharedSubPageId ?? 'none'}`)
+  console.log(`[publish] group multi-mode — mapping=${ctx.folderMappingPath ?? 'none'} grouping=${ctx.groupingPath} docId=${ctx.sharedSubDocId ?? 'none'} rootPageId=${ctx.sharedSubPageId ?? 'none'}`)
 }
 
 // ---------------------------------------------------------------------------
