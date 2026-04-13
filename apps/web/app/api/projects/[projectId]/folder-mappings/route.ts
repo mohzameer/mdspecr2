@@ -111,7 +111,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         clickup_list_id: clickup_list_id ?? null,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'project_id,folder_path,integration_id' }
+      { onConflict: 'project_id,folder_path,integration_id,clickup_mode' }
     )
     .select()
     .single()

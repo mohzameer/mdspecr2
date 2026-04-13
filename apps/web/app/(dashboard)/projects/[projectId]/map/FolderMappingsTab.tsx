@@ -72,6 +72,7 @@ export function FolderMappingsTab({
   const [removingAll, setRemovingAll] = useState(false)
   const [newFolderPath, setNewFolderPath] = useState('')
   const [newFolderIntegrationId, setNewFolderIntegrationId] = useState('')
+  const [newFolderMode, setNewFolderMode] = useState<'doc' | 'task_list'>('doc')
   const [addingFolder, setAddingFolder] = useState(false)
   const [savingMappingId, setSavingMappingId] = useState<string | null>(null)
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
@@ -270,11 +271,17 @@ async function applyToAll() {
     const path = newFolderPath.trim().replace(/^\//, '').replace(/\/$/, '')
     const integrationId = newFolderIntegrationId || availableIntegrations[0]?.id
     if (!path || !integrationId) return
+    const selectedIntegration = availableIntegrations.find((i) => i.id === integrationId)
+    const isClickUp = selectedIntegration?.type === 'clickup'
     setAddingFolder(true)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ folder_path: path || '/', integration_id: integrationId }),
+      body: JSON.stringify({
+        folder_path: path || '/',
+        integration_id: integrationId,
+        clickup_mode: isClickUp ? newFolderMode : 'doc',
+      }),
     })
     if (res.ok) {
       const newMapping: FolderMapping = await res.json()
@@ -282,6 +289,7 @@ async function applyToAll() {
       onMappingsChange([...mappings, { ...newMapping, integrations: integration, templates: null }])
       setNewFolderPath('')
       setNewFolderIntegrationId('')
+      setNewFolderMode('doc')
     }
     setAddingFolder(false)
   }
@@ -612,7 +620,7 @@ async function applyToAll() {
                       />
                       <select
                         value={newFolderIntegrationId}
-                        onChange={(e) => setNewFolderIntegrationId(e.target.value)}
+                        onChange={(e) => { setNewFolderIntegrationId(e.target.value); setNewFolderMode('doc') }}
                         className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                       >
                         <option value="">Integration…</option>
@@ -620,6 +628,16 @@ async function applyToAll() {
                           <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
                         ))}
                       </select>
+                      {availableIntegrations.find((i) => i.id === newFolderIntegrationId)?.type === 'clickup' && (
+                        <select
+                          value={newFolderMode}
+                          onChange={(e) => setNewFolderMode(e.target.value as 'doc' | 'task_list')}
+                          className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                        >
+                          <option value="doc">Doc</option>
+                          <option value="task_list">Task list</option>
+                        </select>
+                      )}
                       <button
                         onClick={addFolderManually}
                         disabled={addingFolder || !newFolderPath.trim() || (!newFolderIntegrationId && availableIntegrations.length === 0)}
