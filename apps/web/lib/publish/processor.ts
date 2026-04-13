@@ -88,7 +88,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
   }
 
   if (target_type === 'clickup') {
-    await setupClickupGroupContext(ctx, specs[0].path)
+    await setupClickupGroupContext(ctx, specs[0].path, data.clickup_mode ?? 'doc')
   }
 
   // -- Iterate specs sequentially --------------------------------------------
@@ -130,68 +130,72 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
 // and — critically — verify/recreate the shared subfolder doc ONCE so all
 // specs in the group reuse the same doc/root page.
 // ---------------------------------------------------------------------------
-async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): Promise<void> {
+async function setupClickupGroupContext(ctx: GroupContext, samplePath: string, clickupMode: 'doc' | 'task_list'): Promise<void> {
   const { supabase, project_id, integration_id, credentials } = ctx
 
   // Root folder = first path segment. Root-level specs use single mode.
   const rootFolder = samplePath.split('/')[0] === samplePath ? '' : samplePath.split('/')[0]
   if (!rootFolder) return
 
-  // Resolve folder mapping for ClickUp destination (space/folder target).
-  // Mappings are optional — they only control WHERE in ClickUp the doc lands.
+  // Set mode on context so processOneSpec can dispatch correctly.
+  ctx.clickupMode = clickupMode
+
+  // Resolve the folder mapping row for this (project, integration, folder, mode).
+  // Rows carry user config (target_id, list_id, frontmatter_map, etc.) and also
+  // serve as the bookkeeping record for the shared folder doc (doc mode only).
   const pathVariants = [rootFolder, `/${rootFolder}`, `${rootFolder}/`, `/${rootFolder}/`]
 
-  const { data: mappings } = await supabase
+  const { data: mapping } = await supabase
     .from('folder_mappings')
-    .select('id, folder_path, target_id, clickup_mode, clickup_list_id, clickup_use_custom_task_ids, frontmatter_map')
+    .select('id, folder_path, target_id, clickup_list_id, clickup_use_custom_task_ids, frontmatter_map, clickup_doc_id, clickup_page_id')
     .eq('project_id', project_id)
     .eq('integration_id', integration_id)
+    .eq('clickup_mode', clickupMode)
     .in('folder_path', pathVariants)
-    .is('clickup_doc_id', null)
+    .maybeSingle()
 
-  if (mappings && mappings.length > 0) {
-    const match = mappings[0]
-    ctx.folderMappingTargetId = match.target_id ?? null
-    ctx.folderMappingId = match.id
+  if (mapping) {
+    ctx.folderMappingTargetId = mapping.target_id ?? null
+    ctx.folderMappingId = mapping.id
     ctx.folderMappingPath = rootFolder
-    ctx.clickupMode = (match.clickup_mode as 'doc' | 'task_list') ?? 'doc'
-    ctx.clickupListId = match.clickup_list_id ?? null
-    ctx.clickupUseCustomTaskIds = match.clickup_use_custom_task_ids ?? false
-    ctx.clickupFrontmatterMap = (match.frontmatter_map as Record<string, string> | null) ?? null
+    ctx.clickupListId = mapping.clickup_list_id ?? null
+    ctx.clickupUseCustomTaskIds = mapping.clickup_use_custom_task_ids ?? false
+    ctx.clickupFrontmatterMap = (mapping.frontmatter_map as Record<string, string> | null) ?? null
   }
 
-  // All specs with a root folder use multi mode: one doc per root folder,
-  // sub-folders become section pages, specs are pages (under section or direct).
+  // Task list mode: no shared folder doc to manage — exit here.
+  if (clickupMode === 'task_list') {
+    console.log(`[publish] group task_list — mapping=${ctx.folderMappingPath ?? 'none'} listId=${ctx.clickupListId ?? 'none'}`)
+    return
+  }
+
+  // Doc mode: all specs with a root folder use multi mode — one shared doc per
+  // root folder, sub-folders become section pages.
   ctx.isMultiMode = true
   ctx.groupingPath = rootFolder
   ctx.groupFolderName = rootFolder
 
-  // Lookup or create the subfolder bookkeeping row (single-flight here because
-  // this is the only worker processing this group)
-  const { data: existingSub } = await supabase
-    .from('folder_mappings')
-    .select('id, clickup_doc_id, clickup_page_id')
-    .eq('project_id', project_id)
-    .eq('integration_id', integration_id)
-    .eq('folder_path', ctx.groupingPath)
-    .maybeSingle()
+  // Use the user-configured mapping row as the bookkeeping row if it exists,
+  // otherwise create a minimal row to track the shared doc ID.
+  let subId: string | null = mapping?.id ?? null
+  let subDocId: string | null = mapping?.clickup_doc_id ?? null
 
-  let sub = existingSub
-  if (!sub) {
+  if (!subId) {
     const { data: created } = await supabase
       .from('folder_mappings')
-      .insert({ project_id, integration_id, folder_path: ctx.groupingPath })
+      .insert({ project_id, integration_id, folder_path: ctx.groupingPath, clickup_mode: 'doc' })
       .select('id, clickup_doc_id, clickup_page_id')
       .single()
-    sub = created ?? null
+    subId = created?.id ?? null
+    subDocId = created?.clickup_doc_id ?? null
   }
 
-  if (!sub) {
+  if (!subId) {
     throw new UnrecoverableError(`Failed to obtain subfolder bookkeeping row for ${ctx.groupingPath}`)
   }
 
-  ctx.sharedSubRowId = sub.id
-  ctx.sharedSubDocId = sub.clickup_doc_id
+  ctx.sharedSubRowId = subId
+  ctx.sharedSubDocId = subDocId
 
   // Verify the stored doc still exists in ClickUp. If it was deleted, clear
   // the stale ID so the first spec to publish will create a fresh one.

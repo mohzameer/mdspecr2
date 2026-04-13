@@ -51,6 +51,7 @@ export interface PublishGroupJobData {
   integration_id: string
   target_type: IntegrationType
   specs: PublishGroupSpec[]
+  clickup_mode?: 'doc' | 'task_list'
 }
 
 // ---------------------------------------------------------------------------

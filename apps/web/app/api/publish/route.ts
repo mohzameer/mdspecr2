@@ -164,12 +164,39 @@ export async function POST(request: Request) {
     const specsToProcess = specs
 
     // -------------------------------------------------------------------------
+    // Fetch ClickUp folder mappings upfront to determine which modes (doc /
+    // task_list) are configured per (integration, root folder). This lets the
+    // same folder publish to both a ClickUp Doc and a task list simultaneously.
+    // -------------------------------------------------------------------------
+    const clickupIntegrationIds = activeIntegrations
+      .filter((i) => i.type === 'clickup')
+      .map((i) => i.id)
+
+    // key: `${integration_id}::${normalised_folder}` → Set of clickup_mode strings
+    const clickupFolderModes = new Map<string, Set<string>>()
+
+    if (clickupIntegrationIds.length > 0) {
+      const { data: folderMappings } = await supabase
+        .from('folder_mappings')
+        .select('integration_id, folder_path, clickup_mode')
+        .eq('project_id', project_id)
+        .in('integration_id', clickupIntegrationIds)
+
+      for (const fm of folderMappings ?? []) {
+        const normalised = fm.folder_path.replace(/^\/|\/$/g, '')
+        const key = `${fm.integration_id}::${normalised}`
+        if (!clickupFolderModes.has(key)) clickupFolderModes.set(key, new Set())
+        clickupFolderModes.get(key)!.add(fm.clickup_mode ?? 'doc')
+      }
+    }
+
+    // -------------------------------------------------------------------------
     // Upsert specs + publish targets, accumulate into groups keyed by
-    // (integration_id, immediateParent). All specs in a group will be
+    // (integration_id, rootFolder, clickup_mode). All specs in a group will be
     // processed sequentially by a single worker invocation, eliminating the
     // cross-worker race on shared ClickUp folder docs.
     // -------------------------------------------------------------------------
-    const groups = new Map<string, { integration_id: string; target_type: IntegrationType; specs: PublishGroupSpec[] }>()
+    const groups = new Map<string, { integration_id: string; target_type: IntegrationType; clickup_mode: string; specs: PublishGroupSpec[] }>()
 
     for (const spec of specsToProcess) {
       console.log(`[publish] processing spec path=${spec.path}`)
@@ -217,54 +244,70 @@ export async function POST(request: Request) {
       const rootFolder = pathParts.length > 1 ? pathParts[0] : ''
 
       for (const integration of targetIntegrations) {
-        // Upsert the publish target row
-        const { data: existingTarget } = await supabase
-          .from('spec_publish_targets')
-          .select('id, external_page_id, status')
-          .eq('spec_id', upsertedSpec.id)
-          .eq('integration_id', integration.id)
-          .single()
-
-        const { data: target, error: targetError } = existingTarget
-          ? await supabase
-              .from('spec_publish_targets')
-              .update({ status: 'queued', retry_count: 0, last_error: null })
-              .eq('id', existingTarget.id)
-              .select('id, external_page_id')
-              .single()
-          : await supabase
-              .from('spec_publish_targets')
-              .insert({
-                spec_id: upsertedSpec.id,
-                integration_id: integration.id,
-                target_type: integration.type,
-                status: 'queued',
-                retry_count: 0,
-                last_error: null,
-              })
-              .select('id, external_page_id')
-              .single()
-
-        if (!target) {
-          console.error(`[publish] publish target upsert failed spec=${upsertedSpec.id} integration=${integration.id} error=${targetError?.message}`)
-          continue
+        // For ClickUp, determine which modes are configured for this root folder.
+        // A folder can have both 'doc' and 'task_list' modes simultaneously.
+        // Non-ClickUp integrations always use a single 'doc' slot.
+        let modes: string[]
+        if (integration.type === 'clickup' && rootFolder !== '') {
+          const folderKey = `${integration.id}::${rootFolder}`
+          const configured = clickupFolderModes.get(folderKey)
+          modes = configured ? Array.from(configured) : ['doc']
+        } else {
+          modes = ['doc']
         }
 
-        // Accumulate into the correct group
-        const groupKey = `${integration.id}::${rootFolder}`
-        let group = groups.get(groupKey)
-        if (!group) {
-          group = { integration_id: integration.id, target_type: integration.type as IntegrationType, specs: [] }
-          groups.set(groupKey, group)
+        for (const mode of modes) {
+          // Upsert the publish target row (keyed by spec + integration + mode)
+          const { data: existingTarget } = await supabase
+            .from('spec_publish_targets')
+            .select('id, external_page_id, status')
+            .eq('spec_id', upsertedSpec.id)
+            .eq('integration_id', integration.id)
+            .eq('clickup_mode', mode)
+            .maybeSingle()
+
+          const { data: target, error: targetError } = existingTarget
+            ? await supabase
+                .from('spec_publish_targets')
+                .update({ status: 'queued', retry_count: 0, last_error: null })
+                .eq('id', existingTarget.id)
+                .select('id, external_page_id')
+                .single()
+            : await supabase
+                .from('spec_publish_targets')
+                .insert({
+                  spec_id: upsertedSpec.id,
+                  integration_id: integration.id,
+                  target_type: integration.type,
+                  clickup_mode: mode,
+                  status: 'queued',
+                  retry_count: 0,
+                  last_error: null,
+                })
+                .select('id, external_page_id')
+                .single()
+
+          if (!target) {
+            console.error(`[publish] publish target upsert failed spec=${upsertedSpec.id} integration=${integration.id} mode=${mode} error=${targetError?.message}`)
+            continue
+          }
+
+          // Accumulate into the correct group (one group per integration + folder + mode)
+          const groupKey = `${integration.id}::${rootFolder}::${mode}`
+          let group = groups.get(groupKey)
+          if (!group) {
+            group = { integration_id: integration.id, target_type: integration.type as IntegrationType, clickup_mode: mode, specs: [] }
+            groups.set(groupKey, group)
+          }
+          group.specs.push({
+            spec_id: upsertedSpec.id,
+            spec_publish_target_id: target.id,
+            path: spec.path,
+            content: spec.content,
+            content_hash: spec.hash,
+            frontmatter: spec.frontmatter ?? {},
+          })
         }
-        group.specs.push({
-          spec_id: upsertedSpec.id,
-          spec_publish_target_id: target.id,
-          path: spec.path,
-          content: spec.content,
-          content_hash: spec.hash,
-          frontmatter: spec.frontmatter ?? {},
-        })
       }
     }
 
@@ -279,6 +322,7 @@ export async function POST(request: Request) {
         integration_id: group.integration_id,
         target_type: group.target_type,
         specs: group.specs,
+        clickup_mode: group.clickup_mode as 'doc' | 'task_list',
       }
 
       try {

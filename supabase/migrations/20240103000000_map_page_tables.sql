@@ -211,7 +211,7 @@ begin
     'Default template — transforms specs into structured task documents with acceptance criteria, dependencies, and open questions.',
     'You are a technical documentation agent. Transform the provided engineering spec into a structured task document.
 
-Preserve the original spec content at the top, then extract or generate the following sections:
+Extract or generate the following sections from the spec:
 
 ## Background
 Summarise the context and motivation for this task. Why is it being built? What problem does it solve?
