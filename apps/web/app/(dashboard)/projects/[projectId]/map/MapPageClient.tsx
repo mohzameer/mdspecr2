@@ -32,6 +32,7 @@ interface FolderMapping {
   target_id: string | null
   clickup_mode: 'doc' | 'task_list' | null
   clickup_list_id: string | null
+  clickup_use_custom_task_ids: boolean | null
   frontmatter_map: Record<string, string> | null
   integrations: { id: string; type: string; status: string; config: Record<string, unknown> | null } | null
   templates: { id: string; name: string } | null

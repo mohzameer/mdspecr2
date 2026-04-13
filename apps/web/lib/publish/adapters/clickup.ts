@@ -133,6 +133,46 @@ async function createDoc(
 // Task list mode helpers
 // ---------------------------------------------------------------------------
 
+// Resolve an unknown task ID (may be native or custom) to a native task ID.
+// Native IDs work directly; custom IDs require ?custom_task_ids=true&team_id=.
+// The API always returns the native `id` in the response body, so we store
+// that — future updates never need to pass the custom_task_ids flag again.
+// Returns null if the task does not exist under either lookup.
+export async function resolveToNativeTaskId(
+  credentials: ClickUpCredentials,
+  taskId: string,
+  useCustomTaskIds = false
+): Promise<string | null> {
+  const { api_token, workspace_id } = credentials
+  const headers = authHeaders(api_token)
+
+  if (!useCustomTaskIds) {
+    // Try native first, fall back to custom
+    try {
+      const res = await axios.get(`${CLICKUP_API}/task/${taskId}`, { headers })
+      return res.data?.id as string
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status
+      if (status !== 404 && status !== 400) throw err
+    }
+  }
+
+  // Custom task ID lookup (either directly requested or as fallback)
+  try {
+    const res = await axios.get(
+      `${CLICKUP_API}/task/${taskId}?custom_task_ids=true&team_id=${workspace_id}`,
+      { headers }
+    )
+    const nativeId = res.data?.id as string
+    console.log(`[clickup:task] resolved custom id ${taskId} → native id ${nativeId}`)
+    return nativeId
+  } catch (err) {
+    const status = (err as { response?: { status?: number } }).response?.status
+    if (status === 404 || status === 400) return null
+    throw err
+  }
+}
+
 function parseTaskFields(content: string, fallbackTitle: string): {
   name: string
   description: string
@@ -205,6 +245,7 @@ export async function publishAsTask(
     if (payload[key] === undefined) delete payload[key]
   }
 
+  // existingTaskId is always a native ID — resolved at adoption time
   if (existingTaskId) {
     try {
       console.log(`[clickup:task] updating task ${existingTaskId}`)
@@ -221,7 +262,7 @@ export async function publishAsTask(
     } catch (err) {
       const e = err as { response?: { status?: number } }
       if (e.response?.status !== 404) throw err
-      console.log(`[clickup:task] task ${existingTaskId} not found — creating new`)
+      console.log(`[clickup:task] task ${existingTaskId} deleted — creating new`)
     }
   }
 

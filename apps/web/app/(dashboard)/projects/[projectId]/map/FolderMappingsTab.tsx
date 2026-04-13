@@ -24,6 +24,7 @@ interface FolderMapping {
   target_id: string | null
   clickup_mode: 'doc' | 'task_list' | null
   clickup_list_id: string | null
+  clickup_use_custom_task_ids: boolean | null
   frontmatter_map: Record<string, string> | null
   integrations: { id: string; type: string; status: string; config: Record<string, unknown> | null } | null
   templates: { id: string; name: string } | null
@@ -76,6 +77,7 @@ export function FolderMappingsTab({
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
   // inline frontmatter editing: mappingId → { attribute → frontmatterKey }
   const [frontmatterDraft, setFrontmatterDraft] = useState<Record<string, Record<string, string>>>({})
+  const [copiedMappingId, setCopiedMappingId] = useState<string | null>(null)
   // listsCache: integrationId:spaceId → ClickUpList[]
   const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
 
@@ -186,7 +188,7 @@ async function applyToAll() {
 
   async function updateClickupConfig(
     mappingId: string,
-    patch: { clickup_mode?: 'doc' | 'task_list'; clickup_list_id?: string | null; target_id?: string | null }
+    patch: { clickup_mode?: 'doc' | 'task_list'; clickup_list_id?: string | null; target_id?: string | null; clickup_use_custom_task_ids?: boolean }
   ) {
     setSavingMappingId(mappingId)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
@@ -493,6 +495,19 @@ async function applyToAll() {
 
                               {isSaving && spinner}
                             </div>
+
+                            {mode === 'task_list' && (
+                              <label className="inline-flex items-center gap-1.5 cursor-pointer w-fit">
+                                <input
+                                  type="checkbox"
+                                  disabled={!canEdit || isSaving}
+                                  checked={!!primaryMapping.clickup_use_custom_task_ids}
+                                  onChange={(e) => updateClickupConfig(primaryMapping.id, { clickup_use_custom_task_ids: e.target.checked })}
+                                  className="rounded border-zinc-300 dark:border-zinc-600 text-zinc-900 focus:ring-zinc-500 disabled:opacity-50"
+                                />
+                                <span className="text-xs text-zinc-500">Custom task IDs</span>
+                              </label>
+                            )}
                           </div>
                         )
                       })() : (
@@ -537,6 +552,42 @@ async function applyToAll() {
                                 )}
                               </div>
                             ))}
+
+                            {/* Sample frontmatter snippet */}
+                            {(() => {
+                              const lines = attrs
+                                .filter(({ attribute, optional }) => !optional || (draft[attribute] ?? '').trim().length > 0)
+                                .map(({ attribute }) => {
+                                  const key = (draft[attribute] ?? '').trim() || attribute
+                                  return `${key}: …`
+                                })
+                              const snippet = `---\n${lines.join('\n')}\n---`
+                              return (
+                                <div className="mt-1 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60 px-2.5 py-2 relative">
+                                  <pre className="text-xs font-mono text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed">{snippet}</pre>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(snippet)
+                                      setCopiedMappingId(primaryMapping.id)
+                                      setTimeout(() => setCopiedMappingId(null), 1500)
+                                    }}
+                                    className="absolute top-1.5 right-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+                                    title="Copy"
+                                  >
+                                    {copiedMappingId === primaryMapping.id ? (
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    ) : (
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                </div>
+                              )
+                            })()}
                           </div>
                         )
                       })() : (
