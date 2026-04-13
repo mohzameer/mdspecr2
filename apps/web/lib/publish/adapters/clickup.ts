@@ -225,25 +225,43 @@ export async function publishAsTask(
   credentials: ClickUpCredentials,
   spec: { path: string; content: string; frontmatter: Record<string, unknown> },
   existingTaskId: string | null,
-  listId: string
+  listId: string,
+  frontmatterMap?: Record<string, string> | null
 ): Promise<{ task_id: string; task_url: string; previousIdStale?: boolean }> {
   const { api_token } = credentials
   const headers = { Authorization: api_token, 'Content-Type': 'application/json' }
   const fallbackTitle = getSpecTitle(spec.path, spec.frontmatter)
   const fields = parseTaskFields(spec.content, fallbackTitle)
 
-  const payload: Record<string, unknown> = {
+  // Full payload used for creates — all fields the agent produced
+  const fullPayload: Record<string, unknown> = {
     name: fields.name,
-    description: fields.description,
+    markdown_description: fields.description,
     tags: fields.tags.length > 0 ? fields.tags : undefined,
     priority: fields.priority,
     status: fields.status,
     due_date: fields.due_date,
   }
-  // Strip undefined fields
-  for (const key of Object.keys(payload)) {
-    if (payload[key] === undefined) delete payload[key]
+  for (const key of Object.keys(fullPayload)) {
+    if (fullPayload[key] === undefined) delete fullPayload[key]
   }
+
+  // For updates, only send fields the user has explicitly mapped.
+  // Unmapped fields are left untouched in ClickUp.
+  // description is always synced (it carries the spec content).
+  // clickup_task_id is the link key — not a writable task field.
+  const mappedAttributes = frontmatterMap ? Object.keys(frontmatterMap) : null
+  const updatePayload: Record<string, unknown> = { markdown_description: fullPayload.markdown_description }
+  if (!mappedAttributes || mappedAttributes.includes('title')) updatePayload.name = fullPayload.name
+  if (!mappedAttributes || mappedAttributes.includes('priority')) updatePayload.priority = fullPayload.priority
+  if (!mappedAttributes || mappedAttributes.includes('status')) updatePayload.status = fullPayload.status
+  if (!mappedAttributes || mappedAttributes.includes('tags')) updatePayload.tags = fullPayload.tags
+  if (!mappedAttributes || mappedAttributes.includes('due_date')) updatePayload.due_date = fullPayload.due_date
+  for (const key of Object.keys(updatePayload)) {
+    if (updatePayload[key] === undefined) delete updatePayload[key]
+  }
+
+  console.log(`[clickup:task] mapped attributes: ${mappedAttributes?.join(', ') ?? 'all'} — update payload keys: ${Object.keys(updatePayload).join(', ')}`)
 
   // existingTaskId is always a native ID — resolved at adoption time
   if (existingTaskId) {
@@ -251,7 +269,7 @@ export async function publishAsTask(
       console.log(`[clickup:task] updating task ${existingTaskId}`)
       const res = await axios.put(
         `${CLICKUP_API}/task/${existingTaskId}`,
-        payload,
+        updatePayload,
         { headers }
       )
       const taskId = (res.data?.id ?? existingTaskId) as string
@@ -271,7 +289,7 @@ export async function publishAsTask(
   console.log(`[clickup:task] creating task in list ${listId}`)
   const res = await axios.post(
     `${CLICKUP_API}/list/${listId}/task`,
-    payload,
+    fullPayload,
     { headers }
   )
   const taskId = res.data?.id as string

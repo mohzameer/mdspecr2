@@ -349,7 +349,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
           }
         }
 
-        let taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId)
+        let taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId, ctx.clickupFrontmatterMap)
 
         // Stored ID was stale (task deleted in ClickUp) — try to re-resolve from
         // frontmatter before falling through to create a brand new task.
