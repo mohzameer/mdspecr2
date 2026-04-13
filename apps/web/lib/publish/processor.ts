@@ -349,7 +349,27 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
           }
         }
 
-        const taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId)
+        let taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId)
+
+        // Stored ID was stale (task deleted in ClickUp) — try to re-resolve from
+        // frontmatter before falling through to create a brand new task.
+        if (taskResult.previousIdStale) {
+          const taskIdKey = ctx.clickupFrontmatterMap?.['clickup_task_id'] ?? 'clickup_task_id'
+          const frontmatterTaskId = frontmatter?.[taskIdKey]
+          console.log(`[publish:task] stale stored id — re-checking frontmatter key "${taskIdKey}", found: ${frontmatterTaskId ?? '(not set)'}`)
+          let resolvedId: string | null = null
+          if (typeof frontmatterTaskId === 'string' && frontmatterTaskId.length > 0) {
+            resolvedId = await resolveToNativeTaskId(clickupCreds, frontmatterTaskId, ctx.clickupUseCustomTaskIds)
+            console.log(`[publish:task] re-resolve "${frontmatterTaskId}" → ${resolvedId ?? 'null'}`)
+          }
+          // Clear stale ID from DB — will be replaced with new one after this publish
+          await supabase
+            .from('spec_publish_targets')
+            .update({ external_page_id: null })
+            .eq('id', spec_publish_target_id)
+          taskResult = await publishAsTask(clickupCreds, specPayload, resolvedId, ctx.clickupListId)
+        }
+
         result = { page_id: taskResult.task_id, page_url: taskResult.task_url }
       } else if (ctx.isMultiMode && ctx.groupFolderName) {
         const multiResult = await publishSpecAsPage(

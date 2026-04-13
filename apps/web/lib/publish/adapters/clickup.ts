@@ -226,7 +226,7 @@ export async function publishAsTask(
   spec: { path: string; content: string; frontmatter: Record<string, unknown> },
   existingTaskId: string | null,
   listId: string
-): Promise<{ task_id: string; task_url: string }> {
+): Promise<{ task_id: string; task_url: string; previousIdStale?: boolean }> {
   const { api_token } = credentials
   const headers = { Authorization: api_token, 'Content-Type': 'application/json' }
   const fallbackTitle = getSpecTitle(spec.path, spec.frontmatter)
@@ -262,7 +262,9 @@ export async function publishAsTask(
     } catch (err) {
       const e = err as { response?: { status?: number } }
       if (e.response?.status !== 404) throw err
-      console.log(`[clickup:task] task ${existingTaskId} deleted — creating new`)
+      // Stored ID is stale — signal the caller so it can re-resolve from frontmatter
+      console.log(`[clickup:task] task ${existingTaskId} not found (stale stored id)`)
+      return { task_id: '', task_url: '', previousIdStale: true }
     }
   }
 
