@@ -227,7 +227,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   let { content } = spec
 
   // -- Agent routing ---------------------------------------------------------
-  const resolution = await resolveFolderMapping(supabase, project_id, path, frontmatter)
+  const resolution = await resolveFolderMapping(supabase, project_id, path, frontmatter, ctx.integration_id, ctx.clickupMode)
   if (resolution.shouldRunAgent && resolution.templateId && resolution.trigger) {
     console.log(`[publish] spec ${spec_id} → agent (template ${resolution.templateId})`)
     content = await runAgentInline(

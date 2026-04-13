@@ -11,7 +11,9 @@ export async function resolveFolderMapping(
   supabase: SupabaseClient,
   projectId: string,
   specPath: string,
-  frontmatter: Record<string, unknown>
+  frontmatter: Record<string, unknown>,
+  integrationId?: string,
+  clickupMode?: string
 ): Promise<MappingResolution> {
   if (frontmatter.mdspec_no_agent === true) {
     return { shouldRunAgent: false, templateId: null, trigger: null }
@@ -29,12 +31,17 @@ export async function resolveFolderMapping(
 
   const folderPaths = ancestors.map((a) => a.path)
 
-  const { data: mappings } = await supabase
+  let query = supabase
     .from('folder_mappings')
     .select('folder_path, template_id')
     .eq('project_id', projectId)
     .in('folder_path', folderPaths)
     .not('template_id', 'is', null)
+
+  if (integrationId) query = query.eq('integration_id', integrationId)
+  if (clickupMode) query = query.eq('clickup_mode', clickupMode)
+
+  const { data: mappings } = await query
 
   if (!mappings || mappings.length === 0) {
     return { shouldRunAgent: false, templateId: null, trigger: null }
