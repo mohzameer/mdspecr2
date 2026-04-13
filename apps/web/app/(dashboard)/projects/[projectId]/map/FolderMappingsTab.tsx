@@ -22,6 +22,9 @@ interface FolderMapping {
   integration_id: string
   template_id: string | null
   target_id: string | null
+  clickup_mode: 'doc' | 'task_list' | null
+  clickup_list_id: string | null
+  frontmatter_keys: string | null
   integrations: { id: string; type: string; status: string; config: Record<string, unknown> | null } | null
   templates: { id: string; name: string } | null
 }
@@ -31,6 +34,11 @@ interface ClickUpTarget {
   name: string
   kind: 'space' | 'folder'
   space_name?: string
+}
+
+interface ClickUpList {
+  id: string
+  name: string
 }
 
 interface Props {
@@ -61,8 +69,15 @@ export function FolderMappingsTab({
   const [replaceAllIntegrationId, setReplaceAllIntegrationId] = useState('')
   const [applyingAll, setApplyingAll] = useState(false)
   const [removingAll, setRemovingAll] = useState(false)
+  const [newFolderPath, setNewFolderPath] = useState('')
+  const [newFolderIntegrationId, setNewFolderIntegrationId] = useState('')
+  const [addingFolder, setAddingFolder] = useState(false)
   const [savingMappingId, setSavingMappingId] = useState<string | null>(null)
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
+  // inline frontmatter editing: mappingId → current draft value
+  const [frontmatterDraft, setFrontmatterDraft] = useState<Record<string, string>>({})
+  // listsCache: integrationId:spaceId → ClickUpList[]
+  const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
 
   // Pre-load ClickUp targets for all ClickUp integrations already in mappings
   useEffect(() => {
@@ -169,6 +184,54 @@ async function applyToAll() {
     setSavingMappingId(null)
   }
 
+  async function updateClickupConfig(
+    mappingId: string,
+    patch: { clickup_mode?: 'doc' | 'task_list'; clickup_list_id?: string | null; target_id?: string | null }
+  ) {
+    setSavingMappingId(mappingId)
+    const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      onMappingsChange(mappings.map((m) => m.id === mappingId ? { ...m, ...updated } : m))
+    }
+    setSavingMappingId(null)
+  }
+
+  async function saveFrontmatterKeys(mappingId: string) {
+    const raw = frontmatterDraft[mappingId] ?? ''
+    // Normalise: split on commas/spaces, dedupe, rejoin
+    const keys = [...new Set(raw.split(/[\s,]+/).map((k) => k.trim()).filter(Boolean))]
+    const value = keys.length > 0 ? keys.join(', ') : null
+    const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ frontmatter_keys: value }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      onMappingsChange(mappings.map((m) => m.id === mappingId ? { ...m, frontmatter_keys: updated.frontmatter_keys } : m))
+      // Sync draft to normalised value
+      setFrontmatterDraft((prev) => ({ ...prev, [mappingId]: updated.frontmatter_keys ?? '' }))
+    }
+  }
+
+  function loadLists(integrationId: string, spaceId: string) {
+    const cacheKey = `${integrationId}:${spaceId}`
+    if (listsCache[cacheKey]) return
+    fetch(`/api/integrations/${integrationId}/clickup-lists?space_id=${spaceId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.lists)) {
+          setListsCache((prev) => ({ ...prev, [cacheKey]: data.lists }))
+        }
+      })
+      .catch(() => {})
+  }
+
   async function setIntegration(folderPath: string, integrationId: string) {
     // Remove existing mappings for this folder first, then add new one
     const existing = byFolder[folderPath] ?? []
@@ -192,6 +255,26 @@ async function applyToAll() {
       const integration = availableIntegrations.find((i) => i.id === integrationId) ?? null
       onMappingsChange([...withoutFolder, { ...newMapping, integrations: integration, templates: null }])
     }
+  }
+
+  async function addFolderManually() {
+    const path = newFolderPath.trim().replace(/^\//, '').replace(/\/$/, '')
+    const integrationId = newFolderIntegrationId || availableIntegrations[0]?.id
+    if (!path || !integrationId) return
+    setAddingFolder(true)
+    const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_path: path || '/', integration_id: integrationId }),
+    })
+    if (res.ok) {
+      const newMapping: FolderMapping = await res.json()
+      const integration = availableIntegrations.find((i) => i.id === integrationId) ?? null
+      onMappingsChange([...mappings, { ...newMapping, integrations: integration, templates: null }])
+      setNewFolderPath('')
+      setNewFolderIntegrationId('')
+    }
+    setAddingFolder(false)
   }
 
   async function removeAllMappings() {
@@ -253,11 +336,7 @@ async function applyToAll() {
       )}
 
       {/* Folder table */}
-      {allFolders.length === 0 && unmappedDiscovered.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-8 text-center">
-          <p className="text-sm text-zinc-500">No specs published yet. Run the CLI to publish specs and folders will appear here.</p>
-        </div>
-      ) : allFolders.length === 0 ? null : (
+      {(allFolders.length > 0 || canEdit) && (
         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
           <table className="w-full text-left">
             <thead>
@@ -266,6 +345,7 @@ async function applyToAll() {
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Integration</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">ClickUp Destination</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Frontmatter</th>
               </tr>
             </thead>
             <tbody>
@@ -325,37 +405,155 @@ async function applyToAll() {
                     </td>
 
                     {/* ClickUp destination */}
-                    <td className="px-4 py-3 align-middle">
+                    <td className="px-4 py-3 align-top">
                       {primaryMapping && primaryMapping.integrations?.type === 'clickup' ? (() => {
                         const targets = targetsCache[primaryMapping.integration_id] ?? []
-                        const isLoaded = !!targetsCache[primaryMapping.integration_id]
+                        const targetsLoaded = !!targetsCache[primaryMapping.integration_id]
                         const isSaving = savingMappingId === primaryMapping.id
+                        const mode = primaryMapping.clickup_mode ?? 'doc'
+
+                        // Derive selected space ID from target_id (for list loading)
+                        const selectedSpaceId = primaryMapping.target_id?.startsWith('space:')
+                          ? primaryMapping.target_id.slice(6)
+                          : null
+
+                        const listsCacheKey = selectedSpaceId
+                          ? `${primaryMapping.integration_id}:${selectedSpaceId}`
+                          : null
+                        const lists: ClickUpList[] = listsCacheKey ? (listsCache[listsCacheKey] ?? []) : []
+                        const listsLoaded = listsCacheKey ? !!listsCache[listsCacheKey] : false
+
+                        // Auto-load lists when mode is task_list and a space is selected
+                        if (mode === 'task_list' && selectedSpaceId && !listsLoaded) {
+                          loadLists(primaryMapping.integration_id, selectedSpaceId)
+                        }
+
                         return (
-                          <div className="inline-flex items-center gap-1.5">
-                            <select
-                              disabled={!canEdit || !isLoaded || isSaving}
-                              value={primaryMapping.target_id ?? ''}
-                              onChange={(e) => updateTarget(primaryMapping.id, e.target.value || null)}
-                              className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-                            >
-                              <option value="">{isLoaded ? 'Workspace root' : 'Loading…'}</option>
-                              {targets.filter((t) => t.kind === 'space').map((t) => (
-                                <option key={t.id} value={t.id}>{t.name} (space)</option>
-                              ))}
-                              {targets.filter((t) => t.kind === 'folder').map((t) => (
-                                <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
-                              ))}
-                            </select>
-                            {isSaving && spinner}
+                          <div className="flex flex-col gap-1.5 w-fit">
+                            {/* Mode toggle */}
+                            {canEdit && (
+                              <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs">
+                                <button
+                                  disabled={isSaving}
+                                  onClick={() => updateClickupConfig(primaryMapping.id, { clickup_mode: 'doc', clickup_list_id: null })}
+                                  className={`flex-1 px-2 py-1 transition-colors disabled:opacity-50 ${mode === 'doc' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+                                >
+                                  Doc
+                                </button>
+                                <button
+                                  disabled={isSaving}
+                                  onClick={() => updateClickupConfig(primaryMapping.id, { clickup_mode: 'task_list' })}
+                                  className={`flex-1 px-2 py-1 transition-colors disabled:opacity-50 border-l border-zinc-300 dark:border-zinc-700 ${mode === 'task_list' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+                                >
+                                  Task list
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Space picker (doc mode) or Space + List picker (task_list mode) */}
+                            <div className="inline-flex items-center gap-1.5 flex-wrap">
+                              <select
+                                disabled={!canEdit || !targetsLoaded || isSaving}
+                                value={primaryMapping.target_id ?? ''}
+                                onChange={(e) => {
+                                  const newTargetId = e.target.value || null
+                                  updateClickupConfig(primaryMapping.id, { target_id: newTargetId, clickup_list_id: null })
+                                }}
+                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                              >
+                                <option value="">{targetsLoaded ? (mode === 'task_list' ? 'Select space…' : 'Workspace root') : 'Loading…'}</option>
+                                {targets.filter((t) => t.kind === 'space').map((t) => (
+                                  <option key={t.id} value={t.id}>{t.name} (space)</option>
+                                ))}
+                                {mode === 'doc' && targets.filter((t) => t.kind === 'folder').map((t) => (
+                                  <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
+                                ))}
+                              </select>
+
+                              {mode === 'task_list' && selectedSpaceId && (
+                                <select
+                                  disabled={!canEdit || !listsLoaded || isSaving}
+                                  value={primaryMapping.clickup_list_id ?? ''}
+                                  onChange={(e) => updateClickupConfig(primaryMapping.id, { clickup_list_id: e.target.value || null })}
+                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                                >
+                                  <option value="">{listsLoaded ? 'Select list…' : 'Loading…'}</option>
+                                  {lists.map((l) => (
+                                    <option key={l.id} value={l.id}>{l.name}</option>
+                                  ))}
+                                </select>
+                              )}
+
+                              {isSaving && spinner}
+                            </div>
                           </div>
                         )
                       })() : (
                         <span className="text-xs text-zinc-400">—</span>
                       )}
                     </td>
+
+                    {/* Frontmatter keys */}
+                    <td className="px-4 py-3 align-middle">
+                      {primaryMapping && canEdit ? (() => {
+                        const mode = primaryMapping.clickup_mode ?? 'doc'
+                        const placeholder = mode === 'task_list' ? 'title, clickup_task_id' : 'title'
+                        const draft = frontmatterDraft[primaryMapping.id] ?? primaryMapping.frontmatter_keys ?? ''
+                        return (
+                          <input
+                            type="text"
+                            value={draft}
+                            placeholder={placeholder}
+                            onChange={(e) => setFrontmatterDraft((prev) => ({ ...prev, [primaryMapping.id]: e.target.value }))}
+                            onBlur={() => saveFrontmatterKeys(primaryMapping.id)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                            className="w-full min-w-[140px] text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                          />
+                        )
+                      })() : primaryMapping?.frontmatter_keys ? (
+                        <span className="text-xs text-zinc-500 font-mono">{primaryMapping.frontmatter_keys}</span>
+                      ) : (
+                        <span className="text-xs text-zinc-400">—</span>
+                      )}
+                    </td>
                   </tr>
                 )
               })}
+              {/* Add folder row */}
+              {canEdit && (
+                <tr className="border-t border-zinc-100 dark:border-zinc-800">
+                  <td className="px-4 py-2.5" colSpan={2}>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newFolderPath}
+                        onChange={(e) => setNewFolderPath(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') addFolderManually() }}
+                        placeholder="Add folder path…"
+                        className="text-xs rounded border border-dashed border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 font-mono w-48"
+                      />
+                      <select
+                        value={newFolderIntegrationId}
+                        onChange={(e) => setNewFolderIntegrationId(e.target.value)}
+                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                      >
+                        <option value="">Integration…</option>
+                        {availableIntegrations.map((i) => (
+                          <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={addFolderManually}
+                        disabled={addingFolder || !newFolderPath.trim() || (!newFolderIntegrationId && availableIntegrations.length === 0)}
+                        className="text-xs rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2.5 py-1 disabled:opacity-40 transition-colors"
+                      >
+                        {addingFolder ? 'Adding…' : 'Add'}
+                      </button>
+                    </div>
+                  </td>
+                  <td colSpan={3} />
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

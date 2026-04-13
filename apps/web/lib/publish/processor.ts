@@ -2,7 +2,7 @@ import { createSupabaseServiceClient } from '@/lib/db-server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { publishToNotion } from './adapters/notion'
 import { publishToConfluence } from './adapters/confluence'
-import { publishSingleSpec, publishSpecAsPage, clickUpDocExists } from './adapters/clickup'
+import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists } from './adapters/clickup'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
@@ -29,6 +29,9 @@ interface GroupContext {
   sharedSubDocId: string | null
   // In-memory cache: sub-folder path → ClickUp section page ID (created on demand)
   sectionPageIds: Map<string, string>
+  // Task list mode
+  clickupMode: 'doc' | 'task_list'
+  clickupListId: string | null
 }
 
 export async function runPublishGroup(data: PublishGroupJobData): Promise<void> {
@@ -76,6 +79,8 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     sharedSubRowId: null,
     sharedSubDocId: null,
     sectionPageIds: new Map(),
+    clickupMode: 'doc',
+    clickupListId: null,
   }
 
   if (target_type === 'clickup') {
@@ -134,7 +139,7 @@ async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): 
 
   const { data: mappings } = await supabase
     .from('folder_mappings')
-    .select('id, folder_path, target_id')
+    .select('id, folder_path, target_id, clickup_mode, clickup_list_id')
     .eq('project_id', project_id)
     .eq('integration_id', integration_id)
     .in('folder_path', pathVariants)
@@ -145,6 +150,8 @@ async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): 
     ctx.folderMappingTargetId = match.target_id ?? null
     ctx.folderMappingId = match.id
     ctx.folderMappingPath = rootFolder
+    ctx.clickupMode = (match.clickup_mode as 'doc' | 'task_list') ?? 'doc'
+    ctx.clickupListId = match.clickup_list_id ?? null
   }
 
   // All specs with a root folder use multi mode: one doc per root folder,
@@ -301,7 +308,24 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         workspace_id: credentials.workspace_id as string,
       }
 
-      if (ctx.isMultiMode && ctx.groupFolderName) {
+      if (ctx.clickupMode === 'task_list') {
+        if (!ctx.clickupListId) throw new Error('clickup_list_id not configured for task_list mode')
+
+        // Adopt task ID from frontmatter (one-time link to a pre-existing task)
+        if (!existingPageId) {
+          const frontmatterTaskId = frontmatter?.clickup_task_id
+          if (typeof frontmatterTaskId === 'string' && frontmatterTaskId.length > 0) {
+            existingPageId = frontmatterTaskId
+            await supabase
+              .from('spec_publish_targets')
+              .update({ external_page_id: frontmatterTaskId })
+              .eq('id', spec_publish_target_id)
+          }
+        }
+
+        const taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId)
+        result = { page_id: taskResult.task_id, page_url: taskResult.task_url }
+      } else if (ctx.isMultiMode && ctx.groupFolderName) {
         const multiResult = await publishSpecAsPage(
           clickupCreds,
           specPayload,

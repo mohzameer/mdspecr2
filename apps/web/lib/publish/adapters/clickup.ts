@@ -129,6 +129,115 @@ async function createDoc(
   return { doc_id: docId, page_id: pageId }
 }
 
+// ---------------------------------------------------------------------------
+// Task list mode helpers
+// ---------------------------------------------------------------------------
+
+function parseTaskFields(content: string, fallbackTitle: string): {
+  name: string
+  description: string
+  priority: number | undefined
+  status: string | undefined
+  tags: string[]
+  due_date: number | undefined
+} {
+  const lines = content.split('\n')
+  const sections: Record<string, string[]> = {}
+  let currentSection: string | null = null
+
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+)/)
+    if (heading) {
+      currentSection = heading[1].trim().toLowerCase()
+      sections[currentSection] = []
+    } else if (currentSection) {
+      sections[currentSection].push(line)
+    }
+  }
+
+  const get = (key: string) => sections[key]?.join('\n').trim() || undefined
+
+  const titleRaw = get('title') ?? fallbackTitle
+  const description = get('description') ?? content
+  const priorityRaw = get('priority')
+  const statusRaw = get('status')
+  const tagsRaw = get('tags')
+  const dueDateRaw = get('due date') ?? get('due_date')
+
+  // ClickUp priority: 1=urgent 2=high 3=normal 4=low
+  const priorityMap: Record<string, number> = { urgent: 1, high: 2, normal: 3, low: 4 }
+  const priority = priorityRaw ? (priorityMap[priorityRaw.toLowerCase()] ?? undefined) : undefined
+
+  const tags = tagsRaw
+    ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean)
+    : []
+
+  let due_date: number | undefined
+  if (dueDateRaw) {
+    const parsed = Date.parse(dueDateRaw)
+    if (!isNaN(parsed)) due_date = parsed
+  }
+
+  return { name: titleRaw, description, priority, status: statusRaw, tags, due_date }
+}
+
+export async function publishAsTask(
+  credentials: ClickUpCredentials,
+  spec: { path: string; content: string; frontmatter: Record<string, unknown> },
+  existingTaskId: string | null,
+  listId: string
+): Promise<{ task_id: string; task_url: string }> {
+  const { api_token } = credentials
+  const headers = { Authorization: api_token, 'Content-Type': 'application/json' }
+  const fallbackTitle = getSpecTitle(spec.path, spec.frontmatter)
+  const fields = parseTaskFields(spec.content, fallbackTitle)
+
+  const payload: Record<string, unknown> = {
+    name: fields.name,
+    description: fields.description,
+    tags: fields.tags.length > 0 ? fields.tags : undefined,
+    priority: fields.priority,
+    status: fields.status,
+    due_date: fields.due_date,
+  }
+  // Strip undefined fields
+  for (const key of Object.keys(payload)) {
+    if (payload[key] === undefined) delete payload[key]
+  }
+
+  if (existingTaskId) {
+    try {
+      console.log(`[clickup:task] updating task ${existingTaskId}`)
+      const res = await axios.put(
+        `${CLICKUP_API}/task/${existingTaskId}`,
+        payload,
+        { headers }
+      )
+      const taskId = (res.data?.id ?? existingTaskId) as string
+      return {
+        task_id: taskId,
+        task_url: res.data?.url ?? `https://app.clickup.com/t/${taskId}`,
+      }
+    } catch (err) {
+      const e = err as { response?: { status?: number } }
+      if (e.response?.status !== 404) throw err
+      console.log(`[clickup:task] task ${existingTaskId} not found — creating new`)
+    }
+  }
+
+  console.log(`[clickup:task] creating task in list ${listId}`)
+  const res = await axios.post(
+    `${CLICKUP_API}/list/${listId}/task`,
+    payload,
+    { headers }
+  )
+  const taskId = res.data?.id as string
+  return {
+    task_id: taskId,
+    task_url: res.data?.url ?? `https://app.clickup.com/t/${taskId}`,
+  }
+}
+
 export async function publishSingleSpec(
   credentials: ClickUpCredentials,
   spec: { path: string; content: string; frontmatter: Record<string, unknown> },
