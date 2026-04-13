@@ -158,43 +158,44 @@ export async function POST(request: Request) {
       console.log(`[publish] no active integrations for org=${project.org_id} — nothing to enqueue`)
     }
 
-    // All specs within the scanning directories are processed. Folder mappings
-    // control which integration/template applies per folder — not which specs
-    // are allowed through. Folders are auto-detected from the spec paths.
     const specsToProcess = specs
 
     // -------------------------------------------------------------------------
-    // Fetch ClickUp folder mappings upfront to determine which modes (doc /
-    // task_list) are configured per (integration, root folder). This lets the
-    // same folder publish to both a ClickUp Doc and a task list simultaneously.
+    // Fetch all folder mappings for this project upfront.
+    // Mappings are now REQUIRED — a spec only syncs to an integration if an
+    // explicit folder mapping exists for that (folder, integration) pair.
+    // For ClickUp, mappings also determine the mode (doc / task_list), and the
+    // same folder can have both modes simultaneously.
     // -------------------------------------------------------------------------
-    const clickupIntegrationIds = activeIntegrations
-      .filter((i) => i.type === 'clickup')
-      .map((i) => i.id)
+    const activeIntegrationIds = activeIntegrations.map((i) => i.id)
 
     // key: `${integration_id}::${normalised_folder}` → Set of clickup_mode strings
     const clickupFolderModes = new Map<string, Set<string>>()
+    // set of `${integration_id}::${normalised_folder}` — existence = mapped
+    const mappedPairs = new Set<string>()
 
-    if (clickupIntegrationIds.length > 0) {
+    if (activeIntegrationIds.length > 0) {
       const { data: folderMappings } = await supabase
         .from('folder_mappings')
         .select('integration_id, folder_path, clickup_mode')
         .eq('project_id', project_id)
-        .in('integration_id', clickupIntegrationIds)
+        .in('integration_id', activeIntegrationIds)
 
       for (const fm of folderMappings ?? []) {
         const normalised = fm.folder_path.replace(/^\/|\/$/g, '')
         const key = `${fm.integration_id}::${normalised}`
+        mappedPairs.add(key)
         if (!clickupFolderModes.has(key)) clickupFolderModes.set(key, new Set())
         clickupFolderModes.get(key)!.add(fm.clickup_mode ?? 'doc')
       }
     }
 
     // -------------------------------------------------------------------------
-    // Upsert specs + publish targets, accumulate into groups keyed by
-    // (integration_id, rootFolder, clickup_mode). All specs in a group will be
-    // processed sequentially by a single worker invocation, eliminating the
-    // cross-worker race on shared ClickUp folder docs.
+    // Upsert specs, then for each (spec, integration) pair that has an explicit
+    // folder mapping, upsert a publish target and accumulate into a group keyed
+    // by (integration_id, rootFolder, clickup_mode). All specs in a group are
+    // processed sequentially by one worker, eliminating cross-worker races on
+    // shared ClickUp folder docs.
     // -------------------------------------------------------------------------
     const groups = new Map<string, { integration_id: string; target_type: IntegrationType; clickup_mode: string; specs: PublishGroupSpec[] }>()
 
@@ -244,14 +245,21 @@ export async function POST(request: Request) {
       const rootFolder = pathParts.length > 1 ? pathParts[0] : ''
 
       for (const integration of targetIntegrations) {
+        const folderKey = `${integration.id}::${rootFolder}`
+
+        // Skip if no explicit folder mapping exists for this (folder, integration).
+        // Folder mappings are required — unmapped folders are not synced.
+        if (!mappedPairs.has(folderKey)) {
+          console.log(`[publish] skipping spec=${upsertedSpec.id} integration=${integration.id} — no folder mapping for "${rootFolder || '/'}"`)
+          continue
+        }
+
         // For ClickUp, determine which modes are configured for this root folder.
         // A folder can have both 'doc' and 'task_list' modes simultaneously.
         // Non-ClickUp integrations always use a single 'doc' slot.
         let modes: string[]
-        if (integration.type === 'clickup' && rootFolder !== '') {
-          const folderKey = `${integration.id}::${rootFolder}`
-          const configured = clickupFolderModes.get(folderKey)
-          modes = configured ? Array.from(configured) : ['doc']
+        if (integration.type === 'clickup') {
+          modes = Array.from(clickupFolderModes.get(folderKey)!)
         } else {
           modes = ['doc']
         }

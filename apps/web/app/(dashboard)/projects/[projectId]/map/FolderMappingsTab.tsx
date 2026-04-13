@@ -82,19 +82,33 @@ export function FolderMappingsTab({
   // listsCache: integrationId:spaceId → ClickUpList[]
   const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
 
-  // Pre-load ClickUp targets for all ClickUp integrations already in mappings
+  // Pre-load ClickUp targets and task lists for all relevant mappings
   useEffect(() => {
-    const clickupIds = [...new Set(
-      mappings
-        .filter((m) => m.integrations?.type === 'clickup')
-        .map((m) => m.integration_id)
-    )]
+    const clickupMappings = mappings.filter((m) => m.integrations?.type === 'clickup')
+
+    // Targets (spaces / folders)
+    const clickupIds = [...new Set(clickupMappings.map((m) => m.integration_id))]
     for (const id of clickupIds) {
       if (targetsCache[id]) continue
       fetch(`/api/integrations/${id}/clickup-targets`)
         .then((r) => r.json())
         .then((data) => {
           if (Array.isArray(data)) setTargetsCache((prev) => ({ ...prev, [id]: data }))
+        })
+        .catch(() => {})
+    }
+
+    // Lists for task_list mappings that already have a space selected
+    for (const m of clickupMappings) {
+      if ((m.clickup_mode ?? 'doc') !== 'task_list') continue
+      const spaceId = m.target_id?.startsWith('space:') ? m.target_id.slice(6) : null
+      if (!spaceId) continue
+      const cacheKey = `${m.integration_id}:${spaceId}`
+      if (listsCache[cacheKey]) continue
+      fetch(`/api/integrations/${m.integration_id}/clickup-lists?space_id=${spaceId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data.lists)) setListsCache((prev) => ({ ...prev, [cacheKey]: data.lists }))
         })
         .catch(() => {})
     }
@@ -366,84 +380,74 @@ async function applyToAll() {
               </tr>
             </thead>
             <tbody>
-              {allFolders.map((folder) => {
-                const folderMappings = byFolder[folder] ?? []
-                const primaryMapping = folderMappings[0] ?? null
-                const currentIntegrationId = primaryMapping?.integration_id ?? ''
+              {[...mappings]
+                .sort((a, b) => a.folder_path.localeCompare(b.folder_path) || (a.clickup_mode ?? 'doc').localeCompare(b.clickup_mode ?? 'doc'))
+                .map((mapping) => {
+                const folder = mapping.folder_path.replace(/^\//, '').replace(/\/$/, '')
                 const displayPath = folder === '' ? '/ (root)' : `${folder}/`
 
                 return (
-                  <tr key={folder} className="border-t border-zinc-100 dark:border-zinc-800">
-                    {/* Folder path */}
-                    <td className="px-4 py-3 font-mono text-sm text-zinc-700 dark:text-zinc-300 align-middle">
-                      {displayPath}
+                  <tr key={mapping.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                    {/* Folder path + delete */}
+                    <td className="px-4 py-3 align-middle">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-mono text-sm text-zinc-700 dark:text-zinc-300">{displayPath}</span>
+                        {canEdit && (
+                          <button
+                            onClick={() => removeMapping(mapping.id)}
+                            className="w-fit text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400 transition-colors"
+                            title="Remove mapping"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </td>
 
-                    {/* Integration selector */}
+                    {/* Integration */}
                     <td className="px-4 py-3 align-middle">
-                      {canEdit ? (
-                        <select
-                          value={currentIntegrationId}
-                          onChange={(e) => setIntegration(folder, e.target.value)}
-                          className="rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                        >
-                          <option value="">None</option>
-                          {availableIntegrations.map((i) => (
-                            <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-xs text-zinc-500">
-                          {primaryMapping ? (integrationLabels[primaryMapping.integrations?.type ?? ''] ?? primaryMapping.integrations?.type ?? '—') : 'None'}
-                        </span>
-                      )}
+                      <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                        {integrationLabels[mapping.integrations?.type ?? ''] ?? mapping.integrations?.type ?? '—'}
+                      </span>
                     </td>
 
                     {/* Template selector */}
                     <td className="px-4 py-3 align-middle">
-                      {primaryMapping ? (
-                        <div className="relative inline-flex items-center gap-1.5">
-                          <select
-                            disabled={!canEdit || savingMappingId === primaryMapping.id}
-                            value={primaryMapping.template_id ?? ''}
-                            onChange={(e) => updateTemplate(primaryMapping.id, e.target.value || null)}
-                            className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-                          >
-                            <option value="">None</option>
-                            {templates.map((t) => (
-                              <option key={t.id} value={t.id}>{t.name}</option>
-                            ))}
-                          </select>
-                          {savingMappingId === primaryMapping.id && spinner}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-zinc-400">—</span>
-                      )}
+                      <div className="relative inline-flex items-center gap-1.5">
+                        <select
+                          disabled={!canEdit || savingMappingId === mapping.id}
+                          value={mapping.template_id ?? ''}
+                          onChange={(e) => updateTemplate(mapping.id, e.target.value || null)}
+                          className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                        >
+                          <option value="">None</option>
+                          {templates.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                        {savingMappingId === mapping.id && spinner}
+                      </div>
                     </td>
 
                     {/* ClickUp destination */}
                     <td className="px-4 py-3 align-top">
-                      {primaryMapping && primaryMapping.integrations?.type === 'clickup' ? (() => {
-                        const targets = targetsCache[primaryMapping.integration_id] ?? []
-                        const targetsLoaded = !!targetsCache[primaryMapping.integration_id]
-                        const isSaving = savingMappingId === primaryMapping.id
-                        const mode = primaryMapping.clickup_mode ?? 'doc'
+                      {mapping.integrations?.type === 'clickup' ? (() => {
+                        const targets = targetsCache[mapping.integration_id] ?? []
+                        const targetsLoaded = !!targetsCache[mapping.integration_id]
+                        const isSaving = savingMappingId === mapping.id
+                        const mode = mapping.clickup_mode ?? 'doc'
 
-                        // Derive selected space ID from target_id (for list loading)
-                        const selectedSpaceId = primaryMapping.target_id?.startsWith('space:')
-                          ? primaryMapping.target_id.slice(6)
+                        const selectedSpaceId = mapping.target_id?.startsWith('space:')
+                          ? mapping.target_id.slice(6)
                           : null
 
                         const listsCacheKey = selectedSpaceId
-                          ? `${primaryMapping.integration_id}:${selectedSpaceId}`
+                          ? `${mapping.integration_id}:${selectedSpaceId}`
                           : null
                         const lists: ClickUpList[] = listsCacheKey ? (listsCache[listsCacheKey] ?? []) : []
                         const listsLoaded = listsCacheKey ? !!listsCache[listsCacheKey] : false
-
-                        // Auto-load lists when mode is task_list and a space is selected
-                        if (mode === 'task_list' && selectedSpaceId && !listsLoaded) {
-                          loadLists(primaryMapping.integration_id, selectedSpaceId)
-                        }
 
                         return (
                           <div className="flex flex-col gap-1.5 w-fit">
@@ -452,14 +456,14 @@ async function applyToAll() {
                               <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs">
                                 <button
                                   disabled={isSaving}
-                                  onClick={() => updateClickupConfig(primaryMapping.id, { clickup_mode: 'doc', clickup_list_id: null })}
+                                  onClick={() => updateClickupConfig(mapping.id, { clickup_mode: 'doc', clickup_list_id: null })}
                                   className={`flex-1 px-2 py-1 transition-colors disabled:opacity-50 ${mode === 'doc' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
                                 >
                                   Doc
                                 </button>
                                 <button
                                   disabled={isSaving}
-                                  onClick={() => updateClickupConfig(primaryMapping.id, { clickup_mode: 'task_list' })}
+                                  onClick={() => updateClickupConfig(mapping.id, { clickup_mode: 'task_list' })}
                                   className={`flex-1 px-2 py-1 transition-colors disabled:opacity-50 border-l border-zinc-300 dark:border-zinc-700 ${mode === 'task_list' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
                                 >
                                   Task list
@@ -467,14 +471,13 @@ async function applyToAll() {
                               </div>
                             )}
 
-                            {/* Space picker (doc mode) or Space + List picker (task_list mode) */}
                             <div className="inline-flex items-center gap-1.5 flex-wrap">
                               <select
                                 disabled={!canEdit || !targetsLoaded || isSaving}
-                                value={primaryMapping.target_id ?? ''}
+                                value={mapping.target_id ?? ''}
                                 onChange={(e) => {
                                   const newTargetId = e.target.value || null
-                                  updateClickupConfig(primaryMapping.id, { target_id: newTargetId, clickup_list_id: null })
+                                  updateClickupConfig(mapping.id, { target_id: newTargetId, clickup_list_id: null })
                                 }}
                                 className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                               >
@@ -490,8 +493,8 @@ async function applyToAll() {
                               {mode === 'task_list' && selectedSpaceId && (
                                 <select
                                   disabled={!canEdit || !listsLoaded || isSaving}
-                                  value={primaryMapping.clickup_list_id ?? ''}
-                                  onChange={(e) => updateClickupConfig(primaryMapping.id, { clickup_list_id: e.target.value || null })}
+                                  value={mapping.clickup_list_id ?? ''}
+                                  onChange={(e) => updateClickupConfig(mapping.id, { clickup_list_id: e.target.value || null })}
                                   className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                                 >
                                   <option value="">{listsLoaded ? 'Select list…' : 'Loading…'}</option>
@@ -509,8 +512,8 @@ async function applyToAll() {
                                 <input
                                   type="checkbox"
                                   disabled={!canEdit || isSaving}
-                                  checked={!!primaryMapping.clickup_use_custom_task_ids}
-                                  onChange={(e) => updateClickupConfig(primaryMapping.id, { clickup_use_custom_task_ids: e.target.checked })}
+                                  checked={!!mapping.clickup_use_custom_task_ids}
+                                  onChange={(e) => updateClickupConfig(mapping.id, { clickup_use_custom_task_ids: e.target.checked })}
                                   className="rounded border-zinc-300 dark:border-zinc-600 text-zinc-900 focus:ring-zinc-500 disabled:opacity-50"
                                 />
                                 <span className="text-xs text-zinc-500">Custom task IDs</span>
@@ -525,9 +528,9 @@ async function applyToAll() {
 
                     {/* Frontmatter mapping */}
                     <td className="px-4 py-3 align-middle">
-                      {primaryMapping ? (() => {
-                        const mode = primaryMapping.clickup_mode ?? 'doc'
-                        const draft = getDraft(primaryMapping.id, primaryMapping.frontmatter_map)
+                      {(() => {
+                        const mode = mapping.clickup_mode ?? 'doc'
+                        const draft = getDraft(mapping.id, mapping.frontmatter_map)
                         const attrs: Array<{ attribute: string; optional: boolean }> = [
                           { attribute: 'title', optional: true },
                           ...(mode === 'task_list' ? [{ attribute: 'clickup_task_id', optional: false }] : []),
@@ -548,10 +551,10 @@ async function applyToAll() {
                                     onChange={(e) =>
                                       setFrontmatterDraft((prev) => ({
                                         ...prev,
-                                        [primaryMapping.id]: { ...getDraft(primaryMapping.id, primaryMapping.frontmatter_map), [attribute]: e.target.value },
+                                        [mapping.id]: { ...getDraft(mapping.id, mapping.frontmatter_map), [attribute]: e.target.value },
                                       }))
                                     }
-                                    onBlur={(e) => saveFrontmatterAttribute(primaryMapping.id, attribute, e.target.value)}
+                                    onBlur={(e) => saveFrontmatterAttribute(mapping.id, attribute, e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                                     className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                                   />
@@ -561,7 +564,6 @@ async function applyToAll() {
                               </div>
                             ))}
 
-                            {/* Sample frontmatter snippet */}
                             {(() => {
                               const lines = attrs
                                 .filter(({ attribute, optional }) => !optional || (draft[attribute] ?? '').trim().length > 0)
@@ -576,13 +578,13 @@ async function applyToAll() {
                                   <button
                                     onClick={() => {
                                       navigator.clipboard.writeText(snippet)
-                                      setCopiedMappingId(primaryMapping.id)
+                                      setCopiedMappingId(mapping.id)
                                       setTimeout(() => setCopiedMappingId(null), 1500)
                                     }}
                                     className="absolute top-1.5 right-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
                                     title="Copy"
                                   >
-                                    {copiedMappingId === primaryMapping.id ? (
+                                    {copiedMappingId === mapping.id ? (
                                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                       </svg>
@@ -598,9 +600,7 @@ async function applyToAll() {
                             })()}
                           </div>
                         )
-                      })() : (
-                        <span className="text-xs text-zinc-400">—</span>
-                      )}
+                      })()}
                     </td>
                   </tr>
                 )
