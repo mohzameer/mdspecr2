@@ -24,7 +24,7 @@ interface FolderMapping {
   target_id: string | null
   clickup_mode: 'doc' | 'task_list' | null
   clickup_list_id: string | null
-  frontmatter_keys: string | null
+  frontmatter_map: Record<string, string> | null
   integrations: { id: string; type: string; status: string; config: Record<string, unknown> | null } | null
   templates: { id: string; name: string } | null
 }
@@ -74,8 +74,8 @@ export function FolderMappingsTab({
   const [addingFolder, setAddingFolder] = useState(false)
   const [savingMappingId, setSavingMappingId] = useState<string | null>(null)
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
-  // inline frontmatter editing: mappingId → current draft value
-  const [frontmatterDraft, setFrontmatterDraft] = useState<Record<string, string>>({})
+  // inline frontmatter editing: mappingId → { attribute → frontmatterKey }
+  const [frontmatterDraft, setFrontmatterDraft] = useState<Record<string, Record<string, string>>>({})
   // listsCache: integrationId:spaceId → ClickUpList[]
   const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
 
@@ -201,22 +201,29 @@ async function applyToAll() {
     setSavingMappingId(null)
   }
 
-  async function saveFrontmatterKeys(mappingId: string) {
-    const raw = frontmatterDraft[mappingId] ?? ''
-    // Normalise: split on commas/spaces, dedupe, rejoin
-    const keys = [...new Set(raw.split(/[\s,]+/).map((k) => k.trim()).filter(Boolean))]
-    const value = keys.length > 0 ? keys.join(', ') : null
+  async function saveFrontmatterAttribute(mappingId: string, attribute: string, value: string) {
+    const current = frontmatterDraft[mappingId] ?? {}
+    const trimmed = value.trim()
+    const next = { ...current, [attribute]: trimmed }
+    // Remove empty entries before saving
+    const toSave: Record<string, string> = Object.fromEntries(
+      Object.entries(next).filter(([, v]) => v.length > 0)
+    )
+    const frontmatter_map = Object.keys(toSave).length > 0 ? toSave : null
     const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ frontmatter_keys: value }),
+      body: JSON.stringify({ frontmatter_map }),
     })
     if (res.ok) {
       const updated = await res.json()
-      onMappingsChange(mappings.map((m) => m.id === mappingId ? { ...m, frontmatter_keys: updated.frontmatter_keys } : m))
-      // Sync draft to normalised value
-      setFrontmatterDraft((prev) => ({ ...prev, [mappingId]: updated.frontmatter_keys ?? '' }))
+      onMappingsChange(mappings.map((m) => m.id === mappingId ? { ...m, frontmatter_map: updated.frontmatter_map } : m))
+      setFrontmatterDraft((prev) => ({ ...prev, [mappingId]: updated.frontmatter_map ?? {} }))
     }
+  }
+
+  function getDraft(mappingId: string, storedMap: Record<string, string> | null): Record<string, string> {
+    return frontmatterDraft[mappingId] ?? storedMap ?? {}
   }
 
   function loadLists(integrationId: string, spaceId: string) {
@@ -493,26 +500,46 @@ async function applyToAll() {
                       )}
                     </td>
 
-                    {/* Frontmatter keys */}
+                    {/* Frontmatter mapping */}
                     <td className="px-4 py-3 align-middle">
-                      {primaryMapping && canEdit ? (() => {
+                      {primaryMapping ? (() => {
                         const mode = primaryMapping.clickup_mode ?? 'doc'
-                        const placeholder = mode === 'task_list' ? 'title, clickup_task_id' : 'title'
-                        const draft = frontmatterDraft[primaryMapping.id] ?? primaryMapping.frontmatter_keys ?? ''
+                        const draft = getDraft(primaryMapping.id, primaryMapping.frontmatter_map)
+                        const attrs: Array<{ attribute: string; optional: boolean }> = [
+                          { attribute: 'title', optional: true },
+                          ...(mode === 'task_list' ? [{ attribute: 'clickup_task_id', optional: false }] : []),
+                        ]
                         return (
-                          <input
-                            type="text"
-                            value={draft}
-                            placeholder={placeholder}
-                            onChange={(e) => setFrontmatterDraft((prev) => ({ ...prev, [primaryMapping.id]: e.target.value }))}
-                            onBlur={() => saveFrontmatterKeys(primaryMapping.id)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                            className="w-full min-w-[140px] text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                          />
+                          <div className="flex flex-col gap-1.5">
+                            {attrs.map(({ attribute, optional }) => (
+                              <div key={attribute} className="flex flex-col gap-0.5">
+                                <span className="text-xs font-mono text-zinc-500">
+                                  {attribute}
+                                  {optional && <span className="text-zinc-400 font-sans ml-1">(optional)</span>}
+                                </span>
+                                {canEdit ? (
+                                  <input
+                                    type="text"
+                                    value={draft[attribute] ?? ''}
+                                    placeholder={attribute}
+                                    onChange={(e) =>
+                                      setFrontmatterDraft((prev) => ({
+                                        ...prev,
+                                        [primaryMapping.id]: { ...getDraft(primaryMapping.id, primaryMapping.frontmatter_map), [attribute]: e.target.value },
+                                      }))
+                                    }
+                                    onBlur={(e) => saveFrontmatterAttribute(primaryMapping.id, attribute, e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                                    className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                                  />
+                                ) : (
+                                  <span className="text-xs font-mono text-zinc-600 dark:text-zinc-400">{draft[attribute] || '—'}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         )
-                      })() : primaryMapping?.frontmatter_keys ? (
-                        <span className="text-xs text-zinc-500 font-mono">{primaryMapping.frontmatter_keys}</span>
-                      ) : (
+                      })() : (
                         <span className="text-xs text-zinc-400">—</span>
                       )}
                     </td>
