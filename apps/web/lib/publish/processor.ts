@@ -33,6 +33,7 @@ interface GroupContext {
   clickupMode: 'doc' | 'task_list'
   clickupListId: string | null
   clickupUseCustomTaskIds: boolean
+  clickupFrontmatterMap: Record<string, string> | null
 }
 
 export async function runPublishGroup(data: PublishGroupJobData): Promise<void> {
@@ -83,6 +84,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     clickupMode: 'doc',
     clickupListId: null,
     clickupUseCustomTaskIds: false,
+    clickupFrontmatterMap: null,
   }
 
   if (target_type === 'clickup') {
@@ -141,7 +143,7 @@ async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): 
 
   const { data: mappings } = await supabase
     .from('folder_mappings')
-    .select('id, folder_path, target_id, clickup_mode, clickup_list_id, clickup_use_custom_task_ids')
+    .select('id, folder_path, target_id, clickup_mode, clickup_list_id, clickup_use_custom_task_ids, frontmatter_map')
     .eq('project_id', project_id)
     .eq('integration_id', integration_id)
     .in('folder_path', pathVariants)
@@ -155,6 +157,7 @@ async function setupClickupGroupContext(ctx: GroupContext, samplePath: string): 
     ctx.clickupMode = (match.clickup_mode as 'doc' | 'task_list') ?? 'doc'
     ctx.clickupListId = match.clickup_list_id ?? null
     ctx.clickupUseCustomTaskIds = match.clickup_use_custom_task_ids ?? false
+    ctx.clickupFrontmatterMap = (match.frontmatter_map as Record<string, string> | null) ?? null
   }
 
   // All specs with a root folder use multi mode: one doc per root folder,
@@ -314,23 +317,35 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
       if (ctx.clickupMode === 'task_list') {
         if (!ctx.clickupListId) throw new Error('clickup_list_id not configured for task_list mode')
 
+        console.log(`[publish:task] spec=${spec_id} path=${path}`)
+        console.log(`[publish:task] frontmatter keys present: ${Object.keys(frontmatter ?? {}).join(', ') || '(none)'}`)
+        console.log(`[publish:task] frontmatter_map on mapping: ${JSON.stringify(ctx.clickupFrontmatterMap)}`)
+        console.log(`[publish:task] existingPageId from DB: ${existingPageId ?? '(none)'}`)
+
         // Adopt task ID from frontmatter (one-time link to a pre-existing task).
         // Resolve to native ID regardless of whether the user supplied a native
         // or custom ID — one GET call here, never again after the native ID is stored.
         if (!existingPageId) {
-          const frontmatterTaskId = frontmatter?.clickup_task_id
+          // The user may have configured a custom frontmatter key for clickup_task_id
+          // via frontmatter_map. Fall back to the literal key name if not configured.
+          const taskIdKey = ctx.clickupFrontmatterMap?.['clickup_task_id'] ?? 'clickup_task_id'
+          const frontmatterTaskId = frontmatter?.[taskIdKey]
+          console.log(`[publish:task] looking for task id under frontmatter key "${taskIdKey}", found: ${frontmatterTaskId ?? '(not set)'}`)
           if (typeof frontmatterTaskId === 'string' && frontmatterTaskId.length > 0) {
             const nativeId = await resolveToNativeTaskId(clickupCreds, frontmatterTaskId, ctx.clickupUseCustomTaskIds)
+            console.log(`[publish:task] resolveToNativeTaskId("${frontmatterTaskId}") → ${nativeId ?? 'null (not found)'}`)
             if (nativeId) {
               existingPageId = nativeId
               await supabase
                 .from('spec_publish_targets')
                 .update({ external_page_id: nativeId })
                 .eq('id', spec_publish_target_id)
-              console.log(`[publish] adopted task ${frontmatterTaskId} → native id ${nativeId}`)
+              console.log(`[publish:task] adopted task ${frontmatterTaskId} → native id ${nativeId}`)
             } else {
-              console.log(`[publish] task id ${frontmatterTaskId} not found in ClickUp — will create new task`)
+              console.log(`[publish:task] task id ${frontmatterTaskId} not found in ClickUp — will create new task`)
             }
+          } else {
+            console.log(`[publish:task] no task id in frontmatter — will create new task`)
           }
         }
 
