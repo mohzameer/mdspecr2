@@ -24,6 +24,7 @@ interface FolderMapping {
   target_id: string | null
   clickup_mode: 'doc' | 'task_list' | null
   clickup_list_id: string | null
+  clickup_doc_id: string | null
   clickup_use_custom_task_ids: boolean | null
   frontmatter_map: Record<string, string> | null
   integrations: { id: string; type: string; status: string; config: Record<string, unknown> | null } | null
@@ -49,7 +50,9 @@ interface Props {
   availableIntegrations: Integration[]
   templates: Template[]
   canEdit: boolean
+  titleSource: 'frontmatter' | 'filename'
   onMappingsChange: (mappings: FolderMapping[]) => void
+  onTitleSourceChange: (value: 'frontmatter' | 'filename') => void
 }
 
 const integrationLabels: Record<string, string> = {
@@ -65,7 +68,9 @@ export function FolderMappingsTab({
   availableIntegrations,
   templates,
   canEdit,
+  titleSource,
   onMappingsChange,
+  onTitleSourceChange,
 }: Props) {
   const [replaceAllIntegrationId, setReplaceAllIntegrationId] = useState('')
   const [applyingAll, setApplyingAll] = useState(false)
@@ -88,6 +93,14 @@ export function FolderMappingsTab({
   const [addingDiscoveredFolder, setAddingDiscoveredFolder] = useState<string | null>(null)
   // listsCache: integrationId:spaceId → ClickUpList[]
   const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
+  // docsCache: integrationId:targetId → { id, name }[]
+  const [docsCache, setDocsCache] = useState<Record<string, Array<{ id: string; name: string }>>>({})
+  const [newDocName, setNewDocName] = useState<Record<string, string>>({}) // mappingId → draft name
+  const [creatingDoc, setCreatingDoc] = useState<string | null>(null) // mappingId being created
+  // new row doc state
+  const [newFolderDocId, setNewFolderDocId] = useState<string>('')
+  const [newFolderNewDocName, setNewFolderNewDocName] = useState<string>('')
+  const [creatingNewRowDoc, setCreatingNewRowDoc] = useState(false)
 
   // Load lists when new row selects a space in task_list mode
   useEffect(() => {
@@ -226,7 +239,7 @@ async function applyToAll() {
 
   async function updateClickupConfig(
     mappingId: string,
-    patch: { clickup_mode?: 'doc' | 'task_list'; clickup_list_id?: string | null; target_id?: string | null; clickup_use_custom_task_ids?: boolean }
+    patch: { clickup_mode?: 'doc' | 'task_list'; clickup_list_id?: string | null; target_id?: string | null; clickup_use_custom_task_ids?: boolean; clickup_doc_id?: string | null }
   ) {
     setSavingMappingId(mappingId)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
@@ -264,6 +277,32 @@ async function applyToAll() {
 
   function getDraft(mappingId: string, storedMap: Record<string, string> | null): Record<string, string> {
     return frontmatterDraft[mappingId] ?? storedMap ?? {}
+  }
+
+  function loadDocs(integrationId: string, targetId: string) {
+    const cacheKey = `${integrationId}:${targetId}`
+    if (docsCache[cacheKey]) return
+    const parentType = targetId.startsWith('space:') ? 'space' : targetId.startsWith('folder:') ? 'folder' : null
+    const parentId = parentType ? targetId.split(':')[1] : null
+    const qs = parentType && parentId ? `?parent_type=${parentType}&parent_id=${parentId}` : ''
+    fetch(`/api/integrations/${integrationId}/clickup-docs${qs}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setDocsCache((prev) => ({ ...prev, [cacheKey]: data }))
+      })
+      .catch(() => {})
+  }
+
+  async function createDoc(integrationId: string, targetId: string, name: string, cacheKey: string): Promise<{ id: string; name: string } | null> {
+    const res = await fetch(`/api/integrations/${integrationId}/clickup-docs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, target_id: targetId }),
+    })
+    if (!res.ok) return null
+    const doc = await res.json() as { id: string; name: string }
+    setDocsCache((prev) => ({ ...prev, [cacheKey]: [...(prev[cacheKey] ?? []), doc] }))
+    return doc
   }
 
   function loadLists(integrationId: string, spaceId: string) {
@@ -334,6 +373,7 @@ async function applyToAll() {
         clickup_mode: mode,
         target_id: newFolderTargetId || null,
         clickup_list_id: newFolderListId || null,
+        clickup_doc_id: newFolderDocId || null,
         template_id: newFolderTemplateId || null,
         frontmatter_map: Object.keys(frontmatterMap).length > 0 ? frontmatterMap : null,
       }),
@@ -351,6 +391,8 @@ async function applyToAll() {
       setNewFolderTemplateId('')
       setNewFolderFrontmatterTitle('')
       setNewFolderFrontmatterTaskId('')
+      setNewFolderDocId('')
+      setNewFolderNewDocName('')
     }
     setAddingFolder(false)
   }
@@ -378,6 +420,29 @@ async function applyToAll() {
       <p className="text-xs text-zinc-500">
         Folders are auto-detected from published specs. Assign an integration to any folder to start publishing its specs.
       </p>
+
+      {/* Title source toggle */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-zinc-500">Doc title from:</span>
+        <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs">
+          <button
+            type="button"
+            disabled={!canEdit}
+            onClick={() => onTitleSourceChange('frontmatter')}
+            className={`px-2.5 py-1 transition-colors disabled:opacity-50 ${titleSource === 'frontmatter' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+          >
+            Frontmatter title
+          </button>
+          <button
+            type="button"
+            disabled={!canEdit}
+            onClick={() => onTitleSourceChange('filename')}
+            className={`px-2.5 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors disabled:opacity-50 ${titleSource === 'filename' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+          >
+            Filename
+          </button>
+        </div>
+      </div>
 
       {/* Replace all / Remove all */}
       {canEdit && allFolders.length > 0 && (
@@ -561,6 +626,53 @@ async function applyToAll() {
 
                               {isSaving && spinner}
                             </div>
+
+                            {mode === 'doc' && mapping.target_id && (() => {
+                              const docCacheKey = `${mapping.integration_id}:${mapping.target_id}`
+                              const docs = docsCache[docCacheKey]
+                              if (!docs) loadDocs(mapping.integration_id, mapping.target_id)
+                              return (
+                                <div className="flex flex-col gap-1 mt-1">
+                                  <span className="text-xs text-zinc-500">Parent doc</span>
+                                  <select
+                                    disabled={!canEdit || !docs || isSaving}
+                                    value={mapping.clickup_doc_id ?? ''}
+                                    onChange={(e) => updateClickupConfig(mapping.id, { clickup_doc_id: e.target.value || null })}
+                                    className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                                  >
+                                    <option value="">{docs ? 'None (flat)' : 'Loading…'}</option>
+                                    {(docs ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                  </select>
+                                  {canEdit && (
+                                    <div className="flex gap-1">
+                                      <input
+                                        type="text"
+                                        value={newDocName[mapping.id] ?? ''}
+                                        onChange={(e) => setNewDocName((prev) => ({ ...prev, [mapping.id]: e.target.value }))}
+                                        placeholder="New doc name…"
+                                        className="flex-1 text-xs rounded border border-dashed border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                                      />
+                                      <button
+                                        type="button"
+                                        disabled={!newDocName[mapping.id]?.trim() || creatingDoc === mapping.id}
+                                        onClick={async () => {
+                                          setCreatingDoc(mapping.id)
+                                          const doc = await createDoc(mapping.integration_id, mapping.target_id!, newDocName[mapping.id]!.trim(), docCacheKey)
+                                          if (doc) {
+                                            setNewDocName((prev) => ({ ...prev, [mapping.id]: '' }))
+                                            updateClickupConfig(mapping.id, { clickup_doc_id: doc.id })
+                                          }
+                                          setCreatingDoc(null)
+                                        }}
+                                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40"
+                                      >
+                                        {creatingDoc === mapping.id ? '…' : '+ New'}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })()}
 
                             {mode === 'task_list' && (
                               <label className="inline-flex items-center gap-1.5 cursor-pointer w-fit">
@@ -756,6 +868,47 @@ async function applyToAll() {
                               {newLists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                             </select>
                           )}
+                          {newFolderMode === 'doc' && newFolderTargetId && (() => {
+                            const docCacheKey = `${newFolderIntegrationId}:${newFolderTargetId}`
+                            const docs = docsCache[docCacheKey]
+                            if (!docs) loadDocs(newFolderIntegrationId, newFolderTargetId)
+                            return (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-xs text-zinc-500">Parent doc</span>
+                                <select
+                                  value={newFolderDocId}
+                                  onChange={(e) => setNewFolderDocId(e.target.value)}
+                                  disabled={!docs}
+                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                                >
+                                  <option value="">{docs ? 'None (flat)' : 'Loading…'}</option>
+                                  {(docs ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                </select>
+                                <div className="flex gap-1">
+                                  <input
+                                    type="text"
+                                    value={newFolderNewDocName}
+                                    onChange={(e) => setNewFolderNewDocName(e.target.value)}
+                                    placeholder="New doc name…"
+                                    className="flex-1 text-xs rounded border border-dashed border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={!newFolderNewDocName.trim() || creatingNewRowDoc}
+                                    onClick={async () => {
+                                      setCreatingNewRowDoc(true)
+                                      const doc = await createDoc(newFolderIntegrationId, newFolderTargetId, newFolderNewDocName.trim(), docCacheKey)
+                                      if (doc) { setNewFolderDocId(doc.id); setNewFolderNewDocName('') }
+                                      setCreatingNewRowDoc(false)
+                                    }}
+                                    className="text-xs rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40"
+                                  >
+                                    {creatingNewRowDoc ? '…' : '+ New'}
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })()}
                         </div>
                       ) : (
                         <span className="text-xs text-zinc-400">—</span>

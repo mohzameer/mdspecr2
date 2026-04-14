@@ -45,13 +45,14 @@ export async function PATCH(
   if (!canEdit) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { template_id, target_id, clickup_mode, clickup_list_id, frontmatter_map, clickup_use_custom_task_ids } = body
+  const { template_id, target_id, clickup_mode, clickup_list_id, clickup_doc_id, frontmatter_map, clickup_use_custom_task_ids } = body
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if ('template_id' in body) patch.template_id = template_id ?? null
   if ('target_id' in body) patch.target_id = target_id ?? null
   if ('clickup_mode' in body) patch.clickup_mode = clickup_mode ?? null
   if ('clickup_list_id' in body) patch.clickup_list_id = clickup_list_id ?? null
+  if ('clickup_doc_id' in body) patch.clickup_doc_id = clickup_doc_id ?? null
   if ('frontmatter_map' in body) patch.frontmatter_map = frontmatter_map ?? null
   if ('clickup_use_custom_task_ids' in body) patch.clickup_use_custom_task_ids = !!clickup_use_custom_task_ids
 

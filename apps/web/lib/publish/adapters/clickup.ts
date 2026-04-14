@@ -223,14 +223,14 @@ function parseTaskFields(content: string, fallbackTitle: string): {
 
 export async function publishAsTask(
   credentials: ClickUpCredentials,
-  spec: { path: string; content: string; frontmatter: Record<string, unknown> },
+  spec: { path: string; content: string; frontmatter: Record<string, unknown>; resolvedTitle?: string },
   existingTaskId: string | null,
   listId: string,
   frontmatterMap?: Record<string, string> | null
 ): Promise<{ task_id: string; task_url: string; previousIdStale?: boolean }> {
   const { api_token } = credentials
   const headers = { Authorization: api_token, 'Content-Type': 'application/json' }
-  const fallbackTitle = getSpecTitle(spec.path, spec.frontmatter)
+  const fallbackTitle = spec.resolvedTitle ?? getSpecTitle(spec.path, spec.frontmatter)
   const fields = parseTaskFields(spec.content, fallbackTitle)
 
   // Full payload used for creates — all fields the agent produced
@@ -301,12 +301,12 @@ export async function publishAsTask(
 
 export async function publishSingleSpec(
   credentials: ClickUpCredentials,
-  spec: { path: string; content: string; frontmatter: Record<string, unknown> },
+  spec: { path: string; content: string; frontmatter: Record<string, unknown>; resolvedTitle?: string },
   existingDocId: string | null,
   targetId?: string | null
 ): Promise<{ doc_id: string; doc_url: string }> {
   const { api_token, workspace_id } = credentials
-  const title = getSpecTitle(spec.path, spec.frontmatter)
+  const title = spec.resolvedTitle ?? getSpecTitle(spec.path, spec.frontmatter)
   const headers = authHeaders(api_token)
 
   console.log(`[clickup:single] start — existingDocId=${existingDocId ?? 'none'} title="${title}"`)
@@ -359,7 +359,7 @@ export async function publishSingleSpec(
 // Specs in sub-folders get a section page (created once, reused for siblings).
 export async function publishSpecAsPage(
   credentials: ClickUpCredentials,
-  spec: { path: string; content: string; frontmatter: Record<string, unknown> },
+  spec: { path: string; content: string; frontmatter: Record<string, unknown>; resolvedTitle?: string },
   folderDocId: string | null,
   existingPageId: string | null,
   folderName: string,
@@ -367,7 +367,7 @@ export async function publishSpecAsPage(
   sectionPageIds?: Map<string, string>
 ): Promise<{ doc_id: string; page_id: string; doc_url: string }> {
   const { api_token, workspace_id } = credentials
-  const title = getSpecTitle(spec.path, spec.frontmatter)
+  const title = spec.resolvedTitle ?? getSpecTitle(spec.path, spec.frontmatter)
   const headers = authHeaders(api_token)
 
   // Derive sub-folder path relative to root folder (e.g. "specs/Main docs" → "Main docs")

@@ -15,10 +15,10 @@ export function getAncestorFolders(specPath: string): FolderSegment[] {
   return segments
 }
 
-export function getSpecTitle(specPath: string, frontmatter: Record<string, unknown>): string {
-  if (frontmatter?.title && typeof frontmatter.title === 'string') {
-    return frontmatter.title
-  }
+export function getSpecTitle(specPath: string, frontmatter: Record<string, unknown>, titleSource: 'frontmatter' | 'filename' = 'frontmatter'): string {
   const filename = specPath.split('/').pop() ?? specPath
-  return filename.replace(/\.md$/, '').replace(/[-_]/g, ' ')
+  const filenameTitle = filename.replace(/\.md$/, '').replace(/[-_]/g, ' ')
+  if (titleSource === 'filename') return filenameTitle
+  if (frontmatter?.title && typeof frontmatter.title === 'string') return frontmatter.title
+  return filenameTitle
 }

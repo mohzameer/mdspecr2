@@ -78,7 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   if (!canEdit) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { folder_path, integration_id, template_id, target_id, clickup_mode, clickup_list_id } = body
+  const { folder_path, integration_id, template_id, target_id, clickup_mode, clickup_list_id, clickup_doc_id } = body
 
   if (!folder_path?.trim()) return NextResponse.json({ error: 'folder_path_required' }, { status: 400 })
   if (folder_path.includes('..')) return NextResponse.json({ error: 'invalid_folder_path' }, { status: 400 })
@@ -113,6 +113,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         target_id: target_id ?? null,
         clickup_mode: clickup_mode ?? null,
         clickup_list_id: clickup_list_id ?? null,
+        clickup_doc_id: clickup_doc_id ?? null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'project_id,folder_path,integration_id,clickup_mode' }

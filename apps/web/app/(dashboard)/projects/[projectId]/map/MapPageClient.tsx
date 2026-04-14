@@ -46,6 +46,7 @@ interface MapPageClientProps {
   initialTemplates: TemplateWithCount[]
   initialDiscoveredFolders: string[]
   canEdit: boolean
+  initialTitleSource: 'frontmatter' | 'filename'
 }
 
 type Tab = 'folder-mappings' | 'templates'
@@ -58,11 +59,22 @@ export function MapPageClient({
   initialTemplates,
   initialDiscoveredFolders,
   canEdit,
+  initialTitleSource,
 }: MapPageClientProps) {
   const [activeTab, setActiveTab] = useState<Tab>('folder-mappings')
   const [mappings, setMappings] = useState(initialMappings)
   const [templates, setTemplates] = useState(initialTemplates)
+  const [titleSource, setTitleSource] = useState<'frontmatter' | 'filename'>(initialTitleSource)
   const discoveredFolders = initialDiscoveredFolders ?? []
+
+  async function handleTitleSourceChange(value: 'frontmatter' | 'filename') {
+    setTitleSource(value)
+    await fetch(`/api/projects/${projectId}/update`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title_source: value }),
+    })
+  }
 
   return (
     <div className="p-8 max-w-5xl">
@@ -96,7 +108,9 @@ export function MapPageClient({
           templates={templates}
           canEdit={canEdit}
           discoveredFolders={discoveredFolders}
+          titleSource={titleSource}
           onMappingsChange={setMappings}
+          onTitleSourceChange={handleTitleSourceChange}
         />
       )}
 

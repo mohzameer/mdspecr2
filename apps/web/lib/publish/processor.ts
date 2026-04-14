@@ -4,6 +4,7 @@ import { publishToNotion } from './adapters/notion'
 import { publishToConfluence } from './adapters/confluence'
 import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, resolveToNativeTaskId } from './adapters/clickup'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
+import { getSpecTitle } from '@/lib/folder-hierarchy'
 import { runAgentInline } from '@/lib/agents/processor'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
 
@@ -29,6 +30,8 @@ interface GroupContext {
   sharedSubDocId: string | null
   // In-memory cache: sub-folder path → ClickUp section page ID (created on demand)
   sectionPageIds: Map<string, string>
+  // Title source preference
+  titleSource: 'frontmatter' | 'filename'
   // Task list mode
   clickupMode: 'doc' | 'task_list'
   clickupListId: string | null
@@ -81,6 +84,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     sharedSubRowId: null,
     sharedSubDocId: null,
     sectionPageIds: new Map(),
+    titleSource: data.title_source ?? 'frontmatter',
     clickupMode: 'doc',
     clickupListId: null,
     clickupUseCustomTaskIds: false,
@@ -160,6 +164,11 @@ async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string
     ctx.clickupListId = mapping.clickup_list_id ?? null
     ctx.clickupUseCustomTaskIds = mapping.clickup_use_custom_task_ids ?? false
     ctx.clickupFrontmatterMap = (mapping.frontmatter_map as Record<string, string> | null) ?? null
+    // If user explicitly selected a parent doc, use it as the shared doc ID —
+    // no auto-creation needed, no race condition possible.
+    if (mapping.clickup_doc_id) {
+      ctx.sharedSubDocId = mapping.clickup_doc_id
+    }
   }
 
   // Task list mode: no shared folder doc to manage — exit here.
@@ -168,53 +177,33 @@ async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string
     return
   }
 
-  // Doc mode: all specs with a root folder use multi mode — one shared doc per
-  // root folder, sub-folders become section pages.
-  ctx.isMultiMode = true
-  ctx.groupingPath = rootFolder
-  ctx.groupFolderName = rootFolder
-
-  // Use the user-configured mapping row as the bookkeeping row if it exists,
-  // otherwise create a minimal row to track the shared doc ID.
-  let subId: string | null = mapping?.id ?? null
-  let subDocId: string | null = mapping?.clickup_doc_id ?? null
-
-  if (!subId) {
-    const { data: created } = await supabase
-      .from('folder_mappings')
-      .insert({ project_id, integration_id, folder_path: ctx.groupingPath, clickup_mode: 'doc' })
-      .select('id, clickup_doc_id, clickup_page_id')
-      .single()
-    subId = created?.id ?? null
-    subDocId = created?.clickup_doc_id ?? null
+  if (!mapping) {
+    throw new UnrecoverableError(`No folder mapping found for ${ctx.groupingPath} — cannot proceed`)
   }
 
-  if (!subId) {
-    throw new UnrecoverableError(`Failed to obtain subfolder bookkeeping row for ${ctx.groupingPath}`)
-  }
+  ctx.sharedSubRowId = mapping.id
 
-  ctx.sharedSubRowId = subId
-  ctx.sharedSubDocId = subDocId
-
-  // Verify the stored doc still exists in ClickUp. If it was deleted, clear
-  // the stale ID so the first spec to publish will create a fresh one.
+  // If user selected a parent doc, use it (multi-mode — pages published inside it).
+  // If no doc selected, specs publish flat to the destination root (single mode per spec).
   if (ctx.sharedSubDocId) {
+    ctx.isMultiMode = true
+    ctx.groupingPath = rootFolder
+    ctx.groupFolderName = rootFolder
+
+    // Verify the selected doc still exists in ClickUp
     const clickupCreds = {
       api_token: credentials.api_token as string,
       workspace_id: credentials.workspace_id as string,
     }
     const stillExists = await clickUpDocExists(clickupCreds, ctx.sharedSubDocId)
     if (!stillExists) {
-      console.log(`[publish] group multi-mode — stored folder doc ${ctx.sharedSubDocId} missing, will recreate`)
+      console.log(`[publish] selected parent doc ${ctx.sharedSubDocId} missing — falling back to flat mode`)
       ctx.sharedSubDocId = null
-      await supabase
-        .from('folder_mappings')
-        .update({ clickup_doc_id: null, clickup_page_id: null })
-        .eq('id', ctx.sharedSubRowId)
+      ctx.isMultiMode = false
     }
   }
 
-  console.log(`[publish] group multi-mode — mapping=${ctx.folderMappingPath ?? 'none'} grouping=${ctx.groupingPath} docId=${ctx.sharedSubDocId ?? 'none'}`)
+  console.log(`[publish] group mode=${ctx.isMultiMode ? 'multi' : 'flat'} mapping=${ctx.folderMappingPath ?? 'none'} docId=${ctx.sharedSubDocId ?? 'none'}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +273,9 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
     }
   }
 
-  const specPayload = { path, content, frontmatter }
+  // Resolve title once here so all adapters use the same value
+  const resolvedTitle = getSpecTitle(path, frontmatter as Record<string, unknown>, ctx.titleSource)
+  const specPayload = { path, content, frontmatter, resolvedTitle }
 
   // -- Dispatch to adapter ---------------------------------------------------
   let result: { page_id?: string; doc_id?: string; page_url?: string; doc_url?: string }

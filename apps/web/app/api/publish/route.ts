@@ -88,7 +88,7 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     const { data: project } = await supabase
       .from('projects')
-      .select('id, org_id, registered_repo')
+      .select('id, org_id, registered_repo, title_source')
       .eq('id', project_id)
       .single()
 
@@ -344,6 +344,7 @@ export async function POST(request: Request) {
         specs: group.specs,
         clickup_mode: group.clickup_mode as 'doc' | 'task_list',
         matched_folder: group.matched_folder,
+        title_source: (project.title_source as 'frontmatter' | 'filename') ?? 'frontmatter',
       }
 
       try {
