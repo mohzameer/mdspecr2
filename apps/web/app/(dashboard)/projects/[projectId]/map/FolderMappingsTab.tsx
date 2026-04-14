@@ -79,6 +79,7 @@ export function FolderMappingsTab({
   // inline frontmatter editing: mappingId → { attribute → frontmatterKey }
   const [frontmatterDraft, setFrontmatterDraft] = useState<Record<string, Record<string, string>>>({})
   const [copiedMappingId, setCopiedMappingId] = useState<string | null>(null)
+  const [addingDiscoveredFolder, setAddingDiscoveredFolder] = useState<string | null>(null)
   // listsCache: integrationId:spaceId → ClickUpList[]
   const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
 
@@ -264,6 +265,8 @@ async function applyToAll() {
   async function setIntegration(folderPath: string, integrationId: string) {
     if (hasRootMapping && folderPath !== '') return
     if (folderPath === '' && hasNonRootMapping) return
+    if (addingDiscoveredFolder !== null) return
+    setAddingDiscoveredFolder(folderPath)
     // Remove existing mappings for this folder first, then add new one
     const existing = byFolder[folderPath] ?? []
     for (const m of existing) {
@@ -286,6 +289,7 @@ async function applyToAll() {
       const integration = availableIntegrations.find((i) => i.id === integrationId) ?? null
       onMappingsChange([...withoutFolder, { ...newMapping, integrations: integration, templates: null }])
     }
+    setAddingDiscoveredFolder(null)
   }
 
   async function addFolderManually() {
@@ -684,15 +688,24 @@ async function applyToAll() {
           <div className="flex flex-wrap gap-2">
             {unmappedDiscovered.map((folder) => {
               const blocked = hasRootMapping || (folder === '' && hasNonRootMapping)
+              const isAdding = addingDiscoveredFolder === folder
+              const anyAdding = addingDiscoveredFolder !== null
               return (
                 <button
                   key={folder}
                   onClick={() => setIntegration(folder, availableIntegrations[0]?.id ?? '')}
-                  disabled={blocked}
+                  disabled={blocked || anyAdding}
                   title={blocked ? (hasRootMapping ? 'Remove the root "/" mapping first' : 'Remove per-folder mappings before adding root') : undefined}
                   className="flex items-center gap-1.5 rounded border border-dashed border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs font-mono text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-zinc-300 disabled:hover:text-zinc-500"
                 >
-                  <span>+</span>
+                  {isAdding ? (
+                    <svg className="animate-spin h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                  ) : (
+                    <span>+</span>
+                  )}
                   {folder === '' ? '/ (root)' : `${folder}/`}
                 </button>
               )
