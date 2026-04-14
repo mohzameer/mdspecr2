@@ -214,7 +214,7 @@ export async function POST(request: Request) {
     // processed sequentially by one worker, eliminating cross-worker races on
     // shared ClickUp folder docs.
     // -------------------------------------------------------------------------
-    const groups = new Map<string, { integration_id: string; target_type: IntegrationType; clickup_mode: string; specs: PublishGroupSpec[] }>()
+    const groups = new Map<string, { integration_id: string; target_type: IntegrationType; clickup_mode: string; matched_folder: string; specs: PublishGroupSpec[] }>()
     let savedCount = 0
 
     for (const spec of specsToProcess) {
@@ -316,12 +316,10 @@ export async function POST(request: Request) {
 
           // Accumulate into the correct group (one group per integration + matched folder + mode)
           const groupKey = `${integration.id}::${matchedFolder}::${mode}`
-          let group = groups.get(groupKey)
-          if (!group) {
-            group = { integration_id: integration.id, target_type: integration.type as IntegrationType, clickup_mode: mode, specs: [] }
-            groups.set(groupKey, group)
+          if (!groups.has(groupKey)) {
+            groups.set(groupKey, { integration_id: integration.id, target_type: integration.type as IntegrationType, clickup_mode: mode, matched_folder: matchedFolder, specs: [] })
           }
-          group.specs.push({
+          groups.get(groupKey)!.specs.push({
             spec_id: upsertedSpec.id,
             spec_publish_target_id: target.id,
             path: spec.path,
@@ -345,6 +343,7 @@ export async function POST(request: Request) {
         target_type: group.target_type,
         specs: group.specs,
         clickup_mode: group.clickup_mode as 'doc' | 'task_list',
+        matched_folder: group.matched_folder,
       }
 
       try {

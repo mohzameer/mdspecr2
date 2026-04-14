@@ -192,6 +192,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
             target_type: integrationRow.type as IntegrationType,
             specs: groupSpecs,
             clickup_mode: mode as 'doc' | 'task_list',
+            matched_folder: normalizedPath,
           }
           await qstash.publishJSON({
             url: `${process.env.NEXT_PUBLIC_APP_URL}/api/worker/process`,

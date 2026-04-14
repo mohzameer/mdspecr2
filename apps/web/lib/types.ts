@@ -52,6 +52,7 @@ export interface PublishGroupJobData {
   target_type: IntegrationType
   specs: PublishGroupSpec[]
   clickup_mode?: 'doc' | 'task_list'
+  matched_folder?: string  // the folder path that was matched for this group (longest-prefix)
 }
 
 // ---------------------------------------------------------------------------

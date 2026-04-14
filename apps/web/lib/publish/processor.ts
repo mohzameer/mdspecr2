@@ -88,7 +88,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
   }
 
   if (target_type === 'clickup') {
-    await setupClickupGroupContext(ctx, specs[0].path, data.clickup_mode ?? 'doc')
+    await setupClickupGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'), data.clickup_mode ?? 'doc')
   }
 
   // -- Iterate specs sequentially --------------------------------------------
@@ -130,11 +130,12 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
 // and — critically — verify/recreate the shared subfolder doc ONCE so all
 // specs in the group reuse the same doc/root page.
 // ---------------------------------------------------------------------------
-async function setupClickupGroupContext(ctx: GroupContext, samplePath: string, clickupMode: 'doc' | 'task_list'): Promise<void> {
+async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string, clickupMode: 'doc' | 'task_list'): Promise<void> {
   const { supabase, project_id, integration_id, credentials } = ctx
 
-  // Root folder = first path segment. Root-level specs use single mode.
-  const rootFolder = samplePath.split('/')[0] === samplePath ? '' : samplePath.split('/')[0]
+  // Use the matched folder directly — already resolved by the publish route via longest-prefix.
+  // Root-level specs (empty string) use single mode.
+  const rootFolder = matchedFolder
   if (!rootFolder) return
 
   // Set mode on context so processOneSpec can dispatch correctly.
@@ -143,15 +144,13 @@ async function setupClickupGroupContext(ctx: GroupContext, samplePath: string, c
   // Resolve the folder mapping row for this (project, integration, folder, mode).
   // Rows carry user config (target_id, list_id, frontmatter_map, etc.) and also
   // serve as the bookkeeping record for the shared folder doc (doc mode only).
-  const pathVariants = [rootFolder, `/${rootFolder}`, `${rootFolder}/`, `/${rootFolder}/`]
-
   const { data: mapping } = await supabase
     .from('folder_mappings')
     .select('id, folder_path, target_id, clickup_list_id, clickup_use_custom_task_ids, frontmatter_map, clickup_doc_id, clickup_page_id')
     .eq('project_id', project_id)
     .eq('integration_id', integration_id)
     .eq('clickup_mode', clickupMode)
-    .in('folder_path', pathVariants)
+    .eq('folder_path', rootFolder)
     .maybeSingle()
 
   if (mapping) {
