@@ -102,23 +102,25 @@ export async function POST(request: Request) {
     let upgradeNudge = false
 
     if (!subscription || subscription.plan === 'free') {
-      const { count: existingCount } = await supabase
+      // Count distinct specs already synced to an integration for this project
+      const { data: projectSpecs } = await supabase
         .from('specs')
-        .select('*', { count: 'exact', head: true })
+        .select('id, path')
         .eq('project_id', project_id)
 
-      const existing = existingCount ?? 0
+      const specIds = (projectSpecs ?? []).map((s) => s.id)
+      const { count: syncedCount } = specIds.length > 0
+        ? await supabase
+            .from('spec_publish_targets')
+            .select('spec_id', { count: 'exact', head: true })
+            .in('spec_id', specIds)
+        : { count: 0 }
 
-      // Count new specs (paths not yet in the table)
-      const { data: existingPaths } = await supabase
-        .from('specs')
-        .select('path')
-        .eq('project_id', project_id)
+      const existingSyncedPaths = new Set((projectSpecs ?? []).map((s) => s.path))
+      const newSpecs = specs.filter((s) => !existingSyncedPaths.has(s.path))
+      const synced = syncedCount ?? 0
 
-      const existingPathSet = new Set((existingPaths ?? []).map((s) => s.path))
-      const newSpecs = specs.filter((s) => !existingPathSet.has(s.path))
-
-      if (existing + newSpecs.length > 10) {
+      if (newSpecs.length > 0 && synced + newSpecs.length > 10) {
         return Response.json({
           error: 'spec_limit_reached',
           limit: 10,
@@ -126,7 +128,7 @@ export async function POST(request: Request) {
         }, { status: 402 })
       }
 
-      if (existing + newSpecs.length >= 8) {
+      if (synced + newSpecs.length >= 8) {
         upgradeNudge = true
       }
     }
