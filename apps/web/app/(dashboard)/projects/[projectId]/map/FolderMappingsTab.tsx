@@ -93,16 +93,12 @@ export function FolderMappingsTab({
   const [addingDiscoveredFolder, setAddingDiscoveredFolder] = useState<string | null>(null)
   // listsCache: integrationId:spaceId → ClickUpList[]
   const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
-  // docsCache: integrationId:targetId → { id, name }[]
-  const [docsCache, setDocsCache] = useState<Record<string, Array<{ id: string; name: string }>>>({})
-  const [newDocName, setNewDocName] = useState<Record<string, string>>({}) // mappingId → draft name
-  const [creatingDoc, setCreatingDoc] = useState<string | null>(null) // mappingId being created
   // new row doc state
   const [newFolderDocId, setNewFolderDocId] = useState<string>('')
-  const [newFolderNewDocName, setNewFolderNewDocName] = useState<string>('')
-  const [creatingNewRowDoc, setCreatingNewRowDoc] = useState(false)
+  // existing mapping doc URL drafts: mappingId → raw URL input
+  const [docUrlDraft, setDocUrlDraft] = useState<Record<string, string>>({})
 
-  // Load lists when new row selects a space in task_list mode
+  // Load lists when new row selects a space in task_list mode (doc parent no longer needs fetching — user pastes URL)
   useEffect(() => {
     if (!newFolderIntegrationId || newFolderMode !== 'task_list') return
     const spaceId = newFolderTargetId.startsWith('space:') ? newFolderTargetId.slice(6) : null
@@ -279,30 +275,13 @@ async function applyToAll() {
     return frontmatterDraft[mappingId] ?? storedMap ?? {}
   }
 
-  function loadDocs(integrationId: string, targetId: string) {
-    const cacheKey = `${integrationId}:${targetId}`
-    if (docsCache[cacheKey]) return
-    const parentType = targetId.startsWith('space:') ? 'space' : targetId.startsWith('folder:') ? 'folder' : null
-    const parentId = parentType ? targetId.split(':')[1] : null
-    const qs = parentType && parentId ? `?parent_type=${parentType}&parent_id=${parentId}` : ''
-    fetch(`/api/integrations/${integrationId}/clickup-docs${qs}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) setDocsCache((prev) => ({ ...prev, [cacheKey]: data }))
-      })
-      .catch(() => {})
-  }
-
-  async function createDoc(integrationId: string, targetId: string, name: string, cacheKey: string): Promise<{ id: string; name: string } | null> {
-    const res = await fetch(`/api/integrations/${integrationId}/clickup-docs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, target_id: targetId }),
-    })
-    if (!res.ok) return null
-    const doc = await res.json() as { id: string; name: string }
-    setDocsCache((prev) => ({ ...prev, [cacheKey]: [...(prev[cacheKey] ?? []), doc] }))
-    return doc
+  function extractClickUpDocId(input: string): string {
+    const trimmed = input.trim()
+    // Try to extract from URL: /d/<docId> or /doc/<docId>
+    const match = trimmed.match(/\/d(?:oc)?\/([a-zA-Z0-9]+)/)
+    if (match) return match[1]
+    // Otherwise treat as raw ID
+    return trimmed
   }
 
   function loadLists(integrationId: string, spaceId: string) {
@@ -392,7 +371,6 @@ async function applyToAll() {
       setNewFolderFrontmatterTitle('')
       setNewFolderFrontmatterTaskId('')
       setNewFolderDocId('')
-      setNewFolderNewDocName('')
     }
     setAddingFolder(false)
   }
@@ -612,52 +590,25 @@ async function applyToAll() {
                               {isSaving && spinner}
                             </div>
 
-                            {mode === 'doc' && mapping.target_id && (() => {
-                              const docCacheKey = `${mapping.integration_id}:${mapping.target_id}`
-                              const docs = docsCache[docCacheKey]
-                              if (!docs) loadDocs(mapping.integration_id, mapping.target_id)
-                              return (
-                                <div className="flex flex-col gap-1 mt-1">
-                                  <span className="text-xs text-zinc-500">Parent doc</span>
-                                  <select
-                                    disabled={!canEdit || !docs || isSaving}
-                                    value={mapping.clickup_doc_id ?? ''}
-                                    onChange={(e) => updateClickupConfig(mapping.id, { clickup_doc_id: e.target.value || null })}
-                                    className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-                                  >
-                                    <option value="">{docs ? 'None (flat)' : 'Loading…'}</option>
-                                    {(docs ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                                  </select>
-                                  {canEdit && (
-                                    <div className="flex gap-1">
-                                      <input
-                                        type="text"
-                                        value={newDocName[mapping.id] ?? ''}
-                                        onChange={(e) => setNewDocName((prev) => ({ ...prev, [mapping.id]: e.target.value }))}
-                                        placeholder="New doc name…"
-                                        className="flex-1 text-xs rounded border border-dashed border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                                      />
-                                      <button
-                                        type="button"
-                                        disabled={!newDocName[mapping.id]?.trim() || creatingDoc === mapping.id}
-                                        onClick={async () => {
-                                          setCreatingDoc(mapping.id)
-                                          const doc = await createDoc(mapping.integration_id, mapping.target_id!, newDocName[mapping.id]!.trim(), docCacheKey)
-                                          if (doc) {
-                                            setNewDocName((prev) => ({ ...prev, [mapping.id]: '' }))
-                                            updateClickupConfig(mapping.id, { clickup_doc_id: doc.id })
-                                          }
-                                          setCreatingDoc(null)
-                                        }}
-                                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40"
-                                      >
-                                        {creatingDoc === mapping.id ? '…' : '+ New'}
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })()}
+                            {mode === 'doc' && (
+                              <div className="flex flex-col gap-1 mt-1">
+                                <span className="text-xs text-zinc-500">Parent doc <span className="text-zinc-400">(paste ClickUp doc URL)</span></span>
+                                <input
+                                  type="text"
+                                  disabled={!canEdit || isSaving}
+                                  value={docUrlDraft[mapping.id] ?? mapping.clickup_doc_id ?? ''}
+                                  onChange={(e) => setDocUrlDraft((prev) => ({ ...prev, [mapping.id]: e.target.value }))}
+                                  onBlur={(e) => {
+                                    const id = extractClickUpDocId(e.target.value)
+                                    updateClickupConfig(mapping.id, { clickup_doc_id: id || null })
+                                    setDocUrlDraft((prev) => ({ ...prev, [mapping.id]: id }))
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                                  placeholder="https://app.clickup.com/… or doc ID — leave empty for flat"
+                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 w-full"
+                                />
+                              </div>
+                            )}
 
                             {mode === 'task_list' && (
                               <label className="inline-flex items-center gap-1.5 cursor-pointer w-fit">
@@ -853,47 +804,19 @@ async function applyToAll() {
                               {newLists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                             </select>
                           )}
-                          {newFolderMode === 'doc' && newFolderTargetId && (() => {
-                            const docCacheKey = `${newFolderIntegrationId}:${newFolderTargetId}`
-                            const docs = docsCache[docCacheKey]
-                            if (!docs) loadDocs(newFolderIntegrationId, newFolderTargetId)
-                            return (
-                              <div className="flex flex-col gap-1">
-                                <span className="text-xs text-zinc-500">Parent doc</span>
-                                <select
-                                  value={newFolderDocId}
-                                  onChange={(e) => setNewFolderDocId(e.target.value)}
-                                  disabled={!docs}
-                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-                                >
-                                  <option value="">{docs ? 'None (flat)' : 'Loading…'}</option>
-                                  {(docs ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                                </select>
-                                <div className="flex gap-1">
-                                  <input
-                                    type="text"
-                                    value={newFolderNewDocName}
-                                    onChange={(e) => setNewFolderNewDocName(e.target.value)}
-                                    placeholder="New doc name…"
-                                    className="flex-1 text-xs rounded border border-dashed border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                                  />
-                                  <button
-                                    type="button"
-                                    disabled={!newFolderNewDocName.trim() || creatingNewRowDoc}
-                                    onClick={async () => {
-                                      setCreatingNewRowDoc(true)
-                                      const doc = await createDoc(newFolderIntegrationId, newFolderTargetId, newFolderNewDocName.trim(), docCacheKey)
-                                      if (doc) { setNewFolderDocId(doc.id); setNewFolderNewDocName('') }
-                                      setCreatingNewRowDoc(false)
-                                    }}
-                                    className="text-xs rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40"
-                                  >
-                                    {creatingNewRowDoc ? '…' : '+ New'}
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          })()}
+                          {newFolderMode === 'doc' && (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs text-zinc-500">Parent doc <span className="text-zinc-400">(paste ClickUp doc URL)</span></span>
+                              <input
+                                type="text"
+                                value={newFolderDocId}
+                                onChange={(e) => setNewFolderDocId(e.target.value)}
+                                onBlur={(e) => setNewFolderDocId(extractClickUpDocId(e.target.value))}
+                                placeholder="https://app.clickup.com/… or doc ID — leave empty for flat"
+                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 w-full"
+                              />
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs text-zinc-400">—</span>
