@@ -65,7 +65,7 @@ export default function LandingPage() {
             <CardContent className="p-6 font-mono text-sm">
               <div className="text-muted-foreground mb-2"># .github/workflows/specs.yml</div>
               <div className="text-muted-foreground">- name: <span className="text-foreground">Publish specs</span></div>
-              <div className="text-muted-foreground ml-2">run: <span className="text-foreground">npx mdspec publish --project ${'${PROJECT_ID}'}</span></div>
+              <div className="text-muted-foreground ml-2">run: <span className="text-foreground">npx mdspeci publish --project ${'${PROJECT_ID}'}</span></div>
               <div className="text-muted-foreground ml-2">env:</div>
               <div className="text-muted-foreground ml-4">MDSPEC_TOKEN: <span className="text-foreground">${'${{ secrets.MDSPEC_TOKEN }}'}</span></div>
             </CardContent>

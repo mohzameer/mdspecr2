@@ -21,11 +21,12 @@ export default function OnboardingPage() {
   }, [searchParams])
   const [org, setOrg] = useState<OrgForm>({ name: '' })
   const [project, setProject] = useState<ProjectForm>({ name: '', description: '' })
-  const [dirs, setDirs] = useState<DirsForm>({ dirs: ['/specs'] })
+  const [dirs, setDirs] = useState<DirsForm>({ dirs: ['/'] })
   const [tokenData, setTokenData] = useState<TokenForm>({ token: null, projectId: null })
   const [newDir, setNewDir] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copiedCI, setCopiedCI] = useState(false)
   const [orgId, setOrgId] = useState<string | null>(null)
 
   async function stepOneSubmit(e: React.FormEvent) {
@@ -89,6 +90,19 @@ export default function OnboardingPage() {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
+  }
+
+  function copyCI() {
+    const snippet = `- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+
+- run: npx mdspeci publish --project ${tokenData.projectId ?? '<project-id>'}
+  env:
+    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}`
+    navigator.clipboard.writeText(snippet)
+    setCopiedCI(true)
+    setTimeout(() => setCopiedCI(false), 2000)
   }
 
   const steps = [
@@ -165,7 +179,8 @@ export default function OnboardingPage() {
                 <>
                   <div>
                     <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Spec directories</h2>
-                    <p className="text-sm text-zinc-500">Which directories in your repo contain spec markdown files?</p>
+                    <p className="text-sm text-zinc-500">Spec directories are folders in your repo where mdspec will look for markdown spec files. Only <code className="font-mono text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">.md</code> files inside these paths are tracked and published.</p>
+                    <p className="text-sm text-zinc-500 mt-2">Use <code className="font-mono text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">/</code> to scan your entire repository.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {dirs.dirs.map((d) => (
@@ -213,12 +228,17 @@ export default function OnboardingPage() {
                 </div>
               )}
               <div className="rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-4">
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">Add to your CI pipeline:</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Add to your CI pipeline:</p>
+                  <button onClick={copyCI} className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-700">
+                    {copiedCI ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
                 <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{`- uses: actions/checkout@v4
   with:
     fetch-depth: 0
 
-- run: npx mdspec publish --project ${tokenData.projectId ?? '<project-id>'}
+- run: npx mdspeci publish --project ${tokenData.projectId ?? '<project-id>'}
   env:
     MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}`}</pre>
               </div>

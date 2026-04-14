@@ -3,6 +3,7 @@ import { redirect, notFound } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/db-server'
 import type { Spec, SpecPublishTarget } from '@/lib/types'
 import { DeleteAllSpecsButton } from './DeleteAllSpecsButton'
+import { CopyButton } from './CopyButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -164,15 +165,18 @@ export default async function SpecsPage({ params }: { params: Promise<{ projectI
         <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-10 text-center">
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Pending first publish</p>
           <p className="text-xs text-zinc-500 mb-4">Add the following to your CI pipeline:</p>
-          <pre className="text-xs bg-zinc-100 dark:bg-zinc-900 rounded p-4 text-left font-mono text-zinc-700 dark:text-zinc-300 inline-block text-wrap max-w-lg">
+          <div className="relative inline-block text-left max-w-lg">
+            <CopyButton text={`- uses: actions/checkout@v4\n  with:\n    fetch-depth: 0\n\n- run: npx mdspeci publish --project ${projectId}\n  env:\n    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}`} />
+            <pre className="text-xs bg-zinc-100 dark:bg-zinc-900 rounded p-4 font-mono text-zinc-700 dark:text-zinc-300 text-wrap pr-16">
 {`- uses: actions/checkout@v4
   with:
     fetch-depth: 0
 
-- run: npx mdspec publish --project ${projectId}
+- run: npx mdspeci publish --project ${projectId}
   env:
     MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}`}
-          </pre>
+            </pre>
+          </div>
         </div>
       ) : specsWithTargets.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-10 text-center">

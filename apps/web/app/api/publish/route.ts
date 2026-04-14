@@ -118,7 +118,7 @@ export async function POST(request: Request) {
       const existingPathSet = new Set((existingPaths ?? []).map((s) => s.path))
       const newSpecs = specs.filter((s) => !existingPathSet.has(s.path))
 
-      if (existing >= 10) {
+      if (existing + newSpecs.length > 10) {
         return Response.json({
           error: 'spec_limit_reached',
           limit: 10,
@@ -126,7 +126,7 @@ export async function POST(request: Request) {
         }, { status: 402 })
       }
 
-      if (existing + newSpecs.length >= 10) {
+      if (existing + newSpecs.length >= 8) {
         upgradeNudge = true
       }
     }
@@ -198,6 +198,7 @@ export async function POST(request: Request) {
     // shared ClickUp folder docs.
     // -------------------------------------------------------------------------
     const groups = new Map<string, { integration_id: string; target_type: IntegrationType; clickup_mode: string; specs: PublishGroupSpec[] }>()
+    let savedCount = 0
 
     for (const spec of specsToProcess) {
       console.log(`[publish] processing spec path=${spec.path}`)
@@ -227,6 +228,7 @@ export async function POST(request: Request) {
       }
 
       console.log(`[publish] spec upserted id=${upsertedSpec.id} path=${spec.path}`)
+      savedCount++
 
       // Determine target integrations (from frontmatter or all active)
       const frontmatterTargets = spec.frontmatter?.targets as Array<Record<string, string>> | undefined
@@ -352,6 +354,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         accepted: true,
+        saved: savedCount,
         queued: queuedCount,
         ...(upgradeNudge ? { upgrade_nudge: true } : {}),
       },

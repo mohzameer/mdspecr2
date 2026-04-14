@@ -38,14 +38,9 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
   const projectConfig = await fetchProjectConfig(apiUrl, options.project, token)
 
   // Determine spec directories (--dirs flag overrides project config)
-  let specDirs: string[]
-  if (options.dirs) {
-    specDirs = options.dirs.split(',').map((d) => d.trim())
-  } else if (projectConfig.spec_dirs && projectConfig.spec_dirs.length > 0) {
-    specDirs = projectConfig.spec_dirs
-  } else {
-    specDirs = ['specs', 'docs/specs', 'docs/rfc']
-  }
+  const specDirs: string[] = options.dirs
+    ? options.dirs.split(',').map((d) => d.trim())
+    : projectConfig.spec_dirs
 
   const scanDirsDisplay = specDirs.map((d) => d === '' || d === '/' || d === '.' ? '/ (root)' : d)
   console.log(`— Scanning folders: ${scanDirsDisplay.join(', ')}`)
@@ -63,24 +58,29 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(0)
   }
 
-  // Change detection
-  const baseRef = options.base ?? 'origin/main'
-  const changedPaths = detectChangedFiles(baseRef, specDirs)
-
+  // First run: no specs on server yet — publish everything
   let specsToPublish: string[]
-  if (changedPaths !== null && changedPaths.size > 0) {
-    specsToPublish = allSpecs.filter((p) => changedPaths.has(p))
-    if (specsToPublish.length === 0) {
+  if (projectConfig.spec_count === 0) {
+    console.log('— First run detected, publishing all specs.')
+    specsToPublish = allSpecs
+  } else {
+    // Change detection
+    const baseRef = options.base ?? 'origin/main'
+    const changedPaths = detectChangedFiles(baseRef, specDirs)
+
+    if (changedPaths === null) {
+      console.log('⚠ Could not run git diff — publishing all specs as fallback.')
+      specsToPublish = allSpecs
+    } else if (changedPaths.size === 0) {
       console.log('— No spec changes detected. Nothing to publish.')
       process.exit(0)
+    } else {
+      specsToPublish = allSpecs.filter((p) => changedPaths.has(p))
+      if (specsToPublish.length === 0) {
+        console.log('— No spec changes detected. Nothing to publish.')
+        process.exit(0)
+      }
     }
-  } else if (changedPaths !== null && changedPaths.size === 0) {
-    console.log('— No spec changes detected. Nothing to publish.')
-    process.exit(0)
-  } else {
-    // Fallback: publish all specs
-    specsToPublish = allSpecs
-    console.log('⚠ Could not run git diff — publishing all specs as fallback.')
   }
 
   // Build artifacts
@@ -144,14 +144,19 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(1)
   }
 
-  const result = await response.json() as { accepted: boolean; queued: number; upgrade_nudge?: boolean }
+  const result = await response.json() as { accepted: boolean; saved: number; queued: number; upgrade_nudge?: boolean }
 
   const skipped = specsToPublish.length - specs.length
   if (skipped > 0) {
     console.log(`— Skipped    ${skipped} spec(s) (read errors)`)
   }
 
-  console.log(`\n✓ ${result.queued} spec(s) queued for publishing`)
+  console.log(`\n✓ ${result.saved} spec(s) saved`)
+  if (result.queued > 0) {
+    console.log(`✓ ${result.queued} spec(s) queued for integration sync`)
+  } else {
+    console.log(`— 0 specs queued for integration (configure folder mappings in project settings to enable sync)`)
+  }
 
   if (result.upgrade_nudge) {
     console.log('\n⚠ You are approaching the free tier limit (10 specs).')
@@ -165,19 +170,27 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function fetchProjectConfig(apiUrl: string, projectId: string, token: string): Promise<{ spec_dirs: string[] }> {
+async function fetchProjectConfig(apiUrl: string, projectId: string, token: string): Promise<{ spec_dirs: string[]; spec_count: number }> {
+  let res: Response
   try {
-    const res = await fetch(`${apiUrl}/api/projects/${projectId}/config`, {
+    res = await fetch(`${apiUrl}/api/projects/${projectId}/config`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-    if (res.ok) {
-      const data = await res.json() as { spec_dirs?: string[] }
-      return { spec_dirs: data.spec_dirs ?? [] }
-    }
-  } catch {
-    // Fallback to defaults
+  } catch (err) {
+    console.error(`✗ Could not reach ${apiUrl}`)
+    console.error(`  ${err instanceof Error ? err.message : String(err)}`)
+    process.exit(1)
   }
-  return { spec_dirs: [] }
+
+  if (!res.ok) {
+    console.error(`✗ Failed to fetch project config (${res.status})`)
+    if (res.status === 401) console.error('  Check your MDSPEC_TOKEN.')
+    if (res.status === 404) console.error('  Project not found. Check your project ID.')
+    process.exit(1)
+  }
+
+  const data = await res.json() as { spec_dirs?: string[]; spec_count?: number }
+  return { spec_dirs: data.spec_dirs ?? [], spec_count: data.spec_count ?? 0 }
 }
 
 function getRepoName(): string {

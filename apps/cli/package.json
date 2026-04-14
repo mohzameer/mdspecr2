@@ -1,10 +1,10 @@
 {
-  "name": "mdspec",
-  "version": "0.1.0",
+  "name": "mdspeci",
+  "version": "0.4.3",
   "description": "CI-first spec publishing CLI",
   "type": "commonjs",
   "bin": {
-    "mdspec": "./dist/index.js"
+    "mdspeci": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",

@@ -38,7 +38,12 @@ export async function GET(
 
     if (!project) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
-    return NextResponse.json({ spec_dirs: project.spec_dirs ?? [], name: project.name })
+    const { count: specCount } = await supabase
+      .from('specs')
+      .select('id', { count: 'exact', head: true })
+      .eq('project_id', projectId)
+
+    return NextResponse.json({ spec_dirs: project.spec_dirs ?? [], name: project.name, spec_count: specCount ?? 0 })
   }
 
   // Browser path — session auth
