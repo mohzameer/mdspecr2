@@ -166,15 +166,14 @@ export default async function SpecsPage({ params }: { params: Promise<{ projectI
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Pending first publish</p>
           <p className="text-xs text-zinc-500 mb-4">Add the following to your CI pipeline:</p>
           <div className="relative inline-block text-left max-w-lg">
-            <CopyButton text={`- uses: actions/checkout@v4\n  with:\n    fetch-depth: 0\n\n- run: npx mdspeci publish --project ${projectId}\n  env:\n    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}`} />
+            <CopyButton text={`- uses: actions/checkout@v4\n\n- run: npx mdspeci publish --project ${projectId}\n  env:\n    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}\n    GITHUB_EVENT_BEFORE: \${{ github.event.before }}`} />
             <pre className="text-xs bg-zinc-100 dark:bg-zinc-900 rounded p-4 font-mono text-zinc-700 dark:text-zinc-300 text-wrap pr-16">
 {`- uses: actions/checkout@v4
-  with:
-    fetch-depth: 0
 
 - run: npx mdspeci publish --project ${projectId}
   env:
-    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}`}
+    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}
+    GITHUB_EVENT_BEFORE: \${{ github.event.before }}`}
             </pre>
           </div>
         </div>

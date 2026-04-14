@@ -64,12 +64,15 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     console.log('— First run detected, publishing all specs.')
     specsToPublish = allSpecs
   } else {
-    // Change detection
-    const baseRef = options.base ?? 'origin/main'
+    // Change detection base ref:
+    // - --base flag if provided
+    // - GITHUB_EVENT_BEFORE: exact SHA before push, works on shallow clones (fetched explicitly)
+    // - HEAD^: for local runs
+    // - Falls back to publishing all if none work
+    const baseRef = options.base ?? process.env.GITHUB_EVENT_BEFORE ?? 'HEAD^'
     const changedPaths = detectChangedFiles(baseRef, specDirs)
 
     if (changedPaths === null) {
-      console.log('⚠ Could not run git diff — publishing all specs as fallback.')
       specsToPublish = allSpecs
     } else if (changedPaths.size === 0) {
       console.log('— No spec changes detected. Nothing to publish.')
@@ -229,20 +232,40 @@ function getCurrentCommitSha(): string {
 
 function detectChangedFiles(baseRef: string, specDirs: string[]): Set<string> | null {
   try {
+    // If baseRef is a full SHA (e.g. from GITHUB_EVENT_BEFORE), fetch it
+    // explicitly so shallow clones can reach it without needing full history.
+    if (/^[0-9a-f]{40}$/.test(baseRef)) {
+      try {
+        execSync(`git fetch origin ${baseRef} --depth=1`, {
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      } catch {
+        // already reachable or fetch failed — continue anyway
+      }
+    }
+
     const output = execSync(`git diff --name-only ${baseRef}...HEAD`, {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const normalizedDirs = specDirs.map((d) => d.replace(/^\//, ''))
+    const hasRoot = normalizedDirs.includes('')
+    const allChanged = output.trim().split('\n').filter((p) => p.endsWith('.md'))
+    console.log(`— git diff base=${baseRef} — ${allChanged.length} .md file(s) changed`)
+    allChanged.forEach((p) => console.log(`  changed: ${p}`))
     const changed = new Set(
-      output
-        .trim()
-        .split('\n')
-        .filter((p) => p.endsWith('.md'))
-        .filter((p) => normalizedDirs.some((dir) => p === dir || p.startsWith(dir + '/')))
+      allChanged.filter((p) => hasRoot || normalizedDirs.some((dir) => p === dir || p.startsWith(dir + '/')))
     )
+    console.log(`— after folder filter: ${changed.size} file(s) match spec dirs`)
     return changed
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('unknown revision') || msg.includes('ambiguous argument')) {
+      console.log('— No previous commit reachable — publishing all specs.')
+    } else {
+      console.log(`— git diff failed: ${msg}`)
+    }
     return null
   }
 }
@@ -275,7 +298,9 @@ async function collectMdFiles(dir: string, cwd: string, results: string[]): Prom
     if (entry.isDirectory()) {
       await collectMdFiles(fullPath, cwd, results)
     } else if (entry.isFile() && extname(entry.name) === '.md') {
-      results.push(relative(cwd, fullPath))
+      const rel = relative(cwd, fullPath)
+      console.log(`  found: ${rel}`)
+      results.push(rel)
     }
   }
 }

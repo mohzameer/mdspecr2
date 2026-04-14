@@ -94,12 +94,11 @@ export default function OnboardingPage() {
 
   function copyCI() {
     const snippet = `- uses: actions/checkout@v4
-  with:
-    fetch-depth: 0
 
 - run: npx mdspeci publish --project ${tokenData.projectId ?? '<project-id>'}
   env:
-    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}`
+    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}
+    GITHUB_EVENT_BEFORE: \${{ github.event.before }}`
     navigator.clipboard.writeText(snippet)
     setCopiedCI(true)
     setTimeout(() => setCopiedCI(false), 2000)
@@ -235,12 +234,11 @@ export default function OnboardingPage() {
                   </button>
                 </div>
                 <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{`- uses: actions/checkout@v4
-  with:
-    fetch-depth: 0
 
 - run: npx mdspeci publish --project ${tokenData.projectId ?? '<project-id>'}
   env:
-    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}`}</pre>
+    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}
+    GITHUB_EVENT_BEFORE: \${{ github.event.before }}`}</pre>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setStep(5)} className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900">
