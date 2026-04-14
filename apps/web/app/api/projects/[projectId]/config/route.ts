@@ -38,12 +38,20 @@ export async function GET(
 
     if (!project) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
-    const { count: specCount } = await supabase
+    const { data: projectSpecs } = await supabase
       .from('specs')
-      .select('id', { count: 'exact', head: true })
+      .select('id')
       .eq('project_id', projectId)
 
-    return NextResponse.json({ spec_dirs: project.spec_dirs ?? [], name: project.name, spec_count: specCount ?? 0 })
+    const specIds = (projectSpecs ?? []).map((s) => s.id)
+    const { count: syncedCount } = specIds.length > 0
+      ? await supabase
+          .from('spec_publish_targets')
+          .select('id', { count: 'exact', head: true })
+          .in('spec_id', specIds)
+      : { count: 0 }
+
+    return NextResponse.json({ spec_dirs: project.spec_dirs ?? [], name: project.name, spec_count: syncedCount ?? 0 })
   }
 
   // Browser path — session auth
