@@ -277,9 +277,12 @@ async function applyToAll() {
 
   function extractClickUpDocId(input: string): string {
     const trimmed = input.trim()
-    // Try to extract from URL: /d/<docId> or /doc/<docId>
-    const match = trimmed.match(/\/d(?:oc)?\/([a-zA-Z0-9]+)/)
-    if (match) return match[1]
+    // ClickUp doc URL format: /docs/<docId>/<pageId> — we want the docId (first segment after /docs/)
+    const docsMatch = trimmed.match(/\/docs\/([a-zA-Z0-9-]+)/)
+    if (docsMatch) return docsMatch[1]
+    // Fallback: /d/<docId> or /doc/<docId>
+    const dMatch = trimmed.match(/\/d(?:oc)?\/([a-zA-Z0-9-]+)/)
+    if (dMatch) return dMatch[1]
     // Otherwise treat as raw ID
     return trimmed
   }
