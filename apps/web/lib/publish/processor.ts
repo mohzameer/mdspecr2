@@ -32,6 +32,8 @@ interface GroupContext {
   sectionPageIds: Map<string, string>
   // Title source preference
   titleSource: 'first_heading' | 'filename'
+  // Whether to preserve folder hierarchy as sections inside the parent doc (hidden/disabled for now)
+  preserveHierarchy: boolean
   // Task list mode
   clickupMode: 'doc' | 'task_list'
   clickupListId: string | null
@@ -85,6 +87,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     sharedSubDocId: null,
     sectionPageIds: new Map(),
     titleSource: data.title_source ?? 'first_heading',
+    preserveHierarchy: false,
     clickupMode: 'doc',
     clickupListId: null,
     clickupUseCustomTaskIds: false,
@@ -183,10 +186,12 @@ async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string
 
   ctx.sharedSubRowId = mapping.id
 
-  // If user selected a parent doc, use it (multi-mode — pages published inside it).
+  // If user selected a parent doc, use it (multi-mode — pages published inside it, flat by default).
   // If no doc selected, specs publish flat to the destination root (single mode per spec).
+  // preserveHierarchy checkbox (hidden/disabled for now) would re-enable subfolder sections.
   if (ctx.sharedSubDocId) {
     ctx.isMultiMode = true
+    ctx.preserveHierarchy = false // hidden checkbox — disabled, pages always flat under parent doc
     ctx.groupingPath = rootFolder
     ctx.groupFolderName = rootFolder
 
@@ -373,7 +378,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
           existingPageId,
           ctx.groupFolderName,
           ctx.folderMappingTargetId,
-          ctx.sectionPageIds
+          ctx.preserveHierarchy ? ctx.sectionPageIds : undefined
         )
 
         // First spec in the group may create the shared doc — persist its ID
