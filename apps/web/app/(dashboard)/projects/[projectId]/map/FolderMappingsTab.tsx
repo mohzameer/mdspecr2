@@ -422,7 +422,7 @@ async function applyToAll() {
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Folder</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Integration</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">ClickUp Destination</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Destination</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Frontmatter</th>
               </tr>
             </thead>
@@ -694,26 +694,18 @@ async function applyToAll() {
                       />
                     </td>
 
-                    {/* Integration + mode */}
+                    {/* Integration */}
                     <td className="px-4 py-3 align-top">
-                      <div className="flex flex-col gap-1.5">
-                        <select
-                          value={newFolderIntegrationId}
-                          onChange={(e) => { setNewFolderIntegrationId(e.target.value); setNewFolderMode('doc'); setNewFolderTargetId(''); setNewFolderListId('') }}
-                          className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                        >
-                          <option value="">Integration…</option>
-                          {availableIntegrations.map((i) => (
-                            <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
-                          ))}
-                        </select>
-                        {isClickUp && (
-                          <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs w-fit">
-                            <button type="button" onClick={() => setNewFolderMode('doc')} className={`px-2 py-1 transition-colors ${newFolderMode === 'doc' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Doc</button>
-                            <button type="button" onClick={() => setNewFolderMode('task_list')} className={`px-2 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors ${newFolderMode === 'task_list' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Task list</button>
-                          </div>
-                        )}
-                      </div>
+                      <select
+                        value={newFolderIntegrationId}
+                        onChange={(e) => { setNewFolderIntegrationId(e.target.value); setNewFolderMode('doc'); setNewFolderTargetId(''); setNewFolderListId('') }}
+                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                      >
+                        <option value="">Integration…</option>
+                        {availableIntegrations.map((i) => (
+                          <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
+                        ))}
+                      </select>
                     </td>
 
                     {/* Template */}
@@ -730,10 +722,15 @@ async function applyToAll() {
                       </select>
                     </td>
 
-                    {/* ClickUp destination */}
+                    {/* Destination */}
                     <td className="px-4 py-3 align-top">
                       {isClickUp ? (
                         <div className="flex flex-col gap-1.5">
+                          {/* Mode toggle sits here, above the space/list selectors */}
+                          <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs w-fit">
+                            <button type="button" onClick={() => setNewFolderMode('doc')} className={`px-2 py-1 transition-colors ${newFolderMode === 'doc' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Doc</button>
+                            <button type="button" onClick={() => setNewFolderMode('task_list')} className={`px-2 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors ${newFolderMode === 'task_list' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Task list</button>
+                          </div>
                           <select
                             value={newFolderTargetId}
                             onChange={(e) => { setNewFolderTargetId(e.target.value); setNewFolderListId('') }}
