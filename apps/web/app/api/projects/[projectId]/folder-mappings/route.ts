@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
+import { Client } from '@upstash/qstash'
+import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
+
+const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
 
 async function getProjectAndRole(projectId: string) {
   const supabase = await createSupabaseServerClient()
@@ -117,5 +121,89 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     .single()
 
   if (error || !mapping) return NextResponse.json({ error: error?.message ?? 'create_failed' }, { status: 500 })
+
+  // -------------------------------------------------------------------------
+  // Backfill: enqueue all existing specs in this folder that haven't been
+  // synced to this integration yet.
+  // -------------------------------------------------------------------------
+  try {
+    const service = createSupabaseServiceClient()
+    const { data: integrationRow } = await service
+      .from('integrations')
+      .select('type')
+      .eq('id', integration_id)
+      .single()
+
+    if (integrationRow) {
+      // Fetch all specs for this project whose path belongs to this folder
+      const { data: allSpecs } = await service
+        .from('specs')
+        .select('id, path, content, content_hash, frontmatter')
+        .eq('project_id', projectId)
+
+      const mode = clickup_mode ?? 'doc'
+
+      // Filter to specs in this folder (same logic as publish route)
+      const folderSpecs = (allSpecs ?? []).filter((s) => {
+        const pathParts = s.path.split('/')
+        const specRootFolder = pathParts.length > 1 ? pathParts[0] : ''
+        return specRootFolder === normalizedPath
+      })
+
+      if (folderSpecs.length > 0) {
+        const groupSpecs: PublishGroupSpec[] = []
+
+        for (const spec of folderSpecs) {
+          // Upsert a publish target for this spec+integration+mode
+          const { data: target } = await service
+            .from('spec_publish_targets')
+            .upsert(
+              {
+                spec_id: spec.id,
+                integration_id,
+                target_type: integrationRow.type,
+                clickup_mode: mode,
+                status: 'queued',
+                retry_count: 0,
+                last_error: null,
+              },
+              { onConflict: 'spec_id,integration_id,clickup_mode' }
+            )
+            .select('id, external_page_id')
+            .single()
+
+          if (target) {
+            groupSpecs.push({
+              spec_id: spec.id,
+              spec_publish_target_id: target.id,
+              path: spec.path,
+              content: spec.content,
+              content_hash: spec.content_hash,
+              frontmatter: (spec.frontmatter as Record<string, unknown>) ?? {},
+            })
+          }
+        }
+
+        if (groupSpecs.length > 0) {
+          const jobData: PublishGroupJobData = {
+            project_id: projectId,
+            integration_id,
+            target_type: integrationRow.type as IntegrationType,
+            specs: groupSpecs,
+            clickup_mode: mode as 'doc' | 'task_list',
+          }
+          await qstash.publishJSON({
+            url: `${process.env.NEXT_PUBLIC_APP_URL}/api/worker/process`,
+            body: jobData,
+            retries: 5,
+          })
+        }
+      }
+    }
+  } catch (backfillErr) {
+    // Backfill failure is non-fatal — mapping was created successfully
+    console.error('[folder-mappings] backfill enqueue failed:', backfillErr)
+  }
+
   return NextResponse.json(mapping, { status: 201 })
 }
