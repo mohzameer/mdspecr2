@@ -2,6 +2,21 @@ import bcrypt from 'bcryptjs'
 import { createSupabaseServiceClient } from '@/lib/db-server'
 import { Client } from '@upstash/qstash'
 import type { PublishPayload, PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
+import { getAncestorFolders } from '@/lib/folder-hierarchy'
+
+// Returns the most specific mapped folder path for a spec, or null if none.
+// e.g. for src/hooks/INFO1.md, checks: "src/hooks" → "src" → "" (root)
+function findBestMappedFolder(specPath: string, integrationId: string, mappedPairs: Set<string>): string | null {
+  const ancestors = getAncestorFolders(specPath)
+    .map((a) => a.path)
+    .reverse() // most specific first
+  // Also check root ("")
+  const candidates = [...ancestors, '']
+  for (const candidate of candidates) {
+    if (mappedPairs.has(`${integrationId}::${candidate}`)) return candidate
+  }
+  return null
+}
 
 const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
 
@@ -242,23 +257,18 @@ export async function POST(request: Request) {
         console.log(`[publish] frontmatter targets=${JSON.stringify(targetTypes)} matched integrations=${targetIntegrations.map(i => i.type).join(',')}`)
       }
 
-      // Group by root folder so all specs under the same top-level directory
-      // are processed by one worker and share a single ClickUp doc.
-      // Root-level specs (no folder) use an empty string as the group key.
-      const pathParts = spec.path.split('/')
-      const rootFolder = pathParts.length > 1 ? pathParts[0] : ''
-
       for (const integration of targetIntegrations) {
-        const folderKey = `${integration.id}::${rootFolder}`
+        // Find the most specific mapped folder for this spec + integration.
+        const matchedFolder = findBestMappedFolder(spec.path, integration.id, mappedPairs)
 
-        // Skip if no explicit folder mapping exists for this (folder, integration).
-        // Folder mappings are required — unmapped folders are not synced.
-        if (!mappedPairs.has(folderKey)) {
-          console.log(`[publish] skipping spec=${upsertedSpec.id} integration=${integration.id} — no folder mapping for "${rootFolder || '/'}"`)
+        if (matchedFolder === null) {
+          console.log(`[publish] skipping spec=${upsertedSpec.id} integration=${integration.id} — no folder mapping for "${spec.path}"`)
           continue
         }
 
-        // For ClickUp, determine which modes are configured for this root folder.
+        const folderKey = `${integration.id}::${matchedFolder}`
+
+        // For ClickUp, determine which modes are configured for this folder.
         // A folder can have both 'doc' and 'task_list' modes simultaneously.
         // Non-ClickUp integrations always use a single 'doc' slot.
         let modes: string[]
@@ -304,8 +314,8 @@ export async function POST(request: Request) {
             continue
           }
 
-          // Accumulate into the correct group (one group per integration + folder + mode)
-          const groupKey = `${integration.id}::${rootFolder}::${mode}`
+          // Accumulate into the correct group (one group per integration + matched folder + mode)
+          const groupKey = `${integration.id}::${matchedFolder}::${mode}`
           let group = groups.get(groupKey)
           if (!group) {
             group = { integration_id: integration.id, target_type: integration.type as IntegrationType, clickup_mode: mode, specs: [] }

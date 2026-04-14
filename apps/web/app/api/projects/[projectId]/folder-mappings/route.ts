@@ -143,11 +143,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
       const mode = clickup_mode ?? 'doc'
 
-      // Filter to specs in this folder (same logic as publish route)
+      // Filter specs that live under this folder path.
+      // Root mapping ("") covers everything; otherwise check if the spec path
+      // starts with the folder prefix.
       const folderSpecs = (allSpecs ?? []).filter((s) => {
-        const pathParts = s.path.split('/')
-        const specRootFolder = pathParts.length > 1 ? pathParts[0] : ''
-        return specRootFolder === normalizedPath
+        if (normalizedPath === '') return true
+        return s.path === normalizedPath || s.path.startsWith(normalizedPath + '/')
       })
 
       if (folderSpecs.length > 0) {

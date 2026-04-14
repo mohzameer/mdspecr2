@@ -15,6 +15,7 @@ program
   .requiredOption('--project <project_id>', 'Project ID')
   .option('--base <base_ref>', 'Base git ref for change detection (default: origin/main)')
   .option('--dirs <dirs>', 'Comma-separated spec directories (overrides project config)')
+  .option('--skip-diff', 'Skip git diff and publish all discovered specs')
   .action(publishCommand)
 
 program.parseAsync(process.argv)

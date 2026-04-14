@@ -8,6 +8,7 @@ interface PublishOptions {
   project: string
   base?: string
   dirs?: string
+  skipDiff?: boolean
 }
 
 interface SpecArtifact {
@@ -60,7 +61,10 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
 
   // First run: no specs on server yet — publish everything
   let specsToPublish: string[]
-  if (projectConfig.spec_count === 0) {
+  if (options.skipDiff) {
+    console.log('— Skipping diff, publishing all specs.')
+    specsToPublish = allSpecs
+  } else if (projectConfig.spec_count === 0) {
     console.log('— First run detected, publishing all specs.')
     specsToPublish = allSpecs
   } else {
