@@ -73,6 +73,11 @@ export function FolderMappingsTab({
   const [newFolderPath, setNewFolderPath] = useState('')
   const [newFolderIntegrationId, setNewFolderIntegrationId] = useState('')
   const [newFolderMode, setNewFolderMode] = useState<'doc' | 'task_list'>('doc')
+  const [newFolderTargetId, setNewFolderTargetId] = useState<string>('')
+  const [newFolderListId, setNewFolderListId] = useState<string>('')
+  const [newFolderTemplateId, setNewFolderTemplateId] = useState<string>('')
+  const [newFolderFrontmatterTitle, setNewFolderFrontmatterTitle] = useState<string>('')
+  const [newFolderFrontmatterTaskId, setNewFolderFrontmatterTaskId] = useState<string>('')
   const [addingFolder, setAddingFolder] = useState(false)
   const [savingMappingId, setSavingMappingId] = useState<string | null>(null)
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
@@ -82,6 +87,19 @@ export function FolderMappingsTab({
   const [addingDiscoveredFolder, setAddingDiscoveredFolder] = useState<string | null>(null)
   // listsCache: integrationId:spaceId → ClickUpList[]
   const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
+
+  // Load lists when new row selects a space in task_list mode
+  useEffect(() => {
+    if (!newFolderIntegrationId || newFolderMode !== 'task_list') return
+    const spaceId = newFolderTargetId.startsWith('space:') ? newFolderTargetId.slice(6) : null
+    if (!spaceId) return
+    const cacheKey = `${newFolderIntegrationId}:${spaceId}`
+    if (listsCache[cacheKey]) return
+    fetch(`/api/integrations/${newFolderIntegrationId}/clickup-lists?space_id=${spaceId}`)
+      .then((r) => r.json())
+      .then((data) => { if (Array.isArray(data.lists)) setListsCache((prev) => ({ ...prev, [cacheKey]: data.lists })) })
+      .catch(() => {})
+  }, [newFolderIntegrationId, newFolderMode, newFolderTargetId])
 
   // Pre-load ClickUp targets and task lists for all relevant mappings
   useEffect(() => {
@@ -258,6 +276,12 @@ async function applyToAll() {
       .catch(() => {})
   }
 
+  function prefillFromSuggestion(folderPath: string) {
+    const display = folderPath === '' ? '/' : folderPath
+    setNewFolderPath(display)
+    document.getElementById('new-folder-path-input')?.focus()
+  }
+
   async function setIntegration(folderPath: string, integrationId: string) {
     if (addingDiscoveredFolder !== null) return
     setAddingDiscoveredFolder(folderPath)
@@ -292,6 +316,11 @@ async function applyToAll() {
     if (!path || !integrationId) return
     const selectedIntegration = availableIntegrations.find((i) => i.id === integrationId)
     const isClickUp = selectedIntegration?.type === 'clickup'
+    const mode = isClickUp ? newFolderMode : 'doc'
+    const frontmatterMap: Record<string, string> = {}
+    if (newFolderFrontmatterTitle.trim()) frontmatterMap['title'] = newFolderFrontmatterTitle.trim()
+    if (mode === 'task_list' && newFolderFrontmatterTaskId.trim()) frontmatterMap['clickup_task_id'] = newFolderFrontmatterTaskId.trim()
+
     setAddingFolder(true)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
       method: 'POST',
@@ -299,16 +328,26 @@ async function applyToAll() {
       body: JSON.stringify({
         folder_path: path || '/',
         integration_id: integrationId,
-        clickup_mode: isClickUp ? newFolderMode : 'doc',
+        clickup_mode: mode,
+        target_id: newFolderTargetId || null,
+        clickup_list_id: newFolderListId || null,
+        template_id: newFolderTemplateId || null,
+        frontmatter_map: Object.keys(frontmatterMap).length > 0 ? frontmatterMap : null,
       }),
     })
     if (res.ok) {
       const newMapping: FolderMapping = await res.json()
       const integration = availableIntegrations.find((i) => i.id === integrationId) ?? null
-      onMappingsChange([...mappings, { ...newMapping, integrations: integration, templates: null }])
+      const template = templates.find((t) => t.id === newFolderTemplateId) ?? null
+      onMappingsChange([...mappings, { ...newMapping, integrations: integration, templates: template ? { id: template.id, name: template.name } : null }])
       setNewFolderPath('')
       setNewFolderIntegrationId('')
       setNewFolderMode('doc')
+      setNewFolderTargetId('')
+      setNewFolderListId('')
+      setNewFolderTemplateId('')
+      setNewFolderFrontmatterTitle('')
+      setNewFolderFrontmatterTaskId('')
     }
     setAddingFolder(false)
   }
@@ -611,50 +650,135 @@ async function applyToAll() {
                 )
               })}
               {/* Add folder row */}
-              {canEdit && (
-                <tr className="border-t border-zinc-100 dark:border-zinc-800">
-                  <td className="px-4 py-2.5" colSpan={2}>
-                    <div className="flex items-center gap-2">
+              {canEdit && (() => {
+                const newIntegration = availableIntegrations.find((i) => i.id === newFolderIntegrationId)
+                const isClickUp = newIntegration?.type === 'clickup'
+                const newTargets = newFolderIntegrationId ? (targetsCache[newFolderIntegrationId] ?? []) : []
+                const newTargetsLoaded = !!targetsCache[newFolderIntegrationId]
+                const newSelectedSpaceId = newFolderTargetId.startsWith('space:') ? newFolderTargetId.slice(6) : null
+                const newListsCacheKey = newSelectedSpaceId ? `${newFolderIntegrationId}:${newSelectedSpaceId}` : null
+                const newLists = newListsCacheKey ? (listsCache[newListsCacheKey] ?? []) : []
+                const newListsLoaded = newListsCacheKey ? !!listsCache[newListsCacheKey] : false
+
+                // Load targets when integration changes
+                if (isClickUp && newFolderIntegrationId && !targetsCache[newFolderIntegrationId]) {
+                  fetch(`/api/integrations/${newFolderIntegrationId}/clickup-targets`)
+                    .then((r) => r.json())
+                    .then((data) => { if (Array.isArray(data)) setTargetsCache((prev) => ({ ...prev, [newFolderIntegrationId]: data })) })
+                    .catch(() => {})
+                }
+
+                return (
+                  <tr className="border-t-2 border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/20">
+                    {/* Folder path */}
+                    <td className="px-4 py-3 align-top">
                       <input
+                        id="new-folder-path-input"
                         type="text"
                         value={newFolderPath}
                         onChange={(e) => setNewFolderPath(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') addFolderManually() }}
-                        placeholder="Add folder path…"
-                        className="text-xs rounded border border-dashed border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 font-mono w-48"
+                        placeholder="folder/path…"
+                        className="text-xs rounded border border-dashed border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 font-mono w-full"
                       />
-                      <select
-                        value={newFolderIntegrationId}
-                        onChange={(e) => { setNewFolderIntegrationId(e.target.value); setNewFolderMode('doc') }}
-                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                      >
-                        <option value="">Integration…</option>
-                        {availableIntegrations.map((i) => (
-                          <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
-                        ))}
-                      </select>
-                      {availableIntegrations.find((i) => i.id === newFolderIntegrationId)?.type === 'clickup' && (
+                    </td>
+
+                    {/* Integration + mode */}
+                    <td className="px-4 py-3 align-top">
+                      <div className="flex flex-col gap-1.5">
                         <select
-                          value={newFolderMode}
-                          onChange={(e) => setNewFolderMode(e.target.value as 'doc' | 'task_list')}
+                          value={newFolderIntegrationId}
+                          onChange={(e) => { setNewFolderIntegrationId(e.target.value); setNewFolderMode('doc'); setNewFolderTargetId(''); setNewFolderListId('') }}
                           className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                         >
-                          <option value="doc">Doc</option>
-                          <option value="task_list">Task list</option>
+                          <option value="">Integration…</option>
+                          {availableIntegrations.map((i) => (
+                            <option key={i.id} value={i.id}>{integrationLabels[i.type] ?? i.type}</option>
+                          ))}
                         </select>
-                      )}
-                      <button
-                        onClick={addFolderManually}
-                        disabled={addingFolder || !newFolderPath.trim() || (!newFolderIntegrationId && availableIntegrations.length === 0)}
-                        className="text-xs rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2.5 py-1 disabled:opacity-40 transition-colors"
+                        {isClickUp && (
+                          <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs w-fit">
+                            <button type="button" onClick={() => setNewFolderMode('doc')} className={`px-2 py-1 transition-colors ${newFolderMode === 'doc' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Doc</button>
+                            <button type="button" onClick={() => setNewFolderMode('task_list')} className={`px-2 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors ${newFolderMode === 'task_list' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Task list</button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Template */}
+                    <td className="px-4 py-3 align-top">
+                      <select
+                        value={newFolderTemplateId}
+                        onChange={(e) => setNewFolderTemplateId(e.target.value)}
+                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                       >
-                        {addingFolder ? 'Adding…' : 'Add'}
-                      </button>
-                    </div>
-                  </td>
-                  <td colSpan={3} />
-                </tr>
-              )}
+                        <option value="">None</option>
+                        {templates.map((t) => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </td>
+
+                    {/* ClickUp destination */}
+                    <td className="px-4 py-3 align-top">
+                      {isClickUp ? (
+                        <div className="flex flex-col gap-1.5">
+                          <select
+                            value={newFolderTargetId}
+                            onChange={(e) => { setNewFolderTargetId(e.target.value); setNewFolderListId('') }}
+                            disabled={!newTargetsLoaded}
+                            className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                          >
+                            <option value="">{newTargetsLoaded ? (newFolderMode === 'task_list' ? 'Select space…' : 'Workspace root') : 'Loading…'}</option>
+                            {newTargets.filter((t) => t.kind === 'space').map((t) => (
+                              <option key={t.id} value={t.id}>{t.name} (space)</option>
+                            ))}
+                            {newFolderMode === 'doc' && newTargets.filter((t) => t.kind === 'folder').map((t) => (
+                              <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
+                            ))}
+                          </select>
+                          {newFolderMode === 'task_list' && newSelectedSpaceId && (
+                            <select
+                              value={newFolderListId}
+                              onChange={(e) => setNewFolderListId(e.target.value)}
+                              disabled={!newListsLoaded}
+                              className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                            >
+                              <option value="">{newListsLoaded ? 'Select list…' : 'Loading…'}</option>
+                              {newLists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                            </select>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-zinc-400">—</span>
+                      )}
+                    </td>
+
+                    {/* Frontmatter + Add button */}
+                    <td className="px-4 py-3 align-top">
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs font-mono text-zinc-500">title <span className="font-sans text-zinc-400">(optional)</span></span>
+                          <input type="text" value={newFolderFrontmatterTitle} onChange={(e) => setNewFolderFrontmatterTitle(e.target.value)} placeholder="title" className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500" />
+                        </div>
+                        {isClickUp && newFolderMode === 'task_list' && (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-mono text-zinc-500">clickup_task_id</span>
+                            <input type="text" value={newFolderFrontmatterTaskId} onChange={(e) => setNewFolderFrontmatterTaskId(e.target.value)} placeholder="clickup_task_id" className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500" />
+                          </div>
+                        )}
+                        <button
+                          onClick={addFolderManually}
+                          disabled={addingFolder || !newFolderPath.trim() || !newFolderIntegrationId}
+                          className="mt-1 text-xs rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 disabled:opacity-40 transition-colors w-fit"
+                        >
+                          {addingFolder ? 'Adding…' : 'Add mapping'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })()}
             </tbody>
           </table>
         </div>
@@ -671,7 +795,7 @@ async function applyToAll() {
               return (
                 <button
                   key={folder}
-                  onClick={() => setIntegration(folder, availableIntegrations[0]?.id ?? '')}
+                  onClick={() => prefillFromSuggestion(folder)}
                   disabled={anyAdding}
                   className="flex items-center gap-1.5 rounded border border-dashed border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs font-mono text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-zinc-300 disabled:hover:text-zinc-500"
                 >

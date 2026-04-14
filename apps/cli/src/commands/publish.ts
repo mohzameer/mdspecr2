@@ -245,7 +245,7 @@ function detectChangedFiles(baseRef: string, specDirs: string[]): Set<string> | 
       }
     }
 
-    const output = execSync(`git diff --name-only ${baseRef}...HEAD`, {
+    const output = execSync(`git diff --name-only ${baseRef}..HEAD`, {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     })
