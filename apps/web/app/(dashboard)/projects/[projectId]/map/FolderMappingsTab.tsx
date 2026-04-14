@@ -80,6 +80,7 @@ export function FolderMappingsTab({
   const [newFolderFrontmatterTaskId, setNewFolderFrontmatterTaskId] = useState<string>('')
   const [addingFolder, setAddingFolder] = useState(false)
   const [savingMappingId, setSavingMappingId] = useState<string | null>(null)
+  const [deletingMappingId, setDeletingMappingId] = useState<string | null>(null)
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
   // inline frontmatter editing: mappingId → { attribute → frontmatterKey }
   const [frontmatterDraft, setFrontmatterDraft] = useState<Record<string, Record<string, string>>>({})
@@ -189,8 +190,10 @@ async function applyToAll() {
   }
 
   async function removeMapping(mappingId: string) {
+    setDeletingMappingId(mappingId)
     await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, { method: 'DELETE' })
     onMappingsChange(mappings.filter((m) => m.id !== mappingId))
+    setDeletingMappingId(null)
   }
 
   async function updateTemplate(mappingId: string, templateId: string | null) {
@@ -439,12 +442,20 @@ async function applyToAll() {
                         {canEdit && (
                           <button
                             onClick={() => removeMapping(mapping.id)}
-                            className="w-fit text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400 transition-colors"
+                            disabled={deletingMappingId === mapping.id}
+                            className="w-fit text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400 transition-colors disabled:opacity-50"
                             title="Remove mapping"
                           >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
-                            </svg>
+                            {deletingMappingId === mapping.id ? (
+                              <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                              </svg>
+                            ) : (
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+                              </svg>
+                            )}
                           </button>
                         )}
                       </div>
