@@ -120,10 +120,6 @@ export function FolderMappingsTab({
   const mappedFolderPaths = (mappings ?? []).map((m) => m.folder_path.replace(/^\//, '').replace(/\/$/, ''))
   const allFolders = [...new Set(mappedFolderPaths)].sort((a, b) => a.localeCompare(b))
 
-  // Whether root "/" is already mapped
-  const hasRootMapping = mappedFolderPaths.includes('')
-  // Whether any non-root folder is mapped
-  const hasNonRootMapping = mappedFolderPaths.some((p) => p !== '')
 
   // Discovered folders not yet mapped — shown as suggestions
   const unmappedDiscovered = (discoveredFolders ?? []).filter((f) => !allFolders.includes(f))
@@ -263,8 +259,6 @@ async function applyToAll() {
   }
 
   async function setIntegration(folderPath: string, integrationId: string) {
-    if (hasRootMapping && folderPath !== '') return
-    if (folderPath === '' && hasNonRootMapping) return
     if (addingDiscoveredFolder !== null) return
     setAddingDiscoveredFolder(folderPath)
     // Remove existing mappings for this folder first, then add new one
@@ -296,8 +290,6 @@ async function applyToAll() {
     const path = newFolderPath.trim().replace(/^\//, '').replace(/\/$/, '')
     const integrationId = newFolderIntegrationId || availableIntegrations[0]?.id
     if (!path || !integrationId) return
-    if (hasRootMapping) return
-    if (path === '' && hasNonRootMapping) return
     const selectedIntegration = availableIntegrations.find((i) => i.id === integrationId)
     const isClickUp = selectedIntegration?.type === 'clickup'
     setAddingFolder(true)
@@ -653,8 +645,7 @@ async function applyToAll() {
                       )}
                       <button
                         onClick={addFolderManually}
-                        disabled={addingFolder || !newFolderPath.trim() || (!newFolderIntegrationId && availableIntegrations.length === 0) || hasRootMapping || (newFolderPath.trim().replace(/^\//, '').replace(/\/$/, '') === '' && hasNonRootMapping)}
-                        title={hasRootMapping ? 'Remove the root "/" mapping first' : undefined}
+                        disabled={addingFolder || !newFolderPath.trim() || (!newFolderIntegrationId && availableIntegrations.length === 0)}
                         className="text-xs rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2.5 py-1 disabled:opacity-40 transition-colors"
                       >
                         {addingFolder ? 'Adding…' : 'Add'}
@@ -669,33 +660,19 @@ async function applyToAll() {
         </div>
       )}
 
-      {/* Root conflict warning */}
-      {hasRootMapping && hasNonRootMapping && (
-        <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded px-3 py-2">
-          Root <span className="font-mono">/</span> is mapped and covers all folders. Remove the per-folder mappings or remove the root mapping to avoid conflicts.
-        </p>
-      )}
-      {hasRootMapping && !hasNonRootMapping && (
-        <p className="text-xs text-zinc-500 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded px-3 py-2">
-          Root <span className="font-mono">/</span> is mapped — all specs in the repo are covered. Remove it first to map individual folders instead.
-        </p>
-      )}
-
       {/* Detected folders not yet mapped */}
       {unmappedDiscovered.length > 0 && canEdit && (
         <div>
           <p className="text-xs text-zinc-500 mb-2">Detected folders — assign an integration to start mapping:</p>
           <div className="flex flex-wrap gap-2">
             {unmappedDiscovered.map((folder) => {
-              const blocked = hasRootMapping || (folder === '' && hasNonRootMapping)
               const isAdding = addingDiscoveredFolder === folder
               const anyAdding = addingDiscoveredFolder !== null
               return (
                 <button
                   key={folder}
                   onClick={() => setIntegration(folder, availableIntegrations[0]?.id ?? '')}
-                  disabled={blocked || anyAdding}
-                  title={blocked ? (hasRootMapping ? 'Remove the root "/" mapping first' : 'Remove per-folder mappings before adding root') : undefined}
+                  disabled={anyAdding}
                   className="flex items-center gap-1.5 rounded border border-dashed border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs font-mono text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-zinc-300 disabled:hover:text-zinc-500"
                 >
                   {isAdding ? (
