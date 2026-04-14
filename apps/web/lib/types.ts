@@ -53,7 +53,7 @@ export interface PublishGroupJobData {
   specs: PublishGroupSpec[]
   clickup_mode?: 'doc' | 'task_list'
   matched_folder?: string  // the folder path that was matched for this group (longest-prefix)
-  title_source?: 'frontmatter' | 'filename'
+  title_source?: 'first_heading' | 'filename'
 }
 
 // ---------------------------------------------------------------------------

@@ -344,7 +344,7 @@ export async function POST(request: Request) {
         specs: group.specs,
         clickup_mode: group.clickup_mode as 'doc' | 'task_list',
         matched_folder: group.matched_folder,
-        title_source: (project.title_source as 'frontmatter' | 'filename') ?? 'frontmatter',
+        title_source: (project.title_source as 'first_heading' | 'filename') ?? 'first_heading',
       }
 
       try {

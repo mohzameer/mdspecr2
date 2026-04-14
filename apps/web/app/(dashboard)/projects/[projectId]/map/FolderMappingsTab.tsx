@@ -50,9 +50,9 @@ interface Props {
   availableIntegrations: Integration[]
   templates: Template[]
   canEdit: boolean
-  titleSource: 'frontmatter' | 'filename'
+  titleSource: 'first_heading' | 'filename'
   onMappingsChange: (mappings: FolderMapping[]) => void
-  onTitleSourceChange: (value: 'frontmatter' | 'filename') => void
+  onTitleSourceChange: (value: 'first_heading' | 'filename') => void
 }
 
 const integrationLabels: Record<string, string> = {
@@ -421,29 +421,6 @@ async function applyToAll() {
         Folders are auto-detected from published specs. Assign an integration to any folder to start publishing its specs.
       </p>
 
-      {/* Title source toggle */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-zinc-500">Doc title from:</span>
-        <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs">
-          <button
-            type="button"
-            disabled={!canEdit}
-            onClick={() => onTitleSourceChange('frontmatter')}
-            className={`px-2.5 py-1 transition-colors disabled:opacity-50 ${titleSource === 'frontmatter' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
-          >
-            Frontmatter title
-          </button>
-          <button
-            type="button"
-            disabled={!canEdit}
-            onClick={() => onTitleSourceChange('filename')}
-            className={`px-2.5 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors disabled:opacity-50 ${titleSource === 'filename' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
-          >
-            Filename
-          </button>
-        </div>
-      </div>
-
       {/* Replace all / Remove all */}
       {canEdit && allFolders.length > 0 && (
         <div className="flex items-center gap-2">
@@ -466,15 +443,23 @@ async function applyToAll() {
               {applyingAll ? 'Applying…' : 'Apply to all'}
             </button>
           )}
-          {mappings.length > 0 && (
-            <button
-              onClick={removeAllMappings}
-              disabled={removingAll}
-              className="ml-auto rounded border border-red-200 dark:border-red-900 px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50 transition-colors"
-            >
-              {removingAll ? 'Removing…' : 'Remove all'}
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-zinc-500">Title from:</span>
+            <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs">
+              <button type="button" disabled={!canEdit} onClick={() => onTitleSourceChange('first_heading')} className={`px-2.5 py-1 transition-colors disabled:opacity-50 ${titleSource === 'first_heading' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>First heading</button>
+              <button type="button" disabled={!canEdit} onClick={() => onTitleSourceChange('filename')} className={`px-2.5 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors disabled:opacity-50 ${titleSource === 'filename' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>Filename</button>
+            </div>
+            <span className="text-xs text-zinc-400"><code className="font-mono text-xs">title</code> in frontmatter overrides</span>
+            {mappings.length > 0 && (
+              <button
+                onClick={removeAllMappings}
+                disabled={removingAll}
+                className="rounded border border-red-200 dark:border-red-900 px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50 transition-colors"
+              >
+                {removingAll ? 'Removing…' : 'Remove all'}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

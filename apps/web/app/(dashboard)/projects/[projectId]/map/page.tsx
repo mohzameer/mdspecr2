@@ -80,7 +80,7 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
       initialTemplates={templates}
       initialDiscoveredFolders={discoveredFolders}
       canEdit={!!canEdit}
-      initialTitleSource={(project.title_source as 'frontmatter' | 'filename') ?? 'frontmatter'}
+      initialTitleSource={(project.title_source as 'first_heading' | 'filename') ?? 'first_heading'}
     />
   )
 }

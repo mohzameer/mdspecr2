@@ -31,7 +31,7 @@ interface GroupContext {
   // In-memory cache: sub-folder path → ClickUp section page ID (created on demand)
   sectionPageIds: Map<string, string>
   // Title source preference
-  titleSource: 'frontmatter' | 'filename'
+  titleSource: 'first_heading' | 'filename'
   // Task list mode
   clickupMode: 'doc' | 'task_list'
   clickupListId: string | null
@@ -84,7 +84,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     sharedSubRowId: null,
     sharedSubDocId: null,
     sectionPageIds: new Map(),
-    titleSource: data.title_source ?? 'frontmatter',
+    titleSource: data.title_source ?? 'first_heading',
     clickupMode: 'doc',
     clickupListId: null,
     clickupUseCustomTaskIds: false,
@@ -274,7 +274,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   }
 
   // Resolve title once here so all adapters use the same value
-  const resolvedTitle = getSpecTitle(path, frontmatter as Record<string, unknown>, ctx.titleSource)
+  const resolvedTitle = getSpecTitle(path, frontmatter as Record<string, unknown>, ctx.titleSource, content)
   const specPayload = { path, content, frontmatter, resolvedTitle }
 
   // -- Dispatch to adapter ---------------------------------------------------
