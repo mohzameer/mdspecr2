@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { createSupabaseServerClient } from '@/lib/db-server'
 import type { Project } from '@/lib/types'
+import { NewProjectButton } from './NewProjectButton'
 
 export default async function ProjectsPage() {
   const supabase = await createSupabaseServerClient()
@@ -24,18 +25,13 @@ export default async function ProjectsPage() {
     <div className="p-8 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Projects</h1>
-        <Link
-          href="/onboarding"
-          className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
-        >
-          New project
-        </Link>
+        <NewProjectButton />
       </div>
 
       {!projects || projects.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-12 text-center">
           <p className="text-sm text-zinc-500 mb-4">No projects yet.</p>
-          <Link href="/onboarding" className="text-sm font-medium text-zinc-900 dark:text-zinc-50 underline">
+          <Link href="/onboarding?skip_org=1" className="text-sm font-medium text-zinc-900 dark:text-zinc-50 underline">
             Create your first project →
           </Link>
         </div>

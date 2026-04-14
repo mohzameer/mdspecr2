@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 interface OrgForm { name: string }
 interface ProjectForm { name: string; description: string }
@@ -13,7 +13,12 @@ type Step = 1 | 2 | 3 | 4 | 5
 
 export default function OnboardingPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [step, setStep] = useState<Step>(1)
+
+  useEffect(() => {
+    if (searchParams.get('skip_org') === '1') setStep(2)
+  }, [searchParams])
   const [org, setOrg] = useState<OrgForm>({ name: '' })
   const [project, setProject] = useState<ProjectForm>({ name: '', description: '' })
   const [dirs, setDirs] = useState<DirsForm>({ dirs: ['/specs'] })
@@ -177,7 +182,7 @@ export default function OnboardingPage() {
                 </>
               )}
               <div className="flex gap-2">
-                <button type="button" onClick={() => setStep((s) => (s - 1) as Step)} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
+                <button type="button" onClick={() => { if (step === 2 && searchParams.get('skip_org') === '1') { router.push('/projects') } else { setStep((s) => (s - 1) as Step) } }} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
                 <button type="submit" disabled={loading} className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                   {loading ? 'Creating…' : 'Continue →'}
                 </button>
