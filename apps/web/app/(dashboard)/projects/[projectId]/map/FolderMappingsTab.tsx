@@ -444,12 +444,11 @@ async function applyToAll() {
             </button>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Title from:</span>
+            <span className="text-xs text-zinc-500">Document title from:</span>
             <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs">
               <button type="button" disabled={!canEdit} onClick={() => onTitleSourceChange('first_heading')} className={`px-2.5 py-1 transition-colors disabled:opacity-50 ${titleSource === 'first_heading' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>First heading</button>
               <button type="button" disabled={!canEdit} onClick={() => onTitleSourceChange('filename')} className={`px-2.5 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors disabled:opacity-50 ${titleSource === 'filename' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>Filename</button>
             </div>
-            <span className="text-xs text-zinc-400"><code className="font-mono text-xs">title</code> in frontmatter overrides</span>
             {mappings.length > 0 && (
               <button
                 onClick={removeAllMappings}
@@ -699,6 +698,9 @@ async function applyToAll() {
                                   />
                                 ) : (
                                   <span className="text-xs font-mono text-zinc-600 dark:text-zinc-400">{draft[attribute] || '—'}</span>
+                                )}
+                                {attribute === 'title' && (
+                                  <span className="text-xs text-zinc-400"><code className="font-mono text-xs">title</code> in frontmatter overrides the doc title setting</span>
                                 )}
                               </div>
                             ))}
