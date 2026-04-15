@@ -45,7 +45,7 @@ export async function PATCH(
   if (!canEdit) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { template_id, target_id, clickup_mode, clickup_list_id, clickup_doc_id, frontmatter_map, clickup_use_custom_task_ids } = body
+  const { template_id, target_id, clickup_mode, clickup_list_id, clickup_doc_id, frontmatter_map, clickup_use_custom_task_ids, skip_patterns } = body
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if ('template_id' in body) patch.template_id = template_id ?? null
@@ -55,6 +55,7 @@ export async function PATCH(
   if ('clickup_doc_id' in body) patch.clickup_doc_id = clickup_doc_id ?? null
   if ('frontmatter_map' in body) patch.frontmatter_map = frontmatter_map ?? null
   if ('clickup_use_custom_task_ids' in body) patch.clickup_use_custom_task_ids = !!clickup_use_custom_task_ids
+  if ('skip_patterns' in body) patch.skip_patterns = Array.isArray(skip_patterns) ? skip_patterns : []
 
   const { data: mapping, error } = await supabase
     .from('folder_mappings')

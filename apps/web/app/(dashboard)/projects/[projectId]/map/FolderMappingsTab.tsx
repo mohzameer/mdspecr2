@@ -26,6 +26,7 @@ interface FolderMapping {
   clickup_list_id: string | null
   clickup_doc_id: string | null
   clickup_use_custom_task_ids: boolean | null
+  skip_patterns: string[]
   frontmatter_map: Record<string, string> | null
   integrations: { id: string; type: string; status: string; config: Record<string, unknown> | null } | null
   templates: { id: string; name: string } | null
@@ -97,6 +98,9 @@ export function FolderMappingsTab({
   const [newFolderDocId, setNewFolderDocId] = useState<string>('')
   // existing mapping doc URL drafts: mappingId → raw URL input
   const [docUrlDraft, setDocUrlDraft] = useState<Record<string, string>>({})
+  // skip patterns: mappingId → textarea draft (newline-separated)
+  const [skipDraft, setSkipDraft] = useState<Record<string, string>>({})
+  const [newFolderSkipPatterns, setNewFolderSkipPatterns] = useState<string>('')
 
   // Load lists when new row selects a space in task_list mode (doc parent no longer needs fetching — user pastes URL)
   useEffect(() => {
@@ -250,6 +254,19 @@ async function applyToAll() {
     setSavingMappingId(null)
   }
 
+  async function saveSkipPatterns(mappingId: string, raw: string) {
+    const patterns = raw.split('\n').map((l) => l.trim()).filter(Boolean)
+    const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skip_patterns: patterns }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      onMappingsChange(mappings.map((m) => m.id === mappingId ? { ...m, skip_patterns: updated.skip_patterns ?? [] } : m))
+    }
+  }
+
   async function saveFrontmatterAttribute(mappingId: string, attribute: string, value: string) {
     const current = frontmatterDraft[mappingId] ?? {}
     const trimmed = value.trim()
@@ -343,7 +360,7 @@ async function applyToAll() {
     const mode = isClickUp ? newFolderMode : 'doc'
     const frontmatterMap: Record<string, string> = {}
     if (newFolderFrontmatterTitle.trim()) frontmatterMap['title'] = newFolderFrontmatterTitle.trim()
-    if (mode === 'task_list' && newFolderFrontmatterTaskId.trim()) frontmatterMap['clickup_task_id'] = newFolderFrontmatterTaskId.trim()
+    if (mode === 'task_list' && newFolderFrontmatterTaskId.trim()) frontmatterMap['mdspec_taskid'] = newFolderFrontmatterTaskId.trim()
 
     setAddingFolder(true)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
@@ -356,6 +373,7 @@ async function applyToAll() {
         target_id: newFolderTargetId || null,
         clickup_list_id: newFolderListId || null,
         clickup_doc_id: newFolderDocId || null,
+        skip_patterns: newFolderSkipPatterns.split('\n').map((l) => l.trim()).filter(Boolean),
         template_id: newFolderTemplateId || null,
         frontmatter_map: Object.keys(frontmatterMap).length > 0 ? frontmatterMap : null,
       }),
@@ -374,6 +392,7 @@ async function applyToAll() {
       setNewFolderFrontmatterTitle('')
       setNewFolderFrontmatterTaskId('')
       setNewFolderDocId('')
+      setNewFolderSkipPatterns('')
     }
     setAddingFolder(false)
   }
@@ -446,7 +465,7 @@ async function applyToAll() {
 
       {/* Folder table */}
       {(allFolders.length > 0 || canEdit) && (
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-800">
@@ -454,6 +473,7 @@ async function applyToAll() {
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Integration</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Destination</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Skip files</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Frontmatter</th>
               </tr>
             </thead>
@@ -632,6 +652,19 @@ async function applyToAll() {
                       )}
                     </td>
 
+                    {/* Skip files */}
+                    <td className="px-4 py-3 align-top">
+                      <textarea
+                        disabled={!canEdit}
+                        rows={3}
+                        value={skipDraft[mapping.id] ?? (mapping.skip_patterns ?? []).join('\n')}
+                        onChange={(e) => setSkipDraft((prev) => ({ ...prev, [mapping.id]: e.target.value }))}
+                        onBlur={(e) => saveSkipPatterns(mapping.id, e.target.value)}
+                        placeholder={'README.md\n*.draft.md\narchive/*'}
+                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 w-full font-mono resize-none"
+                      />
+                    </td>
+
                     {/* Frontmatter mapping */}
                     <td className="px-4 py-3 align-middle">
                       {(() => {
@@ -639,7 +672,7 @@ async function applyToAll() {
                         const draft = getDraft(mapping.id, mapping.frontmatter_map)
                         const attrs: Array<{ attribute: string; optional: boolean }> = [
                           { attribute: 'title', optional: true },
-                          ...(mode === 'task_list' ? [{ attribute: 'clickup_task_id', optional: false }] : []),
+                          ...(mode === 'task_list' ? [{ attribute: 'mdspec_taskid', optional: false }] : []),
                         ]
                         return (
                           <div className="flex flex-col gap-1.5">
@@ -669,6 +702,11 @@ async function applyToAll() {
                                 )}
                               </div>
                             ))}
+
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-xs font-mono text-zinc-500">mdspec_skip <span className="font-sans text-zinc-400">(optional)</span></span>
+                              <span className="text-xs text-zinc-400">Set to <code className="font-mono">true</code> to skip this file</span>
+                            </div>
 
                             {(() => {
                               const lines = attrs
@@ -826,6 +864,17 @@ async function applyToAll() {
                       )}
                     </td>
 
+                    {/* Skip files — new row */}
+                    <td className="px-4 py-3 align-top">
+                      <textarea
+                        rows={3}
+                        value={newFolderSkipPatterns}
+                        onChange={(e) => setNewFolderSkipPatterns(e.target.value)}
+                        placeholder={'README.md\n*.draft.md\narchive/*'}
+                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 w-full font-mono resize-none"
+                      />
+                    </td>
+
                     {/* Frontmatter + Add button */}
                     <td className="px-4 py-3 align-top">
                       <div className="flex flex-col gap-1.5">
@@ -835,8 +884,8 @@ async function applyToAll() {
                         </div>
                         {isClickUp && newFolderMode === 'task_list' && (
                           <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-mono text-zinc-500">clickup_task_id</span>
-                            <input type="text" value={newFolderFrontmatterTaskId} onChange={(e) => setNewFolderFrontmatterTaskId(e.target.value)} placeholder="clickup_task_id" className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500" />
+                            <span className="text-xs font-mono text-zinc-500">mdspec_taskid</span>
+                            <input type="text" value={newFolderFrontmatterTaskId} onChange={(e) => setNewFolderFrontmatterTaskId(e.target.value)} placeholder="mdspec_taskid" className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500" />
                           </div>
                         )}
                         <button

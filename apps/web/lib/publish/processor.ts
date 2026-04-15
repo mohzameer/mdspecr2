@@ -327,7 +327,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         if (!existingPageId) {
           // The user may have configured a custom frontmatter key for clickup_task_id
           // via frontmatter_map. Fall back to the literal key name if not configured.
-          const taskIdKey = ctx.clickupFrontmatterMap?.['clickup_task_id'] ?? 'clickup_task_id'
+          const taskIdKey = ctx.clickupFrontmatterMap?.['clickup_task_id'] ?? 'mdspec_taskid'
           const frontmatterTaskId = frontmatter?.[taskIdKey]
           console.log(`[publish:task] looking for task id under frontmatter key "${taskIdKey}", found: ${frontmatterTaskId ?? '(not set)'}`)
           if (typeof frontmatterTaskId === 'string' && frontmatterTaskId.length > 0) {
@@ -353,7 +353,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         // Stored ID was stale (task deleted in ClickUp) — try to re-resolve from
         // frontmatter before falling through to create a brand new task.
         if (taskResult.previousIdStale) {
-          const taskIdKey = ctx.clickupFrontmatterMap?.['clickup_task_id'] ?? 'clickup_task_id'
+          const taskIdKey = ctx.clickupFrontmatterMap?.['clickup_task_id'] ?? 'mdspec_taskid'
           const frontmatterTaskId = frontmatter?.[taskIdKey]
           console.log(`[publish:task] stale stored id — re-checking frontmatter key "${taskIdKey}", found: ${frontmatterTaskId ?? '(not set)'}`)
           let resolvedId: string | null = null

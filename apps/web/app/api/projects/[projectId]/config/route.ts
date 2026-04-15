@@ -51,7 +51,20 @@ export async function GET(
           .in('spec_id', specIds)
       : { count: 0 }
 
-    return NextResponse.json({ spec_dirs: project.spec_dirs ?? [], name: project.name, spec_count: syncedCount ?? 0 })
+    // Fetch folder mappings with skip_patterns for CLI-side filtering
+    const { data: folderMappings } = await supabase
+      .from('folder_mappings')
+      .select('folder_path, skip_patterns')
+      .eq('project_id', projectId)
+
+    const skipPatternsByFolder: Record<string, string[]> = {}
+    for (const fm of folderMappings ?? []) {
+      if (fm.skip_patterns?.length > 0) {
+        skipPatternsByFolder[fm.folder_path] = fm.skip_patterns
+      }
+    }
+
+    return NextResponse.json({ spec_dirs: project.spec_dirs ?? [], name: project.name, spec_count: syncedCount ?? 0, skip_patterns_by_folder: skipPatternsByFolder })
   }
 
   // Browser path — session auth

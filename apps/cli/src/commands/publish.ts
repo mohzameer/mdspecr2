@@ -3,6 +3,7 @@ import { execSync } from 'child_process'
 import { createHash } from 'crypto'
 import { readFile, readdir } from 'fs/promises'
 import { join, relative, extname } from 'path'
+import micromatch from 'micromatch'
 
 interface PublishOptions {
   project: string
@@ -90,7 +91,26 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     }
   }
 
-  // Build artifacts
+  // Apply skip patterns from folder mappings
+  const skipPatternsByFolder = projectConfig.skip_patterns_by_folder
+  if (Object.keys(skipPatternsByFolder).length > 0) {
+    const before = specsToPublish.length
+    specsToPublish = specsToPublish.filter((filePath) => {
+      // Find the most specific folder mapping for this file
+      const parts = filePath.split('/')
+      const ancestors = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/')).reverse()
+      const matchedFolder = [...ancestors, ''].find((f) => skipPatternsByFolder[f] !== undefined)
+      if (matchedFolder === undefined) return true
+      const patterns = skipPatternsByFolder[matchedFolder]
+      const filename = parts[parts.length - 1]
+      // Match against filename and full relative path
+      return !micromatch.isMatch(filename, patterns) && !micromatch.isMatch(filePath, patterns)
+    })
+    const skipped = before - specsToPublish.length
+    if (skipped > 0) console.log(`— Skipped ${skipped} file(s) matching skip patterns`)
+  }
+
+  // Build artifacts (mdspec_skip frontmatter check happens inside)
   const artifactResults = await Promise.all(specsToPublish.map(buildSpecArtifact))
   const specs = artifactResults.filter((s): s is SpecArtifact => s !== null)
 
@@ -177,7 +197,7 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function fetchProjectConfig(apiUrl: string, projectId: string, token: string): Promise<{ spec_dirs: string[]; spec_count: number }> {
+async function fetchProjectConfig(apiUrl: string, projectId: string, token: string): Promise<{ spec_dirs: string[]; spec_count: number; skip_patterns_by_folder: Record<string, string[]> }> {
   let res: Response
   try {
     res = await fetch(`${apiUrl}/api/projects/${projectId}/config`, {
@@ -196,8 +216,8 @@ async function fetchProjectConfig(apiUrl: string, projectId: string, token: stri
     process.exit(1)
   }
 
-  const data = await res.json() as { spec_dirs?: string[]; spec_count?: number }
-  return { spec_dirs: data.spec_dirs ?? [], spec_count: data.spec_count ?? 0 }
+  const data = await res.json() as { spec_dirs?: string[]; spec_count?: number; skip_patterns_by_folder?: Record<string, string[]> }
+  return { spec_dirs: data.spec_dirs ?? [], spec_count: data.spec_count ?? 0, skip_patterns_by_folder: data.skip_patterns_by_folder ?? {} }
 }
 
 function getRepoName(): string {
@@ -313,6 +333,12 @@ async function buildSpecArtifact(filePath: string): Promise<SpecArtifact | null>
   try {
     const raw = await readFile(filePath, 'utf8')
     const { data: frontmatter, content } = matter(raw)
+
+    // Skip if mdspec_skip is set in frontmatter
+    if (frontmatter.mdspec_skip === true) {
+      console.log(`  skipped: ${filePath} (mdspec_skip: true)`)
+      return null
+    }
 
     // Validate mdspec_id if present
     if (frontmatter.mdspec_id !== undefined) {
