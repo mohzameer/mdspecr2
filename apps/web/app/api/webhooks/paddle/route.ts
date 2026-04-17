@@ -36,10 +36,10 @@ export async function POST(request: Request) {
   const eventId = event.notification_id as string
   const data = event.data as Record<string, unknown>
   const customData = data?.custom_data as Record<string, string> | undefined
-  const orgId = customData?.org_id
+  const userId = customData?.user_id
 
-  if (!orgId || !eventId) {
-    return Response.json({ error: 'missing org_id or event_id' }, { status: 400 })
+  if (!userId || !eventId) {
+    return Response.json({ error: 'missing user_id or event_id' }, { status: 400 })
   }
 
   const supabase = createSupabaseServiceClient()
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 
   // Log the event
   await supabase.from('billing_events').insert({
-    org_id: orgId,
+    user_id: userId,
     event_type: eventType,
     paddle_event_id: eventId,
     payload: event,
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
           current_period_end: currentPeriodEnd,
           updated_at: new Date().toISOString(),
         })
-        .eq('org_id', orgId)
+        .eq('user_id', userId)
       break
 
     case 'subscription.updated':
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
           current_period_end: currentPeriodEnd,
           updated_at: new Date().toISOString(),
         })
-        .eq('org_id', orgId)
+        .eq('user_id', userId)
       break
 
     case 'subscription.cancelled':
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
           cancelled_at: currentPeriodEnd ?? new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq('org_id', orgId)
+        .eq('user_id', userId)
       break
 
     case 'transaction.completed':
@@ -118,7 +118,7 @@ export async function POST(request: Request) {
           current_period_end: currentPeriodEnd,
           updated_at: new Date().toISOString(),
         })
-        .eq('org_id', orgId)
+        .eq('user_id', userId)
       break
 
     case 'transaction.payment_failed':
@@ -128,7 +128,7 @@ export async function POST(request: Request) {
           status: 'payment_failed',
           updated_at: new Date().toISOString(),
         })
-        .eq('org_id', orgId)
+        .eq('user_id', userId)
       break
   }
 

@@ -1,16 +1,13 @@
 'use client'
 
-import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import type { Organization } from '@/lib/types'
 
 interface OrgSwitcherProps {
@@ -19,9 +16,6 @@ interface OrgSwitcherProps {
 }
 
 export function OrgSwitcher({ orgs, currentOrg }: OrgSwitcherProps) {
-  const [creating, setCreating] = useState(false)
-  const [newOrgName, setNewOrgName] = useState('')
-  const [loading, setLoading] = useState(false)
   const router = useRouter()
 
   async function switchOrg(orgId: string) {
@@ -34,26 +28,8 @@ export function OrgSwitcher({ orgs, currentOrg }: OrgSwitcherProps) {
     router.refresh()
   }
 
-  async function createOrg(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newOrgName.trim()) return
-    setLoading(true)
-    const res = await fetch('/api/org/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newOrgName.trim() }),
-    })
-    if (res.ok) {
-      const org = await res.json() as Organization
-      await switchOrg(org.id)
-    }
-    setLoading(false)
-    setCreating(false)
-    setNewOrgName('')
-  }
-
   return (
-    <DropdownMenu onOpenChange={(open) => { if (!open) setCreating(false) }}>
+    <DropdownMenu>
       <DropdownMenuTrigger
         render={
           <Button variant="ghost" size="sm" className="w-full justify-between gap-2" />
@@ -73,33 +49,6 @@ export function OrgSwitcher({ orgs, currentOrg }: OrgSwitcherProps) {
             <span className="truncate">{org.name}</span>
           </DropdownMenuItem>
         ))}
-
-        <DropdownMenuSeparator />
-
-        {creating ? (
-          <form onSubmit={createOrg} className="px-2 py-2 space-y-2" onClick={(e) => e.stopPropagation()}>
-            <Input
-              autoFocus
-              type="text"
-              value={newOrgName}
-              onChange={(e) => setNewOrgName(e.target.value)}
-              placeholder="Organization name"
-              className="h-7 text-xs"
-            />
-            <div className="flex gap-1">
-              <Button type="submit" size="xs" className="flex-1" disabled={loading}>
-                {loading ? '...' : 'Create'}
-              </Button>
-              <Button type="button" variant="outline" size="xs" className="flex-1" onClick={() => setCreating(false)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <DropdownMenuItem onClick={() => setCreating(true)} className="gap-2 text-muted-foreground">
-            <span>+</span> Create new organization
-          </DropdownMenuItem>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

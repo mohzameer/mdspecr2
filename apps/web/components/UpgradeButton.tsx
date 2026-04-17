@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 
 interface UpgradeButtonProps {
-  orgId: string
+  userId: string
 }
 
 declare global {
@@ -17,7 +17,7 @@ declare global {
   }
 }
 
-export function UpgradeButton({ orgId }: UpgradeButtonProps) {
+export function UpgradeButton({ userId }: UpgradeButtonProps) {
   const [period, setPeriod] = useState<'monthly' | 'yearly'>('monthly')
 
   function openCheckout() {
@@ -32,7 +32,7 @@ export function UpgradeButton({ orgId }: UpgradeButtonProps) {
 
     window.Paddle.Checkout.open({
       items: [{ priceId, quantity: 1 }],
-      customData: { org_id: orgId },
+      customData: { user_id: userId },
     })
   }
 

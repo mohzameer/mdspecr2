@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { cookies } from 'next/headers'
 import { createSupabaseServerClient } from '@/lib/db-server'
 import type { Subscription } from '@/lib/types'
 
@@ -9,14 +8,10 @@ export default async function BillingPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const cookieStore = await cookies()
-  const orgId = cookieStore.get('current_org_id')?.value
-  if (!orgId) redirect('/dashboard')
-
   const { data: sub } = await supabase
     .from('subscriptions')
     .select('*')
-    .eq('org_id', orgId)
+    .eq('user_id', user.id)
     .single()
 
   const subscription = sub as Subscription | null

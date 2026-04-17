@@ -159,7 +159,7 @@ export type SubscriptionStatus = 'active' | 'cancelled' | 'payment_failed'
 
 export interface Subscription {
   id: string
-  org_id: string
+  user_id: string
   plan: OrgPlan
   billing_period: BillingPeriod | null
   paddle_subscription_id: string | null
@@ -174,7 +174,7 @@ export interface Subscription {
 
 export interface BillingEvent {
   id: string
-  org_id: string
+  user_id: string
   event_type: string
   paddle_event_id: string
   payload: Record<string, unknown>
@@ -199,6 +199,7 @@ export interface FolderMapping {
   folder_path: string
   integration_id: string
   template_id: string | null
+  skip_patterns: string[]
   created_at: string
   updated_at: string
 }

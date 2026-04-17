@@ -106,13 +106,22 @@ export async function POST(request: Request) {
     }
 
     // -------------------------------------------------------------------------
-    // Free tier enforcement
+    // Free tier enforcement — subscription is per-user (the org owner)
     // -------------------------------------------------------------------------
-    const { data: subscription } = await supabase
-      .from('subscriptions')
-      .select('plan')
+    const { data: ownerMember } = await supabase
+      .from('org_members')
+      .select('user_id')
       .eq('org_id', project.org_id)
+      .eq('role', 'owner')
       .single()
+
+    const { data: subscription } = ownerMember
+      ? await supabase
+          .from('subscriptions')
+          .select('plan')
+          .eq('user_id', ownerMember.user_id)
+          .single()
+      : { data: null }
 
     let upgradeNudge = false
 

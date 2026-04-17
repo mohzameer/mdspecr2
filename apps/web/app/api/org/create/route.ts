@@ -14,6 +14,17 @@ export async function POST(request: NextRequest) {
   // (PostgREST SELECTs the row back after INSERT; the user isn't a member yet so RLS blocks it)
   const admin = createSupabaseServiceClient()
 
+  // Each user may only own one organization
+  const { count } = await admin
+    .from('org_members')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('role', 'owner')
+
+  if ((count ?? 0) > 0) {
+    return NextResponse.json({ error: 'already_owns_org' }, { status: 409 })
+  }
+
   const { data: org, error: orgError } = await admin
     .from('organizations')
     .insert({ name: name.trim() })
