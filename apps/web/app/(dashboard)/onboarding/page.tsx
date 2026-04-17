@@ -7,9 +7,8 @@ interface OrgForm { name: string }
 interface ProjectForm { name: string; description: string }
 interface DirsForm { dirs: string[] }
 interface TokenForm { token: string | null; projectId: string | null }
-interface IntegrationForm { type: string | null }
 
-type Step = 1 | 2 | 3 | 4 | 5
+type Step = 1 | 2 | 3 | 4 | 5 | 6
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -23,6 +22,7 @@ export default function OnboardingPage() {
   const [project, setProject] = useState<ProjectForm>({ name: '', description: '' })
   const [dirs, setDirs] = useState<DirsForm>({ dirs: ['/'] })
   const [tokenData, setTokenData] = useState<TokenForm>({ token: null, projectId: null })
+  const [syncAllOnFirstRun, setSyncAllOnFirstRun] = useState(false)
   const [newDir, setNewDir] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -40,7 +40,6 @@ export default function OnboardingPage() {
     if (res.ok) {
       const data = await res.json()
       setOrgId(data.id)
-      // Switch to new org
       await fetch('/api/org/switch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -104,12 +103,46 @@ export default function OnboardingPage() {
     setTimeout(() => setCopiedCI(false), 2000)
   }
 
+  async function downloadMdspecmap() {
+    if (!tokenData.projectId) return
+
+    // Generate a minimal .mdspecmap from current settings
+    const mappingLines = dirs.dirs.map((dir) =>
+      `  - folder: ${dir}\n    # integration: notion\n    # parent: <alias-name>`
+    ).join('\n\n')
+
+    const content = `# .mdspecmap — mdspec configuration file
+# Project: ${project.name}
+#
+# Edit this file to configure folder-to-integration mappings.
+# Define aliases in Dashboard → Integrations → Aliases.
+#
+# Docs: https://mdspec.dev/docs/mdspecmap
+
+version: 1
+
+sync_all_on_first_run: ${syncAllOnFirstRun}
+
+mappings:
+${mappingLines}
+`
+
+    const blob = new Blob([content], { type: 'text/yaml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '.mdspecmap'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const steps = [
     { n: 1, label: 'Organization' },
     { n: 2, label: 'Project' },
     { n: 3, label: 'Spec Dirs' },
     { n: 4, label: 'CI Token' },
-    { n: 5, label: 'Integration' },
+    { n: 5, label: '.mdspecmap' },
+    { n: 6, label: 'Integration' },
   ]
 
   return (
@@ -193,6 +226,20 @@ export default function OnboardingPage() {
                     <input value={newDir} onChange={(e) => setNewDir(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDir() } }} placeholder="/docs/rfc" className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-zinc-500" />
                     <button type="button" onClick={addDir} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800">Add</button>
                   </div>
+
+                  {/* Sync all on first run */}
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={syncAllOnFirstRun}
+                      onChange={(e) => setSyncAllOnFirstRun(e.target.checked)}
+                      className="mt-0.5 rounded border-zinc-300 dark:border-zinc-700"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Sync all files on first publish</p>
+                      <p className="text-xs text-zinc-500">Uncheck to start with an empty project and only sync future changes.</p>
+                    </div>
+                  </label>
                 </>
               )}
               <div className="flex gap-2">
@@ -248,8 +295,49 @@ export default function OnboardingPage() {
             </div>
           )}
 
-          {/* Step 5: Integration */}
+          {/* Step 5: .mdspecmap */}
           {step === 5 && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Download .mdspecmap</h2>
+                <p className="text-sm text-zinc-500">
+                  This file controls which folders sync to which integrations. Commit it to the root of your repo.
+                </p>
+              </div>
+
+              <div className="rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-4">
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3">
+                  Your <code className="font-mono bg-zinc-100 dark:bg-zinc-700 px-1 py-0.5 rounded">.mdspecmap</code> will include:
+                </p>
+                <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1.5">
+                  <li>Spec directories: <span className="font-mono text-zinc-900 dark:text-zinc-50">{dirs.dirs.join(', ')}</span></li>
+                  <li>First publish: <span className="font-mono text-zinc-900 dark:text-zinc-50">{syncAllOnFirstRun ? 'sync all files' : 'start empty'}</span></li>
+                  <li>Integration mappings: <span className="text-zinc-500">configure after connecting an integration</span></li>
+                </ul>
+              </div>
+
+              <button
+                onClick={downloadMdspecmap}
+                className="w-full rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
+              >
+                Download .mdspecmap
+              </button>
+
+              <p className="text-xs text-zinc-500 text-center">
+                You can re-download this anytime from your project&apos;s Map page.
+              </p>
+
+              <div className="flex gap-2">
+                <button onClick={() => setStep(4)} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
+                <button onClick={() => setStep(6)} className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900">
+                  Continue →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 6: Integration */}
+          {step === 6 && (
             <div className="space-y-5">
               <div>
                 <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Connect an integration</h2>

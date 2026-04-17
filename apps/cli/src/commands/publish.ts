@@ -1,19 +1,39 @@
+import yaml from 'js-yaml'
 import matter from 'gray-matter'
 import { execSync } from 'child_process'
 import { createHash } from 'crypto'
-import { readFile, readdir } from 'fs/promises'
+import { readFile, access } from 'fs/promises'
 import { join, relative, extname } from 'path'
+import { readdir } from 'fs/promises'
 import micromatch from 'micromatch'
+
+// ---------------------------------------------------------------------------
+// Types — mirrors MdspecMapConfig from web/lib/types.ts
+// ---------------------------------------------------------------------------
+
+export interface MdspecMapMapping {
+  folder: string
+  integration?: string
+  target?: 'document' | 'task'
+  parent?: string
+  skip?: string[]
+}
+
+export interface MdspecMapConfig {
+  version: 1
+  sync_all_on_first_run?: boolean
+  mappings: MdspecMapMapping[]
+}
 
 interface PublishOptions {
   project: string
   base?: string
-  dirs?: string
   skipDiff?: boolean
 }
 
-interface SpecArtifact {
+export interface SpecArtifact {
   path: string
+  previous_path?: string
   hash: string
   frontmatter: Record<string, unknown>
   content: string
@@ -24,8 +44,14 @@ interface PublishPayload {
   repo_name: string
   branch: string
   commit_sha: string
+  commit_timestamp: number
   specs: SpecArtifact[]
+  config: MdspecMapConfig
 }
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 export async function publishCommand(options: PublishOptions): Promise<void> {
   const token = process.env.MDSPEC_TOKEN
@@ -36,23 +62,44 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(1)
   }
 
-  // Fetch project config
-  const projectConfig = await fetchProjectConfig(apiUrl, options.project, token)
+  // -------------------------------------------------------------------------
+  // 1. Read and validate .mdspecmap
+  // -------------------------------------------------------------------------
+  const config = await readMdspecMap()
 
-  // Determine spec directories (--dirs flag overrides project config)
-  const specDirs: string[] = options.dirs
-    ? options.dirs.split(',').map((d) => d.trim())
-    : projectConfig.spec_dirs
-
-  const scanDirsDisplay = specDirs.map((d) => d === '' || d === '/' || d === '.' ? '/ (root)' : d)
+  // Extract spec dirs from mappings (unique folder paths)
+  const specDirs = extractSpecDirs(config)
+  const scanDirsDisplay = specDirs.map((d) => d === '' ? '/ (root)' : d)
   console.log(`— Scanning folders: ${scanDirsDisplay.join(', ')}`)
 
-  // Get git info
+  // -------------------------------------------------------------------------
+  // 2. Collect skip patterns from config
+  // -------------------------------------------------------------------------
+  const globalSkips: string[] = []
+  const folderSkips = new Map<string, string[]>()
+
+  for (const mapping of config.mappings) {
+    if (!mapping.skip || mapping.skip.length === 0) continue
+    const normalizedFolder = normalizeFolder(mapping.folder)
+    if (normalizedFolder === '') {
+      globalSkips.push(...mapping.skip)
+    } else {
+      const existing = folderSkips.get(normalizedFolder) ?? []
+      folderSkips.set(normalizedFolder, [...existing, ...mapping.skip])
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 3. Git info
+  // -------------------------------------------------------------------------
   const repoName = getRepoName()
   const branch = getCurrentBranch()
   const commitSha = getCurrentCommitSha()
+  const commitTimestamp = getCommitTimestamp()
 
-  // Discover all .md files
+  // -------------------------------------------------------------------------
+  // 4. Discover all .md files in mapped folders
+  // -------------------------------------------------------------------------
   const allSpecs = await discoverSpecFiles(specDirs)
 
   if (allSpecs.length === 0) {
@@ -60,58 +107,63 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(0)
   }
 
-  // First run: no specs on server yet — publish everything
+  // -------------------------------------------------------------------------
+  // 5. Determine which specs to publish
+  // -------------------------------------------------------------------------
   let specsToPublish: string[]
+  let renames = new Map<string, string>() // new_path → old_path
+
   if (options.skipDiff) {
     console.log('— Skipping diff, publishing all specs.')
     specsToPublish = allSpecs
-  } else if (projectConfig.spec_count === 0) {
-    console.log('— First run detected, publishing all specs.')
-    specsToPublish = allSpecs
   } else {
-    // Change detection base ref:
-    // - --base flag if provided
-    // - GITHUB_EVENT_BEFORE: exact SHA before push, works on shallow clones (fetched explicitly)
-    // - HEAD^: for local runs
-    // - Falls back to publishing all if none work
-    const baseRef = options.base ?? process.env.GITHUB_EVENT_BEFORE ?? 'HEAD^'
-    const changedPaths = detectChangedFiles(baseRef, specDirs)
+    // Check if this is a first run (all-zeros BEFORE sha)
+    const before = process.env.GITHUB_EVENT_BEFORE
+    const isFirstRun = !before || before === '0000000000000000000000000000000000000000'
 
-    if (changedPaths === null) {
+    if (isFirstRun && config.sync_all_on_first_run === true) {
+      console.log('— First run with sync_all_on_first_run=true, publishing all specs.')
       specsToPublish = allSpecs
-    } else if (changedPaths.size === 0) {
-      console.log('— No spec changes detected. Nothing to publish.')
+    } else if (isFirstRun) {
+      console.log('— First run, sync_all_on_first_run is false. No specs published.')
       process.exit(0)
     } else {
-      specsToPublish = allSpecs.filter((p) => changedPaths.has(p))
-      if (specsToPublish.length === 0) {
+      // Normal change detection using git diff --name-status
+      const baseRef = options.base ?? before ?? 'HEAD^'
+      const diffResult = detectChangedFiles(baseRef, specDirs)
+
+      if (diffResult === null) {
+        // git diff failed — publish all as fallback
+        specsToPublish = allSpecs
+      } else if (diffResult.changed.size === 0 && diffResult.renames.size === 0) {
         console.log('— No spec changes detected. Nothing to publish.')
         process.exit(0)
+      } else {
+        specsToPublish = allSpecs.filter((p) => diffResult.changed.has(p) || diffResult.renames.has(p))
+        renames = diffResult.renames
+
+        if (specsToPublish.length === 0) {
+          console.log('— No spec changes detected. Nothing to publish.')
+          process.exit(0)
+        }
       }
     }
   }
 
-  // Apply skip patterns from folder mappings
-  const skipPatternsByFolder = projectConfig.skip_patterns_by_folder
-  if (Object.keys(skipPatternsByFolder).length > 0) {
-    const before = specsToPublish.length
-    specsToPublish = specsToPublish.filter((filePath) => {
-      // Find the most specific folder mapping for this file
-      const parts = filePath.split('/')
-      const ancestors = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/')).reverse()
-      const matchedFolder = [...ancestors, ''].find((f) => skipPatternsByFolder[f] !== undefined)
-      if (matchedFolder === undefined) return true
-      const patterns = skipPatternsByFolder[matchedFolder]
-      const filename = parts[parts.length - 1]
-      // Match against filename and full relative path
-      return !micromatch.isMatch(filename, patterns) && !micromatch.isMatch(filePath, patterns)
-    })
-    const skipped = before - specsToPublish.length
-    if (skipped > 0) console.log(`— Skipped ${skipped} file(s) matching skip patterns`)
-  }
+  // -------------------------------------------------------------------------
+  // 6. Apply skip patterns
+  // -------------------------------------------------------------------------
+  const beforeSkip = specsToPublish.length
+  specsToPublish = applySkipPatterns(specsToPublish, globalSkips, folderSkips)
+  const skippedByPattern = beforeSkip - specsToPublish.length
+  if (skippedByPattern > 0) console.log(`— Skipped ${skippedByPattern} file(s) matching skip patterns`)
 
-  // Build artifacts (mdspec_skip frontmatter check happens inside)
-  const artifactResults = await Promise.all(specsToPublish.map(buildSpecArtifact))
+  // -------------------------------------------------------------------------
+  // 7. Build artifacts
+  // -------------------------------------------------------------------------
+  const artifactResults = await Promise.all(
+    specsToPublish.map((path) => buildSpecArtifact(path, renames.get(path)))
+  )
   const specs = artifactResults.filter((s): s is SpecArtifact => s !== null)
 
   if (specs.length === 0) {
@@ -119,13 +171,17 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(0)
   }
 
-  // POST to /api/publish
+  // -------------------------------------------------------------------------
+  // 8. POST to /api/publish
+  // -------------------------------------------------------------------------
   const payload: PublishPayload = {
     project_id: options.project,
     repo_name: repoName,
     branch,
     commit_sha: commitSha,
+    commit_timestamp: commitTimestamp,
     specs,
+    config,
   }
 
   let response: Response
@@ -165,6 +221,22 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     process.exit(1)
   }
 
+  if (response.status === 422) {
+    const body = await response.json() as { error: string; aliases?: Array<{ alias: string; folder: string; suggestion?: string }> }
+    if (body.aliases) {
+      console.error('✗ Unresolved aliases in .mdspecmap:')
+      for (const a of body.aliases) {
+        const hint = a.suggestion ? ` (did you mean '${a.suggestion}'?)` : ''
+        console.error(`  - '${a.alias}' in folder '${a.folder}'${hint}`)
+      }
+      console.error('')
+      console.error('  Define aliases in Dashboard → Integrations → Aliases')
+    } else {
+      console.error(`✗ Validation error: ${body.error}`)
+    }
+    process.exit(1)
+  }
+
   if (!response.ok) {
     const body = await response.text()
     console.error(`✗ Failed (${response.status}): ${body}`)
@@ -173,16 +245,16 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
 
   const result = await response.json() as { accepted: boolean; saved: number; queued: number; upgrade_nudge?: boolean }
 
-  const skipped = specsToPublish.length - specs.length
-  if (skipped > 0) {
-    console.log(`— Skipped    ${skipped} spec(s) (read errors)`)
+  const skippedBuild = specsToPublish.length - specs.length
+  if (skippedBuild > 0) {
+    console.log(`— Skipped    ${skippedBuild} spec(s) (read errors)`)
   }
 
   console.log(`\n✓ ${result.saved} spec(s) saved`)
   if (result.queued > 0) {
     console.log(`✓ ${result.queued} spec(s) queued for integration sync`)
   } else {
-    console.log(`— 0 specs queued for integration (configure folder mappings in project settings to enable sync)`)
+    console.log(`— 0 specs queued for integration (configure folder mappings and aliases to enable sync)`)
   }
 
   if (result.upgrade_nudge) {
@@ -194,39 +266,132 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// .mdspecmap reader
+// ---------------------------------------------------------------------------
+
+export async function readMdspecMap(): Promise<MdspecMapConfig> {
+  const filePath = join(process.cwd(), '.mdspecmap')
+
+  try {
+    await access(filePath)
+  } catch {
+    console.error('✗ Error   .mdspecmap not found at repo root')
+    console.error('          Run `npx mdspeci init` to generate one, or visit your project')
+    console.error('          in the mdspec Dashboard to download a starter file.')
+    process.exit(1)
+  }
+
+  const raw = await readFile(filePath, 'utf8')
+  let parsed: unknown
+
+  try {
+    parsed = yaml.load(raw)
+  } catch (err) {
+    console.error(`✗ Error   .mdspecmap is not valid YAML: ${err instanceof Error ? err.message : String(err)}`)
+    process.exit(1)
+  }
+
+  const config = parsed as Record<string, unknown>
+
+  // Validate required fields
+  const errors: string[] = []
+
+  if (config.version !== 1) {
+    errors.push('version: must be 1')
+  }
+
+  if (!Array.isArray(config.mappings)) {
+    errors.push('mappings: must be an array')
+  } else {
+    for (let i = 0; i < config.mappings.length; i++) {
+      const m = config.mappings[i] as Record<string, unknown>
+      if (!m.folder || typeof m.folder !== 'string') {
+        errors.push(`mappings[${i}].folder: required field missing`)
+      }
+      if (m.integration && !['notion', 'confluence', 'clickup'].includes(m.integration as string)) {
+        const val = m.integration as string
+        const suggestions: Record<string, string> = { notiom: 'notion', noton: 'notion', conflunce: 'confluence', clikup: 'clickup' }
+        const hint = suggestions[val] ? ` (did you mean '${suggestions[val]}'?)` : ''
+        errors.push(`mappings[${i}].integration: unknown value '${val}'${hint}`)
+      }
+      if (m.target && !['document', 'task'].includes(m.target as string)) {
+        errors.push(`mappings[${i}].target: must be 'document' or 'task'`)
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    console.error('✗ Error   .mdspecmap validation failed:')
+    for (const e of errors) {
+      console.error(`          - ${e}`)
+    }
+    process.exit(1)
+  }
+
+  return config as unknown as MdspecMapConfig
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function fetchProjectConfig(apiUrl: string, projectId: string, token: string): Promise<{ spec_dirs: string[]; spec_count: number; skip_patterns_by_folder: Record<string, string[]> }> {
-  let res: Response
-  try {
-    res = await fetch(`${apiUrl}/api/projects/${projectId}/config`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-  } catch (err) {
-    console.error(`✗ Could not reach ${apiUrl}`)
-    console.error(`  ${err instanceof Error ? err.message : String(err)}`)
-    process.exit(1)
-  }
+export function applySkipPatterns(
+  files: string[],
+  globalSkips: string[],
+  folderSkips: Map<string, string[]>
+): string[] {
+  return files.filter((filePath) => {
+    const filename = filePath.split('/').pop()!
 
-  if (!res.ok) {
-    console.error(`✗ Failed to fetch project config (${res.status})`)
-    if (res.status === 401) console.error('  Check your MDSPEC_TOKEN.')
-    if (res.status === 404) console.error('  Project not found. Check your project ID.')
-    process.exit(1)
-  }
+    if (globalSkips.length > 0) {
+      if (micromatch.isMatch(filename, globalSkips) || micromatch.isMatch(filePath, globalSkips)) {
+        return false
+      }
+    }
 
-  const data = await res.json() as { spec_dirs?: string[]; spec_count?: number; skip_patterns_by_folder?: Record<string, string[]> }
-  return { spec_dirs: data.spec_dirs ?? [], spec_count: data.spec_count ?? 0, skip_patterns_by_folder: data.skip_patterns_by_folder ?? {} }
+    for (const [folder, patterns] of folderSkips) {
+      if (filePath.startsWith(folder + '/') || filePath === folder) {
+        if (micromatch.isMatch(filename, patterns) || micromatch.isMatch(filePath, patterns)) {
+          return false
+        }
+      }
+    }
+
+    return true
+  })
+}
+
+export function resolveFirstRunMode(
+  syncAllOnFirstRun: boolean | undefined,
+  before: string | undefined
+): 'publish_all' | 'exit' | 'detect_changes' {
+  const isFirstRun = !before || before === '0000000000000000000000000000000000000000'
+  if (!isFirstRun) return 'detect_changes'
+  if (syncAllOnFirstRun === true) return 'publish_all'
+  return 'exit'
+}
+
+export function normalizeFolder(folder: string): string {
+  const raw = folder.trim()
+  if (raw === '/' || raw === '' || raw === '.') return ''
+  return raw.replace(/^\//, '').replace(/\/$/, '')
+}
+
+export function extractSpecDirs(config: MdspecMapConfig): string[] {
+  const dirs = new Set<string>()
+  for (const m of config.mappings) {
+    dirs.add(normalizeFolder(m.folder))
+  }
+  // If root is included, that covers everything
+  if (dirs.has('')) return ['']
+  return Array.from(dirs)
 }
 
 function getRepoName(): string {
-  // Prefer GitHub Actions env var
   if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY
 
   try {
     const remoteUrl = execSync('git remote get-url origin', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
-    // Parse owner/repo from SSH (git@github.com:owner/repo.git) or HTTPS
     const match = remoteUrl.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)
     return match ? match[1] : remoteUrl
   } catch {
@@ -254,10 +419,23 @@ function getCurrentCommitSha(): string {
   }
 }
 
-function detectChangedFiles(baseRef: string, specDirs: string[]): Set<string> | null {
+function getCommitTimestamp(): number {
   try {
-    // If baseRef is a full SHA (e.g. from GITHUB_EVENT_BEFORE), fetch it
-    // explicitly so shallow clones can reach it without needing full history.
+    const ts = execSync('git log -1 --format=%ct', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+    return parseInt(ts, 10)
+  } catch {
+    return Math.floor(Date.now() / 1000)
+  }
+}
+
+export interface DiffResult {
+  changed: Set<string>
+  renames: Map<string, string> // new_path → old_path
+}
+
+export function detectChangedFiles(baseRef: string, specDirs: string[]): DiffResult | null {
+  try {
+    // Fetch base ref for shallow clones
     if (/^[0-9a-f]{40}$/.test(baseRef)) {
       try {
         execSync(`git fetch origin ${baseRef} --depth=1`, {
@@ -265,24 +443,50 @@ function detectChangedFiles(baseRef: string, specDirs: string[]): Set<string> | 
           stdio: ['pipe', 'pipe', 'pipe'],
         })
       } catch {
-        // already reachable or fetch failed — continue anyway
+        // already reachable or fetch failed
       }
     }
 
-    const output = execSync(`git diff --name-only ${baseRef}..HEAD`, {
+    const output = execSync(`git diff --name-status ${baseRef}..HEAD`, {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     })
+
     const normalizedDirs = specDirs.map((d) => d.replace(/^\//, ''))
     const hasRoot = normalizedDirs.includes('')
-    const allChanged = output.trim().split('\n').filter((p) => p.endsWith('.md'))
-    console.log(`— git diff base=${baseRef} — ${allChanged.length} .md file(s) changed`)
-    allChanged.forEach((p) => console.log(`  changed: ${p}`))
-    const changed = new Set(
-      allChanged.filter((p) => hasRoot || normalizedDirs.some((dir) => p === dir || p.startsWith(dir + '/')))
-    )
-    console.log(`— after folder filter: ${changed.size} file(s) match spec dirs`)
-    return changed
+    const changed = new Set<string>()
+    const renames = new Map<string, string>()
+
+    for (const line of output.trim().split('\n').filter(Boolean)) {
+      const parts = line.split('\t')
+      const status = parts[0]
+
+      if (status.startsWith('R')) {
+        // Rename: R<score>\t<old_path>\t<new_path>
+        const oldPath = parts[1]
+        const newPath = parts[2]
+        if (!newPath?.endsWith('.md')) continue
+        if (hasRoot || normalizedDirs.some((dir) => newPath === dir || newPath.startsWith(dir + '/'))) {
+          changed.add(newPath)
+          renames.set(newPath, oldPath)
+          console.log(`  renamed: ${oldPath} → ${newPath}`)
+        }
+      } else if (status === 'M' || status === 'A') {
+        const filePath = parts[1]
+        if (!filePath?.endsWith('.md')) continue
+        if (hasRoot || normalizedDirs.some((dir) => filePath === dir || filePath.startsWith(dir + '/'))) {
+          changed.add(filePath)
+          console.log(`  ${status === 'A' ? 'added' : 'changed'}: ${filePath}`)
+        }
+      } else if (status === 'D') {
+        const filePath = parts[1]
+        if (!filePath?.endsWith('.md')) continue
+        console.log(`  deleted: ${filePath} (skipped — page stays in target tool)`)
+      }
+    }
+
+    console.log(`— git diff base=${baseRef} — ${changed.size} file(s) to publish`)
+    return { changed, renames }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes('unknown revision') || msg.includes('ambiguous argument')) {
@@ -298,13 +502,11 @@ async function discoverSpecFiles(specDirs: string[]): Promise<string[]> {
   const results: string[] = []
   const cwd = process.cwd()
 
-  // If root "/" is configured, scan only from project root and skip all
-  // other subfolder entries to avoid duplicate processing.
-  const hasRoot = specDirs.some((d) => d.trim() === '/' || d.trim() === '')
-  const dirsToScan = hasRoot ? ['/'] : specDirs
+  const hasRoot = specDirs.includes('')
+  const dirsToScan = hasRoot ? [''] : specDirs
 
   for (const dir of dirsToScan) {
-    const absDir = join(cwd, dir.replace(/^\//, ''))
+    const absDir = dir === '' ? cwd : join(cwd, dir)
     try {
       await collectMdFiles(absDir, cwd, results)
     } catch {
@@ -320,6 +522,8 @@ async function collectMdFiles(dir: string, cwd: string, results: string[]): Prom
   for (const entry of entries) {
     const fullPath = join(dir, entry.name)
     if (entry.isDirectory()) {
+      // Skip hidden dirs and node_modules
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
       await collectMdFiles(fullPath, cwd, results)
     } else if (entry.isFile() && extname(entry.name) === '.md') {
       const rel = relative(cwd, fullPath)
@@ -329,7 +533,7 @@ async function collectMdFiles(dir: string, cwd: string, results: string[]): Prom
   }
 }
 
-async function buildSpecArtifact(filePath: string): Promise<SpecArtifact | null> {
+export async function buildSpecArtifact(filePath: string, previousPath?: string): Promise<SpecArtifact | null> {
   try {
     const raw = await readFile(filePath, 'utf8')
     const { data: frontmatter, content } = matter(raw)
@@ -353,6 +557,7 @@ async function buildSpecArtifact(filePath: string): Promise<SpecArtifact | null>
 
     return {
       path: filePath,
+      ...(previousPath ? { previous_path: previousPath } : {}),
       hash,
       frontmatter: frontmatter as Record<string, unknown>,
       content,

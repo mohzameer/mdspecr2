@@ -80,9 +80,27 @@ export function MapPageClient({
 
   return (
     <div className="p-8 max-w-5xl">
-      <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50 mb-6">
-        Map — {projectName}
-      </h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+          Map — {projectName}
+        </h1>
+        <button
+          onClick={async () => {
+            const res = await fetch(`/api/projects/${projectId}/generate-mdspecmap`)
+            if (!res.ok) return
+            const blob = await res.blob()
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = '.mdspecmap'
+            a.click()
+            URL.revokeObjectURL(url)
+          }}
+          className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+        >
+          Download .mdspecmap
+        </button>
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-zinc-200 dark:border-zinc-800">

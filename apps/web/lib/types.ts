@@ -10,11 +10,30 @@ export type PublishStatus = 'queued' | 'published' | 'failed'
 export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
 
 // ---------------------------------------------------------------------------
+// .mdspecmap config — parsed by CLI, sent in publish payload
+// ---------------------------------------------------------------------------
+
+export interface MdspecMapMapping {
+  folder: string
+  integration?: string
+  target?: 'document' | 'task'
+  parent?: string                    // alias name (resolved server-side)
+  skip?: string[]
+}
+
+export interface MdspecMapConfig {
+  version: 1
+  sync_all_on_first_run?: boolean    // default false
+  mappings: MdspecMapMapping[]
+}
+
+// ---------------------------------------------------------------------------
 // CLI → API publish payload
 // ---------------------------------------------------------------------------
 
 export interface SpecArtifact {
   path: string
+  previous_path?: string             // set on rename (git R status)
   hash: string
   frontmatter: Record<string, unknown>
   content: string
@@ -25,7 +44,9 @@ export interface PublishPayload {
   repo_name: string
   branch: string
   commit_sha: string
+  commit_timestamp: number           // unix timestamp from git log
   specs: SpecArtifact[]
+  config: MdspecMapConfig            // parsed .mdspecmap — always required
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +221,19 @@ export interface FolderMapping {
   integration_id: string
   template_id: string | null
   skip_patterns: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface Alias {
+  id: string
+  org_id: string
+  integration_id: string
+  name: string
+  native_id: string
+  native_url: string | null
+  display_name: string | null
+  created_by: string | null
   created_at: string
   updated_at: string
 }

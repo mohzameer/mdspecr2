@@ -38,33 +38,11 @@ export async function GET(
 
     if (!project) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
-    const { data: projectSpecs } = await supabase
-      .from('specs')
-      .select('id')
-      .eq('project_id', projectId)
-
-    const specIds = (projectSpecs ?? []).map((s) => s.id)
-    const { count: syncedCount } = specIds.length > 0
-      ? await supabase
-          .from('spec_publish_targets')
-          .select('id', { count: 'exact', head: true })
-          .in('spec_id', specIds)
-      : { count: 0 }
-
-    // Fetch folder mappings with skip_patterns for CLI-side filtering
-    const { data: folderMappings } = await supabase
-      .from('folder_mappings')
-      .select('folder_path, skip_patterns')
-      .eq('project_id', projectId)
-
-    const skipPatternsByFolder: Record<string, string[]> = {}
-    for (const fm of folderMappings ?? []) {
-      if (fm.skip_patterns?.length > 0) {
-        skipPatternsByFolder[fm.folder_path] = fm.skip_patterns
-      }
-    }
-
-    return NextResponse.json({ spec_dirs: project.spec_dirs ?? [], name: project.name, spec_count: syncedCount ?? 0, skip_patterns_by_folder: skipPatternsByFolder })
+    // Return project info — used by `mdspec init` to generate .mdspecmap
+    return NextResponse.json({
+      spec_dirs: project.spec_dirs ?? [],
+      name: project.name,
+    })
   }
 
   // Browser path — session auth

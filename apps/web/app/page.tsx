@@ -12,6 +12,9 @@ export default function LandingPage() {
       <nav className="flex items-center justify-between px-6 py-4 max-w-5xl mx-auto">
         <span className="text-lg font-semibold tracking-tight">mdspec</span>
         <div className="flex items-center gap-3">
+          <Link href="/docs/api-reference" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+            Docs
+          </Link>
           <Link href="/pricing" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
             Pricing
           </Link>
@@ -48,9 +51,9 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">How it works</p>
           <div className="grid sm:grid-cols-3 gap-6">
-            <Step number="1" title="Add a CI token" description="Create a project, grab a token, drop it into your CI secrets." />
-            <Step number="2" title="Push markdown" description="Write specs in /specs or any directory. Push to your repo — CI runs mdspec publish." />
-            <Step number="3" title="Auto-publish" description="mdspec creates and updates pages in Notion, Confluence, and ClickUp. Folder structure preserved." />
+            <Step number="1" title="Connect an integration" description="Sign up, create a project, connect Notion, Confluence, or ClickUp. Set up aliases that map names to target pages." />
+            <Step number="2" title="Add a .mdspecmap" description="Drop a .mdspecmap file in your repo root. Map folders to integrations using your alias names." />
+            <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs — folder structure preserved." />
           </div>
         </div>
       </section>
@@ -59,11 +62,20 @@ export default function LandingPage() {
 
       {/* Code snippet */}
       <section className="px-6 py-20">
-        <div className="max-w-2xl mx-auto">
-          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-6 text-center">One line in CI</p>
+        <div className="max-w-2xl mx-auto space-y-4">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-6 text-center">Two files. Done.</p>
           <Card>
             <CardContent className="p-6 font-mono text-sm">
-              <div className="text-muted-foreground mb-2"># .github/workflows/specs.yml</div>
+              <div className="text-muted-foreground mb-2"># .mdspecmap</div>
+              <div className="text-foreground">mappings:</div>
+              <div className="text-muted-foreground ml-2">- folder: <span className="text-foreground">docs/specs</span></div>
+              <div className="text-muted-foreground ml-4">integration: <span className="text-foreground">notion</span></div>
+              <div className="text-muted-foreground ml-4">parent: <span className="text-foreground">eng-docs</span></div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6 font-mono text-sm">
+              <div className="text-muted-foreground mb-2"># .github/workflows/mdspec.yml</div>
               <div className="text-muted-foreground">- name: <span className="text-foreground">Publish specs</span></div>
               <div className="text-muted-foreground ml-2">run: <span className="text-foreground">npx mdspeci publish --project ${'${PROJECT_ID}'}</span></div>
               <div className="text-muted-foreground ml-2">env:</div>
@@ -82,8 +94,8 @@ export default function LandingPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <Feature title="Git-native" description="Change detection via git diff. Only modified specs are published." />
             <Feature title="Folder hierarchy" description="Directory structure in your repo becomes page trees in your tools." />
-            <Feature title="Frontmatter control" description="Set mdspec_id, title, and target-specific fields in YAML frontmatter." />
-            <Feature title="Three integrations" description="Notion, Confluence, and ClickUp. Connect in one click from the dashboard." />
+            <Feature title="Skip patterns" description="Exclude files with glob patterns in .mdspecmap, or add mdspec_skip: true in frontmatter." />
+            <Feature title="Alias system" description="Map human-readable names to target pages in your tools. Safe to commit — no credentials or IDs." />
             <Feature title="Free tier" description="1 project, 10 specs, all integrations. No credit card." />
             <Feature title="Agent layer" description="Transform specs post-publish with built-in templates like task summaries and release notes." />
           </div>
@@ -125,8 +137,9 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-muted-foreground">
           <span>mdspec</span>
           <div className="flex gap-4">
-            <Link href="/login" className="hover:text-foreground transition-colors">Sign in</Link>
+            <Link href="/docs/api-reference" className="hover:text-foreground transition-colors">Docs</Link>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
+            <Link href="/login" className="hover:text-foreground transition-colors">Sign in</Link>
           </div>
         </div>
       </footer>
