@@ -28,9 +28,17 @@ export interface MdspecMapSpecEntry {
   id?: string                        // native ID in the target tool to adopt on first publish
 }
 
+export interface MdspecMapDefault {
+  integration?: string
+  parent?: string
+  target?: 'document' | 'task'
+  agent?: string
+}
+
 export interface MdspecMapConfig {
   version: 1
   sync_all_on_first_run?: boolean    // default false
+  default?: MdspecMapDefault         // fallback for mappings missing integration/parent
   mappings: MdspecMapMapping[]
   specs?: Record<string, MdspecMapSpecEntry>   // keyed by file path
 }

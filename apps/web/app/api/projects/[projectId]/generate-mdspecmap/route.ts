@@ -37,6 +37,13 @@ export async function GET(
     aliasLookup.set(a.integration_id, a.name)
   }
 
+  // Determine if all mappings share the same integration — if so, emit default:
+  const allMappings = mappings ?? []
+  const uniqueIntegrations = [...new Set(allMappings.map((m) => m.integration_id).filter(Boolean))]
+  const useDefault = uniqueIntegrations.length === 1
+  const defaultIntType = useDefault ? (allMappings[0].integrations as unknown as { type: string })?.type : null
+  const defaultAliasName = useDefault ? aliasLookup.get(uniqueIntegrations[0]) : null
+
   // Generate YAML content
   const lines: string[] = [
     '# .mdspecmap — mdspec configuration file',
@@ -52,21 +59,39 @@ export async function GET(
     '# Set to true to publish all specs on first run (default: false)',
     'sync_all_on_first_run: false',
     '',
-    'mappings:',
   ]
 
-  if (mappings && mappings.length > 0) {
-    for (const m of mappings) {
+  if (useDefault && defaultIntType) {
+    lines.push('# Default integration applied to all mappings unless overridden')
+    lines.push('default:')
+    lines.push(`  integration: ${defaultIntType}`)
+    if (defaultAliasName) lines.push(`  parent: ${defaultAliasName}`)
+    else lines.push(`  # parent: <define an alias in Dashboard → Map → Aliases>`)
+    lines.push('')
+  }
+
+  lines.push('mappings:')
+
+  if (allMappings.length > 0) {
+    for (const m of allMappings) {
       const intType = (m.integrations as unknown as { type: string })?.type
       const folderDisplay = m.folder_path === '' ? '/' : m.folder_path
       const aliasName = aliasLookup.get(m.integration_id)
       const target = m.clickup_mode === 'task_list' ? 'task' : 'document'
 
       lines.push(`  - folder: ${folderDisplay}`)
-      if (intType) lines.push(`    integration: ${intType}`)
+
+      // Only emit integration/parent per-mapping if they differ from default
+      if (!useDefault) {
+        if (intType) lines.push(`    integration: ${intType}`)
+        if (aliasName) lines.push(`    parent: ${aliasName}`)
+        else lines.push(`    # parent: <define an alias in Dashboard → Map → Aliases>`)
+      } else if (aliasName && aliasName !== defaultAliasName) {
+        // Override default parent for this specific mapping
+        lines.push(`    parent: ${aliasName}`)
+      }
+
       if (target !== 'document') lines.push(`    target: ${target}`)
-      if (aliasName) lines.push(`    parent: ${aliasName}`)
-      else lines.push(`    # parent: <define an alias in Dashboard → Map → Aliases>`)
 
       if (m.skip_patterns && m.skip_patterns.length > 0) {
         lines.push('    skip:')
@@ -81,8 +106,6 @@ export async function GET(
     const specDirs = project.spec_dirs?.length > 0 ? project.spec_dirs : ['/']
     for (const dir of specDirs) {
       lines.push(`  - folder: ${dir === '' ? '/' : dir}`)
-      lines.push(`    # integration: notion`)
-      lines.push(`    # parent: <alias-name>`)
       lines.push('')
     }
   }

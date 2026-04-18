@@ -66,6 +66,7 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
 const NAV = [
   { label: 'The .mdspecmap file', href: '#mdspecmap' },
   { label: 'mappings:', href: '#mappings' },
+  { label: 'default:', href: '#default' },
   { label: 'specs:', href: '#specs' },
   { label: 'Generating the file', href: '#generating' },
   { label: 'CI setup', href: '#ci' },
@@ -132,11 +133,12 @@ export default function DocsPage() {
               It is the single source of configuration for mdspec — all routing, IDs, titles, and task wiring live here.
               Spec files are plain markdown with no special syntax.
             </p>
-            <p className="text-sm text-muted-foreground">The file has two top-level sections:</p>
+            <p className="text-sm text-muted-foreground">The file has three top-level sections:</p>
             <Table
               headers={['Section', 'Purpose']}
               rows={[
                 ['`mappings`', 'Required. Maps folders to integrations.'],
+                ['`default`', 'Optional. Fallback integration and parent applied to any mapping that omits them.'],
                 ['`specs`', 'Optional. Per-spec config keyed by file path — title, agent, task link.'],
               ]}
             />
@@ -146,17 +148,21 @@ version: 1
 
 sync_all_on_first_run: false
 
+# Optional — applies to all mappings that don't specify their own integration/parent
+default:
+  integration: clickup
+  parent: eng-docs
+
 mappings:
-  - folder: docs/specs
-    integration: notion
-    parent: eng-docs
+  - folder: docs/specs          # inherits default
     skip:
       - DRAFT_*.md
 
-  - folder: docs/tasks
-    integration: clickup
+  - folder: docs/tasks          # overrides default parent
     parent: dev-tasks
     target: task
+
+  - folder: docs/archive        # inherits default (different folder, same integration)
 
 # Optional — per-spec config keyed by file path
 specs:
@@ -211,6 +217,38 @@ specs:
             <p className="text-sm text-muted-foreground">
               In the example above, a file at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils/SPEC7.md</code> goes only to the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils</code> mapping — not to <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src</code> or <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/</code>.
             </p>
+          </section>
+
+          <Separator />
+
+          {/* default */}
+          <section id="default" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">default:</h2>
+            <p className="text-sm text-muted-foreground">
+              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">default:</code> block sets a fallback integration and parent for any mapping that omits them. Useful when most or all folders publish to the same integration.
+            </p>
+            <Table
+              headers={['Field', 'What it does']}
+              rows={[
+                ['`integration`', 'Fallback integration type: clickup, notion, or confluence.'],
+                ['`parent`', 'Fallback alias name used as the parent container.'],
+                ['`target`', 'Fallback target mode: document (default) or task.'],
+                ['`agent`', 'Fallback agent template applied to all mappings that don\'t specify one.'],
+              ]}
+            />
+            <p className="text-sm text-muted-foreground">
+              Per-mapping fields always win over the default. Set any field on a specific mapping to override only that field — the rest still inherit from <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">default:</code>.
+            </p>
+            <CodeBlock>{`default:
+  integration: clickup
+  parent: eng-docs
+
+mappings:
+  - folder: docs/specs          # uses clickup + eng-docs
+  - folder: docs/tasks
+    parent: dev-tasks           # uses clickup (from default) + dev-tasks (override)
+    target: task
+  - folder: docs/archive        # uses clickup + eng-docs`}</CodeBlock>
           </section>
 
           <Separator />

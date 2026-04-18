@@ -168,3 +168,33 @@ it('1.1.10 allows skip-only mapping with no integration', async () => {
   expect(cfg.mappings[0].skip).toEqual(['README.md'])
   expect(mockExit).not.toHaveBeenCalled()
 })
+
+it('default: valid block is parsed', async () => {
+  const yaml = [
+    'version: 1',
+    'default:',
+    '  integration: clickup',
+    '  parent: eng-docs',
+    'mappings:',
+    '  - folder: docs/specs',
+    '  - folder: docs/tasks',
+    '    target: task',
+  ].join('\n')
+  vi.mocked(fs.access).mockResolvedValue(undefined)
+  vi.mocked(fs.readFile).mockResolvedValue(yaml as never)
+
+  const cfg = await readMdspecMap()
+  expect(cfg.default?.integration).toBe('clickup')
+  expect(cfg.default?.parent).toBe('eng-docs')
+  expect(cfg.mappings[0].integration).toBeUndefined()
+  expect(mockExit).not.toHaveBeenCalled()
+})
+
+it('default: invalid integration type errors', async () => {
+  vi.mocked(fs.access).mockResolvedValue(undefined)
+  vi.mocked(fs.readFile).mockResolvedValue(
+    'version: 1\ndefault:\n  integration: slack\nmappings:\n  - folder: /\n' as never
+  )
+  await expect(readMdspecMap()).rejects.toThrow('exit:1')
+  expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('default.integration'))
+})

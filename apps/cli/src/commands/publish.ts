@@ -25,9 +25,17 @@ export interface MdspecMapSpecEntry {
   id?: string
 }
 
+export interface MdspecMapDefault {
+  integration?: string
+  parent?: string
+  target?: 'document' | 'task'
+  agent?: string
+}
+
 export interface MdspecMapConfig {
   version: 1
   sync_all_on_first_run?: boolean
+  default?: MdspecMapDefault
   mappings: MdspecMapMapping[]
   specs?: Record<string, MdspecMapSpecEntry>   // keyed by file path
 }
@@ -308,6 +316,17 @@ export async function readMdspecMap(): Promise<MdspecMapConfig> {
 
   if (config.version !== 1) {
     errors.push('version: must be 1')
+  }
+
+  // Validate optional default: block
+  if (config.default !== undefined) {
+    const d = config.default as Record<string, unknown>
+    if (d.integration && !['notion', 'confluence', 'clickup'].includes(d.integration as string)) {
+      errors.push(`default.integration: unknown value '${d.integration}'`)
+    }
+    if (d.target && !['document', 'task'].includes(d.target as string)) {
+      errors.push(`default.target: must be 'document' or 'task'`)
+    }
   }
 
   if (!Array.isArray(config.mappings)) {

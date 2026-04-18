@@ -13,6 +13,17 @@ function normalizeFolder(folder: string): string {
   return raw.replace(/^\//, '').replace(/\/$/, '')
 }
 
+// Merge default: block into a mapping — mapping fields win over default
+function resolveMapping(mapping: MdspecMapConfig['mappings'][number], config: MdspecMapConfig) {
+  const d = config.default ?? {}
+  return {
+    ...mapping,
+    integration: mapping.integration ?? d.integration,
+    parent: mapping.parent ?? d.parent,
+    target: mapping.target ?? d.target,
+  }
+}
+
 export async function POST(request: Request) {
   try {
     // -------------------------------------------------------------------------
@@ -168,7 +179,8 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     // Resolve aliases from payload config
     // -------------------------------------------------------------------------
-    const mappingsWithParent = config.mappings.filter((m) => m.parent && m.integration)
+    const resolvedMappings = config.mappings.map((m) => resolveMapping(m, config))
+    const mappingsWithParent = resolvedMappings.filter((m) => m.parent && m.integration)
     const aliasNames = [...new Set(mappingsWithParent.map((m) => m.parent!))]
 
     // Fetch all aliases for this org
@@ -239,8 +251,10 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     // Route specs using payload config (not DB)
     // -------------------------------------------------------------------------
-    // Get integration-bearing mappings (skip-only entries have no integration)
-    const integrationMappings = config.mappings.filter((m) => m.integration)
+    // Resolve default: into each mapping, then keep only integration-bearing ones
+    const integrationMappings = config.mappings
+      .map((m) => resolveMapping(m, config))
+      .filter((m) => m.integration)
 
     const groups = new Map<string, {
       integration_id: string
@@ -521,7 +535,8 @@ async function reconcileFolderMappings(
   integrationByType: Map<string, string>
 ): Promise<void> {
   try {
-    for (const mapping of config.mappings) {
+    for (const rawMapping of config.mappings) {
+      const mapping = resolveMapping(rawMapping, config)
       if (!mapping.integration) continue
 
       let integrationId: string | undefined
