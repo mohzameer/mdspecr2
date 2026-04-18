@@ -78,15 +78,10 @@ export function FolderMappingsTab({
   const [newFolderTargetId, setNewFolderTargetId] = useState<string>('')
   const [newFolderListId, setNewFolderListId] = useState<string>('')
   const [newFolderTemplateId, setNewFolderTemplateId] = useState<string>('')
-  const [newFolderFrontmatterTitle, setNewFolderFrontmatterTitle] = useState<string>('')
-  const [newFolderFrontmatterTaskId, setNewFolderFrontmatterTaskId] = useState<string>('')
   const [addingFolder, setAddingFolder] = useState(false)
   const [savingMappingId, setSavingMappingId] = useState<string | null>(null)
   const [deletingMappingId, setDeletingMappingId] = useState<string | null>(null)
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
-  // inline frontmatter editing: mappingId → { attribute → frontmatterKey }
-  const [frontmatterDraft, setFrontmatterDraft] = useState<Record<string, Record<string, string>>>({})
-  const [copiedMappingId, setCopiedMappingId] = useState<string | null>(null)
   const [addingDiscoveredFolder, setAddingDiscoveredFolder] = useState<string | null>(null)
   // listsCache: integrationId:spaceId → ClickUpList[]
   const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
@@ -239,31 +234,6 @@ async function applyToAll() {
     }
   }
 
-  async function saveFrontmatterAttribute(mappingId: string, attribute: string, value: string) {
-    const current = frontmatterDraft[mappingId] ?? {}
-    const trimmed = value.trim()
-    const next = { ...current, [attribute]: trimmed }
-    // Remove empty entries before saving
-    const toSave: Record<string, string> = Object.fromEntries(
-      Object.entries(next).filter(([, v]) => v.length > 0)
-    )
-    const frontmatter_map = Object.keys(toSave).length > 0 ? toSave : null
-    const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ frontmatter_map }),
-    })
-    if (res.ok) {
-      const updated = await res.json()
-      onMappingsChange(mappings.map((m) => m.id === mappingId ? { ...m, frontmatter_map: updated.frontmatter_map } : m))
-      setFrontmatterDraft((prev) => ({ ...prev, [mappingId]: updated.frontmatter_map ?? {} }))
-    }
-  }
-
-  function getDraft(mappingId: string, storedMap: Record<string, string> | null): Record<string, string> {
-    return frontmatterDraft[mappingId] ?? storedMap ?? {}
-  }
-
   function extractClickUpDocId(input: string): string {
     const trimmed = input.trim()
     // ClickUp doc URL format: /docs/<docId>/<pageId> — we want the docId (first segment after /docs/)
@@ -347,9 +317,6 @@ async function applyToAll() {
     const selectedIntegration = availableIntegrations.find((i) => i.id === integrationId)
     const isClickUp = selectedIntegration?.type === 'clickup'
     const mode = isClickUp ? newFolderMode : 'doc'
-    const frontmatterMap: Record<string, string> = {}
-    if (newFolderFrontmatterTitle.trim()) frontmatterMap['title'] = newFolderFrontmatterTitle.trim()
-    if (mode === 'task_list' && newFolderFrontmatterTaskId.trim()) frontmatterMap['mdspec_taskid'] = newFolderFrontmatterTaskId.trim()
 
     setAddingFolder(true)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
@@ -364,7 +331,6 @@ async function applyToAll() {
         clickup_doc_id: newFolderDocId || null,
         skip_patterns: newFolderSkipPatterns.split('\n').map((l) => l.trim()).filter(Boolean),
         template_id: newFolderTemplateId || null,
-        frontmatter_map: Object.keys(frontmatterMap).length > 0 ? frontmatterMap : null,
       }),
     })
     if (res.ok) {
@@ -378,8 +344,6 @@ async function applyToAll() {
       setNewFolderTargetId('')
       setNewFolderListId('')
       setNewFolderTemplateId('')
-      setNewFolderFrontmatterTitle('')
-      setNewFolderFrontmatterTaskId('')
       setNewFolderDocId('')
       setNewFolderSkipPatterns('')
     }
@@ -457,7 +421,7 @@ async function applyToAll() {
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Destination</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Skip files</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Frontmatter</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide"></th>
               </tr>
             </thead>
             <tbody>
@@ -656,90 +620,7 @@ async function applyToAll() {
                       />
                     </td>
 
-                    {/* Frontmatter mapping */}
-                    <td className="px-4 py-3 align-middle">
-                      {(() => {
-                        const mode = mapping.clickup_mode ?? 'doc'
-                        const draft = getDraft(mapping.id, mapping.frontmatter_map)
-                        const attrs: Array<{ attribute: string; optional: boolean }> = [
-                          { attribute: 'title', optional: true },
-                          ...(mode === 'task_list' ? [{ attribute: 'mdspec_taskid', optional: false }] : []),
-                        ]
-                        return (
-                          <div className="flex flex-col gap-1.5">
-                            {attrs.map(({ attribute, optional }) => (
-                              <div key={attribute} className="flex flex-col gap-0.5">
-                                <span className="text-xs font-mono text-zinc-500">
-                                  {attribute}
-                                  {optional && <span className="text-zinc-400 font-sans ml-1">(optional)</span>}
-                                </span>
-                                {canEdit ? (
-                                  <input
-                                    type="text"
-                                    value={draft[attribute] ?? ''}
-                                    placeholder={attribute}
-                                    onChange={(e) =>
-                                      setFrontmatterDraft((prev) => ({
-                                        ...prev,
-                                        [mapping.id]: { ...getDraft(mapping.id, mapping.frontmatter_map), [attribute]: e.target.value },
-                                      }))
-                                    }
-                                    onBlur={(e) => saveFrontmatterAttribute(mapping.id, attribute, e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                                    className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                                  />
-                                ) : (
-                                  <span className="text-xs font-mono text-zinc-600 dark:text-zinc-400">{draft[attribute] || '—'}</span>
-                                )}
-                                {attribute === 'title' && (
-                                  <span className="text-xs text-zinc-400"><code className="font-mono text-xs">title</code> in frontmatter overrides the doc title setting</span>
-                                )}
-                              </div>
-                            ))}
-
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-xs font-mono text-zinc-500">mdspec_skip <span className="font-sans text-zinc-400">(optional)</span></span>
-                              <span className="text-xs text-zinc-400">Set to <code className="font-mono">true</code> to skip this file</span>
-                            </div>
-
-                            {(() => {
-                              const lines = attrs
-                                .filter(({ attribute, optional }) => !optional || (draft[attribute] ?? '').trim().length > 0)
-                                .map(({ attribute }) => {
-                                  const key = (draft[attribute] ?? '').trim() || attribute
-                                  return `${key}: …`
-                                })
-                              const snippet = `---\n${lines.join('\n')}\n---`
-                              return (
-                                <div className="mt-1 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60 px-2.5 py-2 relative">
-                                  <pre className="text-xs font-mono text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed">{snippet}</pre>
-                                  <button
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(snippet)
-                                      setCopiedMappingId(mapping.id)
-                                      setTimeout(() => setCopiedMappingId(null), 1500)
-                                    }}
-                                    className="absolute top-1.5 right-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
-                                    title="Copy"
-                                  >
-                                    {copiedMappingId === mapping.id ? (
-                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                      </svg>
-                                    ) : (
-                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                                      </svg>
-                                    )}
-                                  </button>
-                                </div>
-                              )
-                            })()}
-                          </div>
-                        )
-                      })()}
-                    </td>
+                    <td className="px-4 py-3 align-middle"></td>
                   </tr>
                 )
               })}
@@ -873,27 +754,14 @@ async function applyToAll() {
                       />
                     </td>
 
-                    {/* Frontmatter + Add button */}
                     <td className="px-4 py-3 align-top">
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-xs font-mono text-zinc-500">title <span className="font-sans text-zinc-400">(optional)</span></span>
-                          <input type="text" value={newFolderFrontmatterTitle} onChange={(e) => setNewFolderFrontmatterTitle(e.target.value)} placeholder="title" className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500" />
-                        </div>
-                        {isClickUp && newFolderMode === 'task_list' && (
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-mono text-zinc-500">mdspec_taskid</span>
-                            <input type="text" value={newFolderFrontmatterTaskId} onChange={(e) => setNewFolderFrontmatterTaskId(e.target.value)} placeholder="mdspec_taskid" className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500" />
-                          </div>
-                        )}
-                        <button
-                          onClick={addFolderManually}
-                          disabled={addingFolder || !newFolderPath.trim() || !newFolderIntegrationId}
-                          className="mt-1 text-xs rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 disabled:opacity-40 transition-colors w-fit"
-                        >
-                          {addingFolder ? 'Adding…' : 'Add mapping'}
-                        </button>
-                      </div>
+                      <button
+                        onClick={addFolderManually}
+                        disabled={addingFolder || !newFolderPath.trim() || !newFolderIntegrationId}
+                        className="text-xs rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 disabled:opacity-40 transition-colors w-fit"
+                      >
+                        {addingFolder ? 'Adding…' : 'Add mapping'}
+                      </button>
                     </td>
                   </tr>
                 )
