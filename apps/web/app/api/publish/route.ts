@@ -6,6 +6,14 @@ import type { PublishPayload, PublishGroupJobData, PublishGroupSpec, Integration
 const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
 
 
+function resolveTitle(path: string, frontmatter: Record<string, unknown>): string {
+  if (frontmatter?.title && typeof frontmatter.title === 'string') {
+    return frontmatter.title
+  }
+  const filename = path.split('/').pop() ?? path
+  return filename.replace(/\.md$/, '').replace(/[-_]/g, ' ')
+}
+
 function normalizeFolder(folder: string): string {
   const raw = folder.trim()
   if (raw === '/' || raw === '' || raw === '.') return ''
@@ -83,7 +91,7 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     const { data: project } = await supabase
       .from('projects')
-      .select('id, org_id, registered_repo, title_source')
+      .select('id, org_id, registered_repo')
       .eq('id', project_id)
       .single()
 
@@ -278,7 +286,7 @@ export async function POST(request: Request) {
             mdspec_id: (spec.frontmatter?.mdspec_id as string) ?? null,
             commit_sha,
             content_hash: spec.hash,
-            content: spec.content,
+            title: resolveTitle(spec.path, spec.frontmatter ?? {}),
             frontmatter: spec.frontmatter ?? null,
             updated_at: new Date().toISOString(),
           },
@@ -382,6 +390,7 @@ export async function POST(request: Request) {
           spec_id: upsertedSpec.id,
           spec_publish_target_id: target.id,
           path: spec.path,
+          title: resolveTitle(spec.path, spec.frontmatter ?? {}),
           content: spec.content,
           content_hash: spec.hash,
           frontmatter: spec.frontmatter ?? {},
@@ -402,7 +411,6 @@ export async function POST(request: Request) {
         specs: group.specs,
         clickup_mode: group.clickup_mode as 'doc' | 'task_list',
         matched_folder: group.matched_folder,
-        title_source: (project.title_source as 'first_heading' | 'filename') ?? 'first_heading',
       }
 
       try {

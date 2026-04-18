@@ -10,7 +10,7 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
 
   const { data: project } = await supabase
     .from('projects')
-    .select('id, name, org_id, spec_dirs, title_source')
+    .select('id, name, org_id, spec_dirs')
     .eq('id', projectId)
     .single()
   if (!project) notFound()
@@ -80,7 +80,6 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
       initialTemplates={templates}
       initialDiscoveredFolders={discoveredFolders}
       canEdit={!!canEdit}
-      initialTitleSource={(project.title_source as 'first_heading' | 'filename') ?? 'first_heading'}
     />
   )
 }

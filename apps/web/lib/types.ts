@@ -60,6 +60,7 @@ export interface PublishGroupSpec {
   spec_id: string
   spec_publish_target_id: string
   path: string
+  title: string
   content: string
   content_hash: string
   frontmatter: Record<string, unknown>
@@ -75,7 +76,6 @@ export interface PublishGroupJobData {
   specs: PublishGroupSpec[]
   clickup_mode?: 'doc' | 'task_list'
   matched_folder?: string  // the folder path that was matched for this group (longest-prefix)
-  title_source?: 'first_heading' | 'filename'
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@ export interface Spec {
   mdspec_id: string | null
   commit_sha: string
   content_hash: string
-  content: string
+  title: string
   frontmatter: Record<string, unknown> | null
   created_at: string
   updated_at: string

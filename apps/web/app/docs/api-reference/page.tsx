@@ -258,7 +258,7 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
               rows={[
                 ['`mdspec_skip`', 'boolean', 'Any file', 'Set to true to exclude this file from all syncing. Overrides all folder mappings.'],
                 ['`mdspec_id`', 'string', 'Any file', 'Stable identifier for this spec (lowercase alphanumeric + underscores, max 64 chars). Use this to rename a file without creating a new page in the target tool.'],
-                ['`title`', 'string', 'Any file', 'Overrides the page title in the target tool. If omitted, mdspec derives the title from the first heading or filename depending on your project\'s title_source setting.'],
+                ['`title`', 'string', 'Any file', 'Sets the page title in the target tool. If omitted, mdspec derives the title from the filename (hyphens and underscores replaced with spaces).'],
               ]}
             />
 

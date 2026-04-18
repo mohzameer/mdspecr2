@@ -104,6 +104,38 @@ export default function LandingPage() {
 
       <Separator className="max-w-5xl mx-auto" />
 
+      {/* Security & compliance */}
+      <section className="px-6 py-20">
+        <div className="max-w-3xl mx-auto">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Security & compliance</p>
+          <p className="text-center text-sm text-muted-foreground mb-8">
+            mdspec runs on Vercel — SOC 2 Type II certified and ISO 27001 compliant infrastructure.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <Card>
+              <CardContent className="p-5">
+                <h3 className="text-sm font-semibold mb-1">SOC 2 Type II</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">Hosted on Vercel, which holds SOC 2 Type II certification covering security, availability, and confidentiality.</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <h3 className="text-sm font-semibold mb-1">ISO 27001</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">Vercel&apos;s infrastructure is ISO 27001 certified, meeting the international standard for information security management.</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <h3 className="text-sm font-semibold mb-1">No content storage</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">Spec content is never stored outside your compliant sources. It flows directly from CI to your target tool — only metadata is retained.</p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      <Separator className="max-w-5xl mx-auto" />
+
       {/* Pricing teaser */}
       <section className="px-6 py-20">
         <div className="max-w-xl mx-auto text-center">

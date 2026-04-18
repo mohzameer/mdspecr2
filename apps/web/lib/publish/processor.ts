@@ -4,7 +4,6 @@ import { publishToNotion } from './adapters/notion'
 import { publishToConfluence } from './adapters/confluence'
 import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, resolveToNativeTaskId } from './adapters/clickup'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
-import { getSpecTitle } from '@/lib/folder-hierarchy'
 import { runAgentInline } from '@/lib/agents/processor'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
 
@@ -30,8 +29,6 @@ interface GroupContext {
   sharedSubDocId: string | null
   // In-memory cache: sub-folder path → ClickUp section page ID (created on demand)
   sectionPageIds: Map<string, string>
-  // Title source preference
-  titleSource: 'first_heading' | 'filename'
   // Whether to preserve folder hierarchy as sections inside the parent doc (hidden/disabled for now)
   preserveHierarchy: boolean
   // Task list mode
@@ -86,7 +83,6 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     sharedSubRowId: null,
     sharedSubDocId: null,
     sectionPageIds: new Map(),
-    titleSource: data.title_source ?? 'first_heading',
     preserveHierarchy: false,
     clickupMode: 'doc',
     clickupListId: null,
@@ -279,8 +275,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   }
 
   // Resolve title once here so all adapters use the same value
-  const resolvedTitle = getSpecTitle(path, frontmatter as Record<string, unknown>, ctx.titleSource, content)
-  const specPayload = { path, content, frontmatter, resolvedTitle }
+  const specPayload = { path, content, frontmatter, resolvedTitle: spec.title }
 
   // -- Dispatch to adapter ---------------------------------------------------
   let result: { page_id?: string; doc_id?: string; page_url?: string; doc_url?: string }

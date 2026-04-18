@@ -69,7 +69,7 @@ function setupAuthSuccess(supabase: ReturnType<typeof createServiceMock>) {
 function setupProjectAndOrg(supabase: ReturnType<typeof createServiceMock>, overrides: Record<string, unknown> = {}) {
   supabase.from.mockImplementationOnce(() =>
     makeChain({
-      data: { id: PROJECT_ID, org_id: 'org1', registered_repo: null, title_source: 'first_heading', ...overrides },
+      data: { id: PROJECT_ID, org_id: 'org1', registered_repo: null, ...overrides },
       error: null,
     })
   )
@@ -235,7 +235,7 @@ describe('2.1 Repo enforcement', () => {
     // project has a registered_repo that doesn't match
     supabase.from.mockImplementationOnce(() =>
       makeChain({
-        data: { id: PROJECT_ID, org_id: 'org1', registered_repo: 'owner/other', title_source: 'first_heading' },
+        data: { id: PROJECT_ID, org_id: 'org1', registered_repo: 'owner/other' },
         error: null,
       })
     )
@@ -259,7 +259,7 @@ describe('2.1 Free tier', () => {
     setupAuthSuccess(supabase)
     // project (no registered_repo so it will try to update — mock that too)
     supabase.from.mockImplementationOnce(() =>
-      makeChain({ data: { id: PROJECT_ID, org_id: 'org1', registered_repo: 'owner/repo', title_source: 'first_heading' }, error: null })
+      makeChain({ data: { id: PROJECT_ID, org_id: 'org1', registered_repo: 'owner/repo' }, error: null })
     )
     // org_members
     supabase.from.mockImplementationOnce(() =>
