@@ -94,22 +94,12 @@ export function FolderMappingsTab({
   const [newFolderDocId, setNewFolderDocId] = useState<string>('')
   // existing mapping doc URL drafts: mappingId → raw URL input
   const [docUrlDraft, setDocUrlDraft] = useState<Record<string, string>>({})
+  // existing mapping list URL drafts: mappingId → raw URL input
+  const [listUrlDraft, setListUrlDraft] = useState<Record<string, string>>({})
   // skip patterns: mappingId → textarea draft (newline-separated)
   const [skipDraft, setSkipDraft] = useState<Record<string, string>>({})
   const [newFolderSkipPatterns, setNewFolderSkipPatterns] = useState<string>('')
 
-  // Load lists when new row selects a space in task_list mode (doc parent no longer needs fetching — user pastes URL)
-  useEffect(() => {
-    if (!newFolderIntegrationId || newFolderMode !== 'task_list') return
-    const spaceId = newFolderTargetId.startsWith('space:') ? newFolderTargetId.slice(6) : null
-    if (!spaceId) return
-    const cacheKey = `${newFolderIntegrationId}:${spaceId}`
-    if (listsCache[cacheKey]) return
-    fetch(`/api/integrations/${newFolderIntegrationId}/clickup-lists?space_id=${spaceId}`)
-      .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data.lists)) setListsCache((prev) => ({ ...prev, [cacheKey]: data.lists })) })
-      .catch(() => {})
-  }, [newFolderIntegrationId, newFolderMode, newFolderTargetId])
 
   // Pre-load ClickUp targets and task lists for all relevant mappings
   useEffect(() => {
@@ -127,20 +117,6 @@ export function FolderMappingsTab({
         .catch(() => {})
     }
 
-    // Lists for task_list mappings that already have a space selected
-    for (const m of clickupMappings) {
-      if ((m.clickup_mode ?? 'doc') !== 'task_list') continue
-      const spaceId = m.target_id?.startsWith('space:') ? m.target_id.slice(6) : null
-      if (!spaceId) continue
-      const cacheKey = `${m.integration_id}:${spaceId}`
-      if (listsCache[cacheKey]) continue
-      fetch(`/api/integrations/${m.integration_id}/clickup-lists?space_id=${spaceId}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (Array.isArray(data.lists)) setListsCache((prev) => ({ ...prev, [cacheKey]: data.lists }))
-        })
-        .catch(() => {})
-    }
   }, [mappings])
 
   // Only show folders that have active mappings. Discovered folders are shown
@@ -297,6 +273,23 @@ async function applyToAll() {
     const dMatch = trimmed.match(/\/d(?:oc)?\/([a-zA-Z0-9-]+)/)
     if (dMatch) return dMatch[1]
     // Otherwise treat as raw ID
+    return trimmed
+  }
+
+  function extractClickUpListId(input: string): string {
+    const trimmed = input.trim()
+    // ClickUp list URL: /v/l/li/<listId> or /l/li/<listId>
+    const listMatch = trimmed.match(/\/li\/([0-9]+)/)
+    if (listMatch) return listMatch[1]
+    // Otherwise treat as raw ID
+    return trimmed
+  }
+
+  function extractClickUpSpaceId(input: string): string {
+    const trimmed = input.trim()
+    // ClickUp space URL: /v/s/<spaceId>
+    const spaceMatch = trimmed.match(/\/v\/s\/([0-9]+)/)
+    if (spaceMatch) return spaceMatch[1]
     return trimmed
   }
 
@@ -567,41 +560,49 @@ async function applyToAll() {
                               </div>
                             )}
 
-                            <div className="inline-flex items-center gap-1.5 flex-wrap">
-                              <select
-                                disabled={!canEdit || !targetsLoaded || isSaving}
-                                value={mapping.target_id ?? ''}
-                                onChange={(e) => {
-                                  const newTargetId = e.target.value || null
-                                  updateClickupConfig(mapping.id, { target_id: newTargetId, clickup_list_id: null })
-                                }}
-                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-                              >
-                                <option value="">{targetsLoaded ? (mode === 'task_list' ? 'Select space…' : 'Workspace root') : 'Loading…'}</option>
-                                {targets.filter((t) => t.kind === 'space').map((t) => (
-                                  <option key={t.id} value={t.id}>{t.name} (space)</option>
-                                ))}
-                                {mode === 'doc' && targets.filter((t) => t.kind === 'folder').map((t) => (
-                                  <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
-                                ))}
-                              </select>
-
-                              {mode === 'task_list' && selectedSpaceId && (
+                            {mode === 'doc' && (
+                              <div className="inline-flex items-center gap-1.5 flex-wrap">
                                 <select
-                                  disabled={!canEdit || !listsLoaded || isSaving}
-                                  value={mapping.clickup_list_id ?? ''}
-                                  onChange={(e) => updateClickupConfig(mapping.id, { clickup_list_id: e.target.value || null })}
+                                  disabled={!canEdit || !targetsLoaded || isSaving}
+                                  value={mapping.target_id ?? ''}
+                                  onChange={(e) => {
+                                    const newTargetId = e.target.value || null
+                                    updateClickupConfig(mapping.id, { target_id: newTargetId, clickup_list_id: null })
+                                  }}
                                   className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                                 >
-                                  <option value="">{listsLoaded ? 'Select list…' : 'Loading…'}</option>
-                                  {lists.map((l) => (
-                                    <option key={l.id} value={l.id}>{l.name}</option>
+                                  <option value="">{targetsLoaded ? 'Workspace root' : 'Loading…'}</option>
+                                  {targets.filter((t) => t.kind === 'space').map((t) => (
+                                    <option key={t.id} value={t.id}>{t.name} (space)</option>
+                                  ))}
+                                  {targets.filter((t) => t.kind === 'folder').map((t) => (
+                                    <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
                                   ))}
                                 </select>
-                              )}
+                                {isSaving && spinner}
+                              </div>
+                            )}
 
-                              {isSaving && spinner}
-                            </div>
+                            {mode === 'task_list' && (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-xs text-zinc-500">List URL or ID{!mapping.clickup_list_id && <span className="text-red-400 ml-1">— required</span>}</span>
+                                <input
+                                  type="text"
+                                  disabled={!canEdit || isSaving}
+                                  value={listUrlDraft[mapping.id] ?? mapping.clickup_list_id ?? ''}
+                                  onChange={(e) => setListUrlDraft((prev) => ({ ...prev, [mapping.id]: e.target.value }))}
+                                  onBlur={(e) => {
+                                    const id = extractClickUpListId(e.target.value)
+                                    updateClickupConfig(mapping.id, { clickup_list_id: id || null })
+                                    setListUrlDraft((prev) => ({ ...prev, [mapping.id]: id }))
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                                  placeholder="https://app.clickup.com/…/li/901812… or list ID"
+                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 w-full"
+                                />
+                                {isSaving && spinner}
+                              </div>
+                            )}
 
                             {mode === 'doc' && (
                               <div className="flex flex-col gap-1 mt-1">
@@ -813,30 +814,34 @@ async function applyToAll() {
                             <button type="button" onClick={() => setNewFolderMode('doc')} className={`px-2 py-1 transition-colors ${newFolderMode === 'doc' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Doc</button>
                             <button type="button" onClick={() => setNewFolderMode('task_list')} className={`px-2 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors ${newFolderMode === 'task_list' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Task list</button>
                           </div>
-                          <select
-                            value={newFolderTargetId}
-                            onChange={(e) => { setNewFolderTargetId(e.target.value); setNewFolderListId('') }}
-                            disabled={!newTargetsLoaded}
-                            className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-                          >
-                            <option value="">{newTargetsLoaded ? (newFolderMode === 'task_list' ? 'Select space…' : 'Workspace root') : 'Loading…'}</option>
-                            {newTargets.filter((t) => t.kind === 'space').map((t) => (
-                              <option key={t.id} value={t.id}>{t.name} (space)</option>
-                            ))}
-                            {newFolderMode === 'doc' && newTargets.filter((t) => t.kind === 'folder').map((t) => (
-                              <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
-                            ))}
-                          </select>
-                          {newFolderMode === 'task_list' && newSelectedSpaceId && (
+                          {newFolderMode === 'doc' && (
                             <select
-                              value={newFolderListId}
-                              onChange={(e) => setNewFolderListId(e.target.value)}
-                              disabled={!newListsLoaded}
+                              value={newFolderTargetId}
+                              onChange={(e) => setNewFolderTargetId(e.target.value)}
+                              disabled={!newTargetsLoaded}
                               className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                             >
-                              <option value="">{newListsLoaded ? 'Select list…' : 'Loading…'}</option>
-                              {newLists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                              <option value="">{newTargetsLoaded ? 'Workspace root' : 'Loading…'}</option>
+                              {newTargets.filter((t) => t.kind === 'space').map((t) => (
+                                <option key={t.id} value={t.id}>{t.name} (space)</option>
+                              ))}
+                              {newTargets.filter((t) => t.kind === 'folder').map((t) => (
+                                <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
+                              ))}
                             </select>
+                          )}
+                          {newFolderMode === 'task_list' && (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs text-zinc-500">List URL or ID</span>
+                              <input
+                                type="text"
+                                value={newFolderListId}
+                                onChange={(e) => setNewFolderListId(e.target.value)}
+                                onBlur={(e) => setNewFolderListId(extractClickUpListId(e.target.value))}
+                                placeholder="https://app.clickup.com/…/li/901812… or list ID"
+                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 w-full"
+                              />
+                            </div>
                           )}
                           {newFolderMode === 'doc' && (
                             <div className="flex flex-col gap-1">
