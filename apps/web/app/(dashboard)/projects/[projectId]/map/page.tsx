@@ -15,7 +15,7 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
     .single()
   if (!project) notFound()
 
-  const [orgMemberRes, projectMemberRes, mappingsRes, integrationsRes, templatesRes, specsRes] = await Promise.all([
+  const [orgMemberRes, projectMemberRes, mappingsRes, integrationsRes, templatesRes, specsRes, aliasesRes] = await Promise.all([
     supabase
       .from('org_members')
       .select('role')
@@ -48,6 +48,10 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
       .from('specs')
       .select('path')
       .eq('project_id', projectId),
+    supabase
+      .from('aliases')
+      .select('id, name, native_id, native_url, display_name, integration_id, integrations(id, type, status)')
+      .eq('org_id', project.org_id),
   ])
 
   const canEdit =
@@ -79,6 +83,7 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
       availableIntegrations={integrationsRes.data ?? []}
       initialTemplates={templates}
       initialDiscoveredFolders={discoveredFolders}
+      initialAliases={(aliasesRes.data ?? []) as any}
       canEdit={!!canEdit}
     />
   )

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { FolderMappingsTab } from './FolderMappingsTab'
 import { TemplatesTab } from './TemplatesTab'
+import { AliasesTab } from './AliasesTab'
 
 interface Integration {
   id: string
@@ -40,6 +41,16 @@ interface FolderMapping {
   templates: { id: string; name: string } | null
 }
 
+interface AliasRow {
+  id: string
+  name: string
+  native_id: string
+  native_url: string | null
+  display_name: string | null
+  integration_id: string
+  integrations: { id: string; type: string; status: string } | null
+}
+
 interface MapPageClientProps {
   projectId: string
   projectName: string
@@ -47,10 +58,11 @@ interface MapPageClientProps {
   availableIntegrations: Integration[]
   initialTemplates: TemplateWithCount[]
   initialDiscoveredFolders: string[]
+  initialAliases: AliasRow[]
   canEdit: boolean
 }
 
-type Tab = 'folder-mappings' | 'templates'
+type Tab = 'folder-mappings' | 'templates' | 'aliases'
 
 export function MapPageClient({
   projectId,
@@ -59,6 +71,7 @@ export function MapPageClient({
   availableIntegrations,
   initialTemplates,
   initialDiscoveredFolders,
+  initialAliases,
   canEdit,
 }: MapPageClientProps) {
   const [activeTab, setActiveTab] = useState<Tab>('folder-mappings')
@@ -92,7 +105,7 @@ export function MapPageClient({
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-zinc-200 dark:border-zinc-800">
-        {(['folder-mappings', 'templates'] as Tab[]).map((tab) => (
+        {(['folder-mappings', 'aliases', 'templates'] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -103,7 +116,7 @@ export function MapPageClient({
                 : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300',
             ].join(' ')}
           >
-            {tab === 'folder-mappings' ? 'Folder Mappings' : 'Templates'}
+            {tab === 'folder-mappings' ? 'Folder Mappings' : tab === 'aliases' ? 'Aliases' : 'Templates'}
           </button>
         ))}
       </div>
@@ -117,6 +130,14 @@ export function MapPageClient({
           canEdit={canEdit}
           discoveredFolders={discoveredFolders}
           onMappingsChange={setMappings}
+        />
+      )}
+
+      {activeTab === 'aliases' && (
+        <AliasesTab
+          initialAliases={initialAliases}
+          connectedIntegrations={availableIntegrations}
+          canEdit={canEdit}
         />
       )}
 

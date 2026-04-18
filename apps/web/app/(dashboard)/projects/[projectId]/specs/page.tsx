@@ -79,13 +79,6 @@ function TreeView({ node, depth = 0 }: { node: FolderNode | SpecNode; depth?: nu
               )}
             </div>
           ))}
-          <a
-            href={`/api/specs/${node.spec.id}/download`}
-            className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50 ml-2"
-            title="Download snapshot"
-          >
-            ⬇
-          </a>
         </div>
       </div>
     )
@@ -146,12 +139,6 @@ export default async function SpecsPage({ params }: { params: Promise<{ projectI
           {specsWithTargets.length > 0 && (
             <DeleteAllSpecsButton projectId={projectId} count={specsWithTargets.length} />
           )}
-          <Link
-            href={`/api/projects/${projectId}/download-zip`}
-            className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
-          >
-            Download all
-          </Link>
           <Link
             href={`/projects/${projectId}/settings/general`}
             className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
