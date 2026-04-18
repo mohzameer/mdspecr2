@@ -1,13 +1,32 @@
+'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 
 function CodeBlock({ children }: { children: string }) {
+  const [copied, setCopied] = useState(false)
+
+  function copy() {
+    navigator.clipboard.writeText(children)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
-    <pre className="bg-muted rounded-md p-4 text-xs font-mono overflow-x-auto leading-relaxed whitespace-pre">
-      {children}
-    </pre>
+    <div className="relative group">
+      <pre className="bg-muted rounded-md p-4 text-xs font-mono overflow-x-auto leading-relaxed whitespace-pre">
+        {children}
+      </pre>
+      <button
+        onClick={copy}
+        className="absolute top-2 right-2 px-2 py-1 text-xs font-medium rounded border border-border bg-background opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+      >
+        {copied ? 'Copied!' : 'Copy'}
+      </button>
+    </div>
   )
 }
 
@@ -50,6 +69,7 @@ const NAV = [
   { label: 'Generating the file', href: '#generating' },
   { label: 'CI setup', href: '#ci' },
   { label: 'CLI reference', href: '#cli' },
+  { label: 'Frontmatter reference', href: '#frontmatter' },
   { label: 'Skip patterns', href: '#skip' },
   { label: 'Depth limiting', href: '#depth' },
   { label: 'Multiple integrations', href: '#multi' },
@@ -225,6 +245,72 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
 
           <Separator />
 
+          {/* Frontmatter reference */}
+          <section id="frontmatter" className="scroll-mt-20 space-y-6">
+            <h2 className="text-xl font-semibold tracking-tight">Frontmatter reference</h2>
+            <p className="text-sm text-muted-foreground">
+              Add a YAML frontmatter block to any spec file to control how mdspec handles it.
+              All fields are optional.
+            </p>
+
+            <Table
+              headers={['Field', 'Type', 'When to use', 'What it does']}
+              rows={[
+                ['`mdspec_skip`', 'boolean', 'Any file', 'Set to true to exclude this file from all syncing. Overrides all folder mappings.'],
+                ['`mdspec_id`', 'string', 'Any file', 'Stable identifier for this spec (lowercase alphanumeric + underscores, max 64 chars). Use this to rename a file without creating a new page in the target tool.'],
+                ['`title`', 'string', 'Any file', 'Overrides the page title in the target tool. If omitted, mdspec derives the title from the first heading or filename depending on your project\'s title_source setting.'],
+              ]}
+            />
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold">Skip a file</h3>
+              <p className="text-xs text-muted-foreground">Exclude a single file from syncing without adding it to skip patterns in .mdspecmap.</p>
+              <CodeBlock>{`---
+mdspec_skip: true
+---
+
+# Draft: New Auth Flow
+
+This file won't be published until the flag is removed.`}</CodeBlock>
+
+              <h3 className="text-sm font-semibold">Stable ID for safe renames</h3>
+              <p className="text-xs text-muted-foreground">
+                Without an ID, mdspec tracks files by path. Renaming a file creates a new page and orphans the old one.
+                With <code className="font-mono bg-muted px-1 py-0.5 rounded text-xs">mdspec_id</code>, the page in the target tool is updated in-place regardless of the filename.
+              </p>
+              <CodeBlock>{`---
+mdspec_id: auth_spec_v2
+---
+
+# Authentication Spec
+
+Content here...`}</CodeBlock>
+
+              <h3 className="text-sm font-semibold">Custom title</h3>
+              <p className="text-xs text-muted-foreground">Override what appears as the page title in Notion, Confluence, or ClickUp.</p>
+              <CodeBlock>{`---
+title: "Authentication — v2 (internal)"
+---
+
+# Auth Spec
+
+The frontmatter title takes precedence over the heading.`}</CodeBlock>
+
+              <h3 className="text-sm font-semibold">All fields together</h3>
+              <CodeBlock>{`---
+mdspec_id: payments_overview
+title: "Payments Service Overview"
+---
+
+# Payments
+
+Everything here will be published under the custom title,
+tracked by the stable ID, and never skipped.`}</CodeBlock>
+            </div>
+          </section>
+
+          <Separator />
+
           {/* Skip patterns */}
           <section id="skip" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">Skip patterns</h2>
@@ -244,11 +330,8 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
       - CHANGELOG.md
       - README.md`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
-              You can also skip individual files using frontmatter:
+              You can also skip individual files using frontmatter — see <a href="#frontmatter" className="underline underline-offset-2">Frontmatter reference</a>.
             </p>
-            <CodeBlock>{`---
-mdspec_skip: true
----`}</CodeBlock>
           </section>
 
           <Separator />
