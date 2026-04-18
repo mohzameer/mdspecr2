@@ -52,7 +52,7 @@ export default function LandingPage() {
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">How it works</p>
           <div className="grid sm:grid-cols-3 gap-6">
             <Step number="1" title="Connect an integration" description="Sign up, create a project, connect Notion, Confluence, or ClickUp. Set up aliases that map names to target pages." />
-            <Step number="2" title="Add a .mdspecmap" description="Drop a .mdspecmap file in your repo root. Map folders to integrations using your alias names." />
+            <Step number="2" title="Generate your .mdspecmap" description="Use the dashboard map builder to configure folder-to-integration mappings, then download the generated .mdspecmap and drop it in your repo root." />
             <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs — folder structure preserved." />
           </div>
         </div>
@@ -63,7 +63,8 @@ export default function LandingPage() {
       {/* Code snippet */}
       <section className="px-6 py-20">
         <div className="max-w-2xl mx-auto space-y-4">
-          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-6 text-center">Two files. Done.</p>
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Two files. Done.</p>
+          <p className="text-center text-sm text-muted-foreground mb-6">The dashboard generates your .mdspecmap — just download and commit it.</p>
           <Card>
             <CardContent className="p-6 font-mono text-sm">
               <div className="text-muted-foreground mb-2"># .mdspecmap</div>
