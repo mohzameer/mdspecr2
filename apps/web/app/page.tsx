@@ -53,7 +53,7 @@ export default function LandingPage() {
           <div className="grid sm:grid-cols-3 gap-6">
             <Step number="1" title="Connect an integration" description="Sign up, create a project, connect Notion, Confluence, or ClickUp. Set up aliases that map names to target pages." />
             <Step number="2" title="Generate your .mdspecmap" description="Use the dashboard map builder to configure folder-to-integration mappings, then download the generated .mdspecmap and drop it in your repo root." />
-            <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs — folder structure preserved." />
+            <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs." />
           </div>
         </div>
       </section>
@@ -94,8 +94,7 @@ export default function LandingPage() {
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">Features</p>
           <div className="grid sm:grid-cols-2 gap-4">
             <Feature title="Git-native" description="Change detection via git diff. Only modified specs are published." />
-            <Feature title="Folder hierarchy" description="Directory structure in your repo becomes page trees in your tools." />
-            <Feature title="Skip patterns" description="Exclude files with glob patterns in .mdspecmap, or add mdspec_skip: true in frontmatter." />
+<Feature title="Skip patterns" description="Exclude files with glob patterns in .mdspecmap, or add mdspec_skip: true in frontmatter." />
             <Feature title="Alias system" description="Map human-readable names to target pages in your tools. Safe to commit — no credentials or IDs." />
             <Feature title="Free tier" description="1 project, 10 specs, all integrations. No credit card." />
             <Feature title="Agent layer" description="Transform specs post-publish with built-in templates like task summaries and release notes." />
