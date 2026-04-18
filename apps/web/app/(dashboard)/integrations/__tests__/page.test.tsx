@@ -63,7 +63,7 @@ describe('4.1 Integrations Page — Aliases section', () => {
     fireEvent.click(screen.getByText(/\+ New Alias/i))
 
     expect(screen.getByPlaceholderText('eng-docs')).toBeInTheDocument()
-    expect(screen.getByText(/Native container ID/i)).toBeInTheDocument()
+    expect(screen.getByText(/URL or ID/i)).toBeInTheDocument()
   })
 
   it('4.1.4 name input auto-lowercases and strips invalid chars', async () => {
@@ -84,8 +84,8 @@ describe('4.1 Integrations Page — Aliases section', () => {
     fireEvent.click(screen.getByText(/\+ New Alias/i))
 
     await userEvent.type(screen.getByPlaceholderText('eng-docs'), 'my-alias')
-    await userEvent.type(screen.getByPlaceholderText(/Page ID, space ID/i), 'page-123')
     await userEvent.selectOptions(screen.getByRole('combobox'), 'int1')
+    await userEvent.type(screen.getByPlaceholderText(/app\.clickup\.com/i), 'page-123')
     fireEvent.click(screen.getByText('Create Alias'))
 
     await waitFor(() => {
@@ -110,8 +110,8 @@ describe('4.1 Integrations Page — Aliases section', () => {
     fireEvent.click(screen.getByText(/\+ New Alias/i))
 
     await userEvent.type(screen.getByPlaceholderText('eng-docs'), 'my-alias')
-    await userEvent.type(screen.getByPlaceholderText(/Page ID, space ID/i), 'p1')
     await userEvent.selectOptions(screen.getByRole('combobox'), 'int1')
+    await userEvent.type(screen.getByPlaceholderText(/app\.clickup\.com/i), 'p1')
     fireEvent.click(screen.getByText('Create Alias'))
 
     await waitFor(() => {

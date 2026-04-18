@@ -30,6 +30,32 @@ const integrationLabels: Record<string, string> = {
   clickup: 'ClickUp',
 }
 
+function extractNativeId(url: string): { native_id: string; native_url: string } {
+  const trimmed = url.trim()
+  if (!trimmed) return { native_id: '', native_url: '' }
+
+  // If it doesn't look like a URL, treat as raw ID
+  if (!trimmed.startsWith('http')) return { native_id: trimmed, native_url: '' }
+
+  let native_id = trimmed
+
+  // ClickUp space URL: /v/s/<spaceId>
+  const spaceMatch = trimmed.match(/\/v\/s\/([0-9]+)/)
+  if (spaceMatch) native_id = spaceMatch[1]
+  // ClickUp list URL: /li/<listId>
+  else {
+    const listMatch = trimmed.match(/\/li\/([0-9]+)/)
+    if (listMatch) native_id = listMatch[1]
+  }
+  // ClickUp doc URL: /docs/<docId>
+  if (native_id === trimmed) {
+    const docMatch = trimmed.match(/\/docs\/([a-zA-Z0-9-]+)/)
+    if (docMatch) native_id = docMatch[1]
+  }
+
+  return { native_id, native_url: trimmed }
+}
+
 export function AliasesTab({ initialAliases, connectedIntegrations, canEdit }: Props) {
   const [aliases, setAliases] = useState<AliasRow[]>(initialAliases)
   const [showForm, setShowForm] = useState(false)
@@ -37,6 +63,13 @@ export function AliasesTab({ initialAliases, connectedIntegrations, canEdit }: P
   const [form, setForm] = useState({ name: '', integration_id: '', native_id: '', native_url: '', display_name: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [urlInput, setUrlInput] = useState('')
+
+  function applyUrlInput(raw: string) {
+    const { native_id, native_url } = extractNativeId(raw)
+    setForm((f) => ({ ...f, native_id, native_url }))
+    setUrlInput(raw)
+  }
 
   async function fetchAliases() {
     const res = await fetch('/api/aliases')
@@ -54,6 +87,7 @@ export function AliasesTab({ initialAliases, connectedIntegrations, canEdit }: P
     })
     if (res.ok) {
       setForm({ name: '', integration_id: '', native_id: '', native_url: '', display_name: '' })
+      setUrlInput('')
       setShowForm(false)
       fetchAliases()
     } else {
@@ -74,6 +108,7 @@ export function AliasesTab({ initialAliases, connectedIntegrations, canEdit }: P
     if (res.ok) {
       setEditingId(null)
       setForm({ name: '', integration_id: '', native_id: '', native_url: '', display_name: '' })
+      setUrlInput('')
       fetchAliases()
     } else {
       const data = await res.json()
@@ -97,6 +132,8 @@ export function AliasesTab({ initialAliases, connectedIntegrations, canEdit }: P
       native_url: alias.native_url ?? '',
       display_name: alias.display_name ?? '',
     })
+    // Pre-fill URL input with the stored URL if available, otherwise the raw ID
+    setUrlInput(alias.native_url ?? alias.native_id)
     setShowForm(false)
   }
 
@@ -155,22 +192,22 @@ export function AliasesTab({ initialAliases, connectedIntegrations, canEdit }: P
             placeholder="Engineering Docs"
             required={false}
           />
-          <Field
-            label="Native container ID"
-            value={form.native_id}
-            onChange={(v) => setForm({ ...form, native_id: v })}
-            placeholder="Page ID, space ID, or folder ID in the target tool"
-            hint="The ID of the page, space, or folder where specs will be published."
-            mono
-          />
-          <Field
-            label="URL"
-            value={form.native_url}
-            onChange={(v) => setForm({ ...form, native_url: v })}
-            placeholder="https://notion.so/Engineering-abc123"
-            required={false}
-            optionalLabel
-          />
+          <div>
+            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">URL or ID</label>
+            <input
+              value={urlInput}
+              onChange={(e) => applyUrlInput(e.target.value)}
+              placeholder="https://app.clickup.com/…/v/s/90181… or space/folder/doc ID"
+              required
+              className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            />
+            {form.native_id && form.native_id !== urlInput && (
+              <p className="text-xs text-zinc-400 mt-1">Extracted ID: <code className="font-mono">{form.native_id}</code></p>
+            )}
+            {!form.native_id && urlInput && (
+              <p className="text-xs text-zinc-400 mt-1">Using as raw ID: <code className="font-mono">{urlInput}</code></p>
+            )}
+          </div>
           {error && <p className="text-xs text-red-500">{error}</p>}
           <div className="flex gap-2">
             <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
@@ -198,8 +235,19 @@ export function AliasesTab({ initialAliases, connectedIntegrations, canEdit }: P
                       <Field label="Alias name" value={form.name} onChange={(v) => setForm({ ...form, name: v.toLowerCase().replace(/[^a-z0-9-]/g, '') })} placeholder="eng-docs" />
                       <Field label="Display name" value={form.display_name} onChange={(v) => setForm({ ...form, display_name: v })} placeholder="Engineering Docs" required={false} />
                     </div>
-                    <Field label="Native container ID" value={form.native_id} onChange={(v) => setForm({ ...form, native_id: v })} placeholder="Page/folder ID" mono />
-                    <Field label="URL" value={form.native_url} onChange={(v) => setForm({ ...form, native_url: v })} placeholder="https://..." required={false} optionalLabel />
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">URL or ID</label>
+                      <input
+                        value={urlInput}
+                        onChange={(e) => applyUrlInput(e.target.value)}
+                        placeholder="https://app.clickup.com/…/v/s/90181… or space/folder/doc ID"
+                        required
+                        className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                      />
+                      {form.native_id && form.native_id !== urlInput && (
+                        <p className="text-xs text-zinc-400 mt-1">Extracted ID: <code className="font-mono">{form.native_id}</code></p>
+                      )}
+                    </div>
                     {error && <p className="text-xs text-red-500">{error}</p>}
                     <div className="flex gap-2">
                       <button onClick={() => updateAlias(alias.id)} disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
