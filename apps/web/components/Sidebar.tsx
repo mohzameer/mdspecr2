@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/db'
 import { OrgSwitcher } from './OrgSwitcher'
@@ -25,11 +25,32 @@ const navItems = [
   { href: '/settings', label: 'Settings', icon: '⚙' },
 ]
 
+function Spinner() {
+  return (
+    <span className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent opacity-50" />
+  )
+}
+
 export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+  const pendingRef = useRef(pendingHref)
+  pendingRef.current = pendingHref
+
   useEffect(() => { setMounted(true) }, [])
+
+  // Clear pending state once pathname actually changes
+  useEffect(() => {
+    if (pendingRef.current !== null) {
+      setPendingHref(null)
+    }
+  }, [pathname])
+
+  function navigate(href: string) {
+    if (href !== pathname) setPendingHref(href)
+  }
 
   async function signOut() {
     const supabase = createSupabaseBrowserClient()
@@ -37,6 +58,16 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
     router.push('/login')
     router.refresh()
   }
+
+  // Resolve active state: use pendingHref optimistically, fall back to pathname
+  function isActive(href: string, exact = false) {
+    if (!mounted) return false
+    const check = pendingHref ?? pathname
+    return exact ? check === href : check.startsWith(href)
+  }
+
+  // Which section is "in view" for showing sub-lists
+  const effectivePathname = pendingHref ?? pathname
 
   return (
     <aside className="flex h-screen w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
@@ -55,13 +86,15 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
         {navItems.map((item) => {
-          const active = mounted && (item.href === '/dashboard'
-            ? pathname === '/dashboard'
-            : pathname.startsWith(item.href))
+          const active = isActive(item.href, item.href === '/dashboard')
+          const loading = pendingHref !== null && (
+            item.href === '/dashboard' ? pendingHref === '/dashboard' : pendingHref.startsWith(item.href)
+          )
           return (
             <div key={item.href}>
               <Link
                 href={item.href}
+                onClick={() => navigate(item.href)}
                 className={cn(
                   buttonVariants({ variant: active ? 'secondary' : 'ghost', size: 'default' }),
                   'w-full justify-start gap-2.5'
@@ -69,44 +102,52 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
               >
                 <span className="text-base leading-none">{item.icon}</span>
                 {item.label}
+                {loading && <Spinner />}
               </Link>
 
               {/* Projects sub-list — renders immediately after the Projects item */}
-              {mounted && item.href === '/projects' && projects.length > 0 && pathname.startsWith('/projects') && (
+              {mounted && item.href === '/projects' && projects.length > 0 && effectivePathname.startsWith('/projects') && (
                 <div className="mt-0.5 pl-5 space-y-0.5">
                   {projects.map((project) => {
-                    const projectActive = mounted && pathname.startsWith(`/projects/${project.id}`)
+                    const projectHref = `/projects/${project.id}`
+                    const projectActive = isActive(projectHref)
                     const projectSubNav = [
-                      { href: `/projects/${project.id}/specs`, label: 'Specs' },
-                      { href: `/projects/${project.id}/map`, label: 'Map' },
-                      { href: `/projects/${project.id}/activity`, label: 'Activity' },
-                      { href: `/projects/${project.id}/settings`, label: 'Settings' },
+                      { href: `${projectHref}/specs`, label: 'Specs' },
+                      { href: `${projectHref}/map`, label: 'Map' },
+                      { href: `${projectHref}/activity`, label: 'Activity' },
+                      { href: `${projectHref}/settings`, label: 'Settings' },
                     ]
+                    const projectLoading = pendingHref?.startsWith(projectHref) && !pathname.startsWith(projectHref)
                     return (
                       <div key={project.id}>
                         <Link
-                          href={`/projects/${project.id}/specs`}
+                          href={`${projectHref}/specs`}
+                          onClick={() => navigate(`${projectHref}/specs`)}
                           className={cn(
                             buttonVariants({ variant: projectActive ? 'secondary' : 'ghost', size: 'sm' }),
                             'w-full justify-start truncate'
                           )}
                         >
                           {project.name}
+                          {projectLoading && !isActive(`${projectHref}/specs`, false) && <Spinner />}
                         </Link>
-                        {projectActive && (
+                        {(projectActive || effectivePathname.startsWith(projectHref)) && (
                           <div className="mt-0.5 pl-4 space-y-0.5">
                             {projectSubNav.map((sub) => {
-                              const subActive = mounted && pathname.startsWith(sub.href)
+                              const subActive = isActive(sub.href)
+                              const subLoading = pendingHref === sub.href && pathname !== sub.href
                               return (
                                 <Link
                                   key={sub.href}
                                   href={sub.href}
+                                  onClick={() => navigate(sub.href)}
                                   className={cn(
                                     buttonVariants({ variant: subActive ? 'secondary' : 'ghost', size: 'sm' }),
                                     'w-full justify-start'
                                   )}
                                 >
                                   {sub.label}
+                                  {subLoading && <Spinner />}
                                 </Link>
                               )
                             })}
