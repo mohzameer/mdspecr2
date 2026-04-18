@@ -67,17 +67,20 @@ export async function POST(request: Request) {
     let payload: PublishPayload
     try {
       payload = await request.json()
-    } catch {
+    } catch (parseErr) {
+      console.error('[publish] invalid_json', parseErr)
       return Response.json({ error: 'invalid_json' }, { status: 400 })
     }
 
     const { project_id, repo_name, branch, commit_sha, commit_timestamp, specs, config } = payload
 
     if (!project_id || !repo_name || !branch || !commit_sha || !Array.isArray(specs) || specs.length === 0) {
+      console.error('[publish] missing_required_fields', { project_id, repo_name, branch, commit_sha, specs_is_array: Array.isArray(specs), specs_length: Array.isArray(specs) ? specs.length : null })
       return Response.json({ error: 'missing_required_fields' }, { status: 400 })
     }
 
     if (!config || config.version !== 1 || !Array.isArray(config.mappings)) {
+      console.error('[publish] missing_or_invalid_config', { config_version: config?.version, mappings_is_array: Array.isArray(config?.mappings) })
       return Response.json({ error: 'missing_or_invalid_config' }, { status: 400 })
     }
 
@@ -303,12 +306,15 @@ export async function POST(request: Request) {
       console.log(`[publish] spec upserted id=${upsertedSpec.id} path=${spec.path}`)
       savedCount++
 
-      // Route to integrations based on config mappings
+      // Route to the single most-specific (longest prefix) matching mapping.
+      // If a subfolder is explicitly mapped, specs under it are owned by that
+      // mapping only — shallower/root mappings are skipped for those specs.
+      let bestMapping: typeof integrationMappings[number] | null = null
+      let bestFolderLength = -1
+
       for (const mapping of integrationMappings) {
-        const intType = mapping.integration!
         const normalizedMappingFolder = normalizeFolder(mapping.folder)
 
-        // Check if this spec falls under this mapping's folder
         const specInFolder = normalizedMappingFolder === '' ||
           spec.path.startsWith(normalizedMappingFolder + '/') ||
           spec.path === normalizedMappingFolder
@@ -324,77 +330,86 @@ export async function POST(request: Request) {
           if (segments.length > mapping.depth) continue
         }
 
+        // Pick the longest (most specific) match
+        if (normalizedMappingFolder.length > bestFolderLength) {
+          bestFolderLength = normalizedMappingFolder.length
+          bestMapping = mapping
+        }
+      }
+
+      if (bestMapping) {
+        const intType = bestMapping.integration!
+        const normalizedMappingFolder = normalizeFolder(bestMapping.folder)
+
         // Resolve integration_id — prefer alias resolution, fall back to type lookup
         let integrationId: string | undefined
-        if (mapping.parent && resolvedAliases.has(mapping.parent)) {
-          integrationId = resolvedAliases.get(mapping.parent)!.integration_id
+        if (bestMapping.parent && resolvedAliases.has(bestMapping.parent)) {
+          integrationId = resolvedAliases.get(bestMapping.parent)!.integration_id
         } else {
           integrationId = integrationByType.get(intType)
         }
 
         if (!integrationId) {
           console.log(`[publish] skipping spec=${spec.path} integration=${intType} — no connected integration`)
-          continue
-        }
+        } else {
+          // Determine clickup_mode from target field
+          const mode = intType === 'clickup' && bestMapping.target === 'task' ? 'task_list' : 'doc'
 
-        // Determine clickup_mode from target field
-        const mode = intType === 'clickup' && mapping.target === 'task' ? 'task_list' : 'doc'
+          // Upsert publish target
+          const { data: existingTarget } = await supabase
+            .from('spec_publish_targets')
+            .select('id, external_page_id, status')
+            .eq('spec_id', upsertedSpec.id)
+            .eq('integration_id', integrationId)
+            .eq('clickup_mode', mode)
+            .maybeSingle()
 
-        // Upsert publish target
-        const { data: existingTarget } = await supabase
-          .from('spec_publish_targets')
-          .select('id, external_page_id, status')
-          .eq('spec_id', upsertedSpec.id)
-          .eq('integration_id', integrationId)
-          .eq('clickup_mode', mode)
-          .maybeSingle()
+          const { data: target, error: targetError } = existingTarget
+            ? await supabase
+                .from('spec_publish_targets')
+                .update({ status: 'queued', retry_count: 0, last_error: null })
+                .eq('id', existingTarget.id)
+                .select('id, external_page_id')
+                .single()
+            : await supabase
+                .from('spec_publish_targets')
+                .insert({
+                  spec_id: upsertedSpec.id,
+                  integration_id: integrationId,
+                  target_type: intType,
+                  clickup_mode: mode,
+                  status: 'queued',
+                  retry_count: 0,
+                  last_error: null,
+                })
+                .select('id, external_page_id')
+                .single()
 
-        const { data: target, error: targetError } = existingTarget
-          ? await supabase
-              .from('spec_publish_targets')
-              .update({ status: 'queued', retry_count: 0, last_error: null })
-              .eq('id', existingTarget.id)
-              .select('id, external_page_id')
-              .single()
-          : await supabase
-              .from('spec_publish_targets')
-              .insert({
-                spec_id: upsertedSpec.id,
+          if (!target) {
+            console.error(`[publish] publish target upsert failed spec=${upsertedSpec.id} integration=${integrationId} mode=${mode} error=${targetError?.message}`)
+          } else {
+            // Accumulate into group
+            const groupKey = `${integrationId}::${normalizedMappingFolder}::${mode}`
+            if (!groups.has(groupKey)) {
+              groups.set(groupKey, {
                 integration_id: integrationId,
-                target_type: intType,
+                target_type: intType as IntegrationType,
                 clickup_mode: mode,
-                status: 'queued',
-                retry_count: 0,
-                last_error: null,
+                matched_folder: normalizedMappingFolder,
+                specs: [],
               })
-              .select('id, external_page_id')
-              .single()
-
-        if (!target) {
-          console.error(`[publish] publish target upsert failed spec=${upsertedSpec.id} integration=${integrationId} mode=${mode} error=${targetError?.message}`)
-          continue
+            }
+            groups.get(groupKey)!.specs.push({
+              spec_id: upsertedSpec.id,
+              spec_publish_target_id: target.id,
+              path: spec.path,
+              title: resolveTitle(spec.path, spec.frontmatter ?? {}),
+              content: spec.content,
+              content_hash: spec.hash,
+              frontmatter: spec.frontmatter ?? {},
+            })
+          }
         }
-
-        // Accumulate into group
-        const groupKey = `${integrationId}::${normalizedMappingFolder}::${mode}`
-        if (!groups.has(groupKey)) {
-          groups.set(groupKey, {
-            integration_id: integrationId,
-            target_type: intType as IntegrationType,
-            clickup_mode: mode,
-            matched_folder: normalizedMappingFolder,
-            specs: [],
-          })
-        }
-        groups.get(groupKey)!.specs.push({
-          spec_id: upsertedSpec.id,
-          spec_publish_target_id: target.id,
-          path: spec.path,
-          title: resolveTitle(spec.path, spec.frontmatter ?? {}),
-          content: spec.content,
-          content_hash: spec.hash,
-          frontmatter: spec.frontmatter ?? {},
-        })
       }
     }
 

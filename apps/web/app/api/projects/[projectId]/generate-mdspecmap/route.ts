@@ -43,7 +43,7 @@ export async function GET(
     `# Project: ${project.name}`,
     '#',
     '# Edit this file to configure folder-to-integration mappings.',
-    '# Define aliases in Dashboard → Integrations → Aliases.',
+    '# Define aliases in Dashboard → Map → Aliases.',
     '#',
     '# Docs: https://mdspec.dev/docs/mdspecmap',
     '',
@@ -66,7 +66,7 @@ export async function GET(
       if (intType) lines.push(`    integration: ${intType}`)
       if (target !== 'document') lines.push(`    target: ${target}`)
       if (aliasName) lines.push(`    parent: ${aliasName}`)
-      else lines.push(`    # parent: <define an alias in Dashboard → Integrations → Aliases>`)
+      else lines.push(`    # parent: <define an alias in Dashboard → Map → Aliases>`)
 
       if (m.skip_patterns && m.skip_patterns.length > 0) {
         lines.push('    skip:')

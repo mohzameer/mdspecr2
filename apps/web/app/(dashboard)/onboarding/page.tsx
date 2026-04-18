@@ -115,7 +115,7 @@ export default function OnboardingPage() {
 # Project: ${project.name}
 #
 # Edit this file to configure folder-to-integration mappings.
-# Define aliases in Dashboard → Integrations → Aliases.
+# Define aliases in Dashboard → Map → Aliases.
 #
 # Docs: https://mdspec.dev/docs/mdspecmap
 

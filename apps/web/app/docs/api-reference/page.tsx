@@ -258,6 +258,7 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
               rows={[
                 ['`mdspec_skip`', 'boolean', 'Any file', 'Set to true to exclude this file from all syncing. Overrides all folder mappings.'],
                 ['`mdspec_id`', 'string', 'Any file', 'Stable identifier for this spec (lowercase alphanumeric + underscores, max 64 chars). Use this to rename a file without creating a new page in the target tool.'],
+                ['`mdspec_taskid`', 'string', 'ClickUp task_list mappings only', 'Links this spec to an existing ClickUp task by its task ID. On first publish, mdspec adopts the existing task and updates it from then on. Has no effect on doc or non-ClickUp mappings.'],
                 ['`title`', 'string', 'Any file', 'Sets the page title in the target tool. If omitted, mdspec derives the title from the filename (hyphens and underscores replaced with spaces).'],
               ]}
             />
@@ -295,6 +296,22 @@ title: "Authentication — v2 (internal)"
 # Auth Spec
 
 The frontmatter title takes precedence over the heading.`}</CodeBlock>
+
+              <h3 className="text-sm font-semibold">Link to an existing ClickUp task</h3>
+              <p className="text-xs text-muted-foreground">
+                For <code className="font-mono bg-muted px-1 py-0.5 rounded text-xs">target: task</code> mappings only.
+                On first publish, mdspec adopts the existing task and updates it going forward.
+                Do not confuse with <code className="font-mono bg-muted px-1 py-0.5 rounded text-xs">mdspec_id</code> — that is a rename tracker, not a task link.
+              </p>
+              <CodeBlock>{`---
+mdspec_taskid: 86ev2bkbk
+title: "Long Job Conversion"
+---
+
+# Long Job Conversion Spec
+
+mdspec will find task 86ev2bkbk in ClickUp and update it.
+Remove this field to have mdspec create a new task instead.`}</CodeBlock>
 
               <h3 className="text-sm font-semibold">All fields together</h3>
               <CodeBlock>{`---
