@@ -241,6 +241,10 @@ specs:
               ]}
             />
 
+            <p className="text-sm text-muted-foreground">
+              Keys with spaces must be quoted: <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">&quot;docs/my auth spec.md&quot;</code>. Unquoted keys with spaces are invalid YAML and will cause the CLI to error at publish time.
+            </p>
+
             <h3 className="text-sm font-semibold">Examples</h3>
             <CodeBlock>{`specs:
   # Just override the title
@@ -501,7 +505,13 @@ Rules for working with spec files:
    - Remove its entry from specs: if one exists.
    - Do not remove the folder mapping — other files may still use it.
 
-7. Never add mdspec_id, mdspec_taskid, or any mdspec frontmatter to spec files.
+7. If a file path contains spaces, quote the key in .mdspecmap:
+     specs:
+       "docs/specs/my auth spec.md":
+         title: Auth Spec
+   Unquoted keys with spaces are invalid YAML and will cause the CLI to error.
+
+8. Never add mdspec_id, mdspec_taskid, or any mdspec frontmatter to spec files.
    All configuration belongs in .mdspecmap.`}</CodeBlock>
           </section>
         </main>
