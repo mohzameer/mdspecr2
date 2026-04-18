@@ -54,7 +54,7 @@ const BASE_PAYLOAD = {
   specs: [{ path: 'docs/auth.md', hash: 'sha256:abc', frontmatter: {}, content: '# Auth' }],
   config: {
     version: 1,
-    mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-docs' }],
+    mappings: [{ folder: 'docs', integration: 'notion', parent: 'alias:eng-docs' }],
   },
 }
 
@@ -84,15 +84,16 @@ function setupProjectAndOrg(supabase: ReturnType<typeof createServiceMock>, over
 }
 
 function setupAliasResolution(supabase: ReturnType<typeof createServiceMock>) {
+  // active integrations (fetched before alias resolution now)
+  supabase.from.mockImplementationOnce(() =>
+    makeChain({ data: [{ id: 'int1', type: 'notion' }], error: null })
+  )
+  // aliases
   supabase.from.mockImplementationOnce(() =>
     makeChain({
       data: [{ name: 'eng-docs', integration_id: 'int1', native_id: 'page1', integrations: { type: 'notion' } }],
       error: null,
     })
-  )
-  // active integrations
-  supabase.from.mockImplementationOnce(() =>
-    makeChain({ data: [{ id: 'int1', type: 'notion' }], error: null })
   )
 }
 
@@ -322,6 +323,10 @@ describe('2.1 Alias resolution', () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
     setupAuthSuccess(supabase)
     setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    // integrations
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [{ id: 'i1', type: 'notion' }], error: null })
+    )
     // aliases: eng-docs exists but payload references eng-doc (typo)
     supabase.from.mockImplementationOnce(() =>
       makeChain({ data: [{ name: 'eng-docs', integration_id: 'i1', native_id: 'p1', integrations: { type: 'notion' } }], error: null })
@@ -329,7 +334,7 @@ describe('2.1 Alias resolution', () => {
 
     const payload = {
       ...BASE_PAYLOAD,
-      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-doc' }] },
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'alias:eng-doc' }] },
     }
     const res = await POST(makeRequest(payload))
     expect(res.status).toBe(422)
@@ -343,6 +348,11 @@ describe('2.1 Alias resolution', () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
     setupAuthSuccess(supabase)
     setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    // integrations
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [{ id: 'i1', type: 'notion' }, { id: 'i2', type: 'clickup' }], error: null })
+    )
+    // aliases — empty
     supabase.from.mockImplementationOnce(() =>
       makeChain({ data: [], error: null })
     )
@@ -352,8 +362,8 @@ describe('2.1 Alias resolution', () => {
       config: {
         version: 1,
         mappings: [
-          { folder: 'docs', integration: 'notion', parent: 'alias-a' },
-          { folder: 'tasks', integration: 'clickup', parent: 'alias-b' },
+          { folder: 'docs', integration: 'notion', parent: 'alias:alias-a' },
+          { folder: 'tasks', integration: 'clickup', parent: 'alias:alias-b' },
         ],
       },
     }
@@ -363,27 +373,28 @@ describe('2.1 Alias resolution', () => {
     expect(body.aliases).toHaveLength(2)
   })
 
-  it('2.1.20 alias integration type mismatch returns 422', async () => {
+  it('2.1.20 alias: prefix with unresolved name returns 422', async () => {
     const supabase = createServiceMock()
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
     setupAuthSuccess(supabase)
     setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
-    // alias resolves to notion but mapping says clickup
+    // integrations
     supabase.from.mockImplementationOnce(() =>
-      makeChain({
-        data: [{ name: 'eng-docs', integration_id: 'i1', native_id: 'p1', integrations: { type: 'notion' } }],
-        error: null,
-      })
+      makeChain({ data: [{ id: 'int1', type: 'notion' }], error: null })
+    )
+    // aliases — returns empty (alias not found)
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [], error: null })
     )
 
     const payload = {
       ...BASE_PAYLOAD,
-      config: { version: 1, mappings: [{ folder: 'docs', integration: 'clickup', parent: 'eng-docs' }] },
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'alias:missing-alias' }] },
     }
     const res = await POST(makeRequest(payload))
     expect(res.status).toBe(422)
     const body = await res.json()
-    expect(body.error).toBe('alias_integration_mismatch')
+    expect(body.error).toBe('unresolved_aliases')
   })
 })
 
@@ -431,6 +442,10 @@ describe('2.1 Successful publish', () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
     setupAuthSuccess(supabase)
     setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    // integrations (now fetched first)
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [{ id: 'ck1', type: 'clickup' }], error: null })
+    )
     // alias resolves to clickup
     supabase.from.mockImplementationOnce(() =>
       makeChain({
@@ -438,15 +453,12 @@ describe('2.1 Successful publish', () => {
         error: null,
       })
     )
-    supabase.from.mockImplementationOnce(() =>
-      makeChain({ data: [{ id: 'ck1', type: 'clickup' }], error: null })
-    )
     setupSpecUpsert(supabase)
     supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
 
     const payload = {
       ...BASE_PAYLOAD,
-      config: { version: 1, mappings: [{ folder: 'docs', integration: 'clickup', target: 'task', parent: 'tasks' }] },
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'clickup', target: 'task', parent: 'alias:tasks' }] },
     }
     const res = await POST(makeRequest(payload))
     expect(res.status).toBe(202)
@@ -474,7 +486,7 @@ describe('2.1 Depth filtering', () => {
     const payload = {
       ...BASE_PAYLOAD,
       specs: [{ path: 'docs/auth.md', hash: 'sha256:abc', frontmatter: {}, content: '# Auth' }],
-      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-docs', depth: 1 }] },
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'alias:eng-docs', depth: 1 }] },
     }
     const res = await POST(makeRequest(payload))
     expect(res.status).toBe(202)
@@ -494,7 +506,7 @@ describe('2.1 Depth filtering', () => {
     const payload = {
       ...BASE_PAYLOAD,
       specs: [{ path: 'docs/api/tokens.md', hash: 'sha256:abc', frontmatter: {}, content: '# Tokens' }],
-      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-docs', depth: 1 }] },
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'alias:eng-docs', depth: 1 }] },
     }
     const res = await POST(makeRequest(payload))
     expect(res.status).toBe(202)
@@ -513,7 +525,7 @@ describe('2.1 Depth filtering', () => {
     const payload = {
       ...BASE_PAYLOAD,
       specs: [{ path: 'docs/api/tokens.md', hash: 'sha256:abc', frontmatter: {}, content: '# Tokens' }],
-      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-docs', depth: 2 }] },
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'alias:eng-docs', depth: 2 }] },
     }
     const res = await POST(makeRequest(payload))
     expect(res.status).toBe(202)
@@ -537,7 +549,7 @@ describe('2.1 Depth filtering', () => {
         { path: 'docs/auth.md', hash: 'sha256:a1', frontmatter: {}, content: '# Auth' },
         { path: 'docs/api/v2/tokens.md', hash: 'sha256:a2', frontmatter: {}, content: '# Tokens' },
       ],
-      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-docs' }] },
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'alias:eng-docs' }] },
     }
     const res = await POST(makeRequest(payload))
     expect(res.status).toBe(202)

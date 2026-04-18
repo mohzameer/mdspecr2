@@ -151,7 +151,7 @@ sync_all_on_first_run: false
 # Optional — applies to all mappings that don't specify their own integration/parent
 default:
   integration: clickup
-  parent: eng-docs
+  parent: alias:eng-docs        # alias: prefix → dashboard alias
 
 mappings:
   - folder: docs/specs          # inherits default
@@ -159,10 +159,11 @@ mappings:
       - DRAFT_*.md
 
   - folder: docs/tasks          # overrides default parent
-    parent: dev-tasks
+    parent: alias:dev-tasks     # alias: prefix
     target: task
 
-  - folder: docs/archive        # inherits default (different folder, same integration)
+  - folder: docs/archive
+    parent: id:90181844797      # id: prefix → raw ClickUp space ID directly
 
 # Optional — per-spec config keyed by file path
 specs:
@@ -191,28 +192,28 @@ specs:
               rows={[
                 ['`folder`', 'Yes', 'Folder path relative to repo root. Use / or leave blank for repo root.'],
                 ['`integration`', 'No', 'Target: notion, confluence, clickup, or s3.'],
-                ['`parent`', 'No', 'Alias name pointing to the target page/container (set up in Dashboard → Map → Aliases).'],
+                ['`parent`', 'No', 'Target container. Three forms: alias:<name> (dashboard alias), id:<nativeId> (raw ID directly), or bare value (tries alias first, falls back to raw ID).'],
                 ['`target`', 'No', 'For ClickUp only: document (default) or task. task publishes specs as ClickUp tasks.'],
                 ['`depth`', 'No', 'Max subfolder depth. 1 = direct children only. Omit for unlimited depth.'],
                 ['`skip`', 'No', 'Glob patterns for files to exclude from this mapping.'],
               ]}
             />
             <CodeBlock>{`mappings:
-  # Root-level specs → Notion
+  # Root-level specs → ClickUp (alias)
   - folder: /
-    integration: notion
-    parent: eng-docs
-    depth: 1                # only root *.md files
+    integration: clickup
+    parent: alias:eng-docs     # alias: → dashboard alias name
+    depth: 1
 
-  # src/ specs → Notion, nested
+  # src/ specs → ClickUp (raw ID)
   - folder: src
-    integration: notion
-    parent: eng-docs
+    integration: clickup
+    parent: id:90181844797     # id: → raw ClickUp space ID
 
-  # src/utils/ specs → ClickUp tasks (overrides src/ for this subfolder)
+  # src/utils/ specs → ClickUp tasks
   - folder: src/utils
     integration: clickup
-    parent: dev-tasks
+    parent: id:901812098656    # id: → raw ClickUp list ID
     target: task`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
               In the example above, a file at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils/SPEC7.md</code> goes only to the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils</code> mapping — not to <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src</code> or <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/</code>.
@@ -241,14 +242,15 @@ specs:
             </p>
             <CodeBlock>{`default:
   integration: clickup
-  parent: eng-docs
+  parent: alias:eng-docs        # alias: prefix — references a dashboard alias
 
 mappings:
-  - folder: docs/specs          # uses clickup + eng-docs
+  - folder: docs/specs          # uses clickup + eng-docs alias
   - folder: docs/tasks
-    parent: dev-tasks           # uses clickup (from default) + dev-tasks (override)
+    parent: alias:dev-tasks     # overrides default parent with another alias
     target: task
-  - folder: docs/archive        # uses clickup + eng-docs`}</CodeBlock>
+  - folder: docs/archive
+    parent: id:90181844797      # id: prefix — raw ClickUp space ID, no alias needed`}</CodeBlock>
           </section>
 
           <Separator />
@@ -425,8 +427,8 @@ On transient failures, the checkout service retries up to 3 times...`}</CodeBloc
             </p>
             <CodeBlock>{`mappings:
   - folder: docs/specs
-    integration: notion
-    parent: eng-docs
+    integration: clickup
+    parent: alias:eng-docs
     skip:
       - DRAFT_*.md        # skip drafts
       - _*.md             # skip private files
@@ -476,11 +478,11 @@ On transient failures, the checkout service retries up to 3 times...`}</CodeBloc
             <CodeBlock>{`mappings:
   - folder: docs/architecture
     integration: notion
-    parent: arch-docs
+    parent: alias:arch-docs
 
   - folder: docs/architecture
     integration: confluence
-    parent: arch-confluence`}</CodeBlock>
+    parent: id:12345678`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
               Each spec is published independently to both. Failure on one does not block the other.
             </p>
@@ -510,6 +512,11 @@ Rules for working with spec files:
    It has two sections:
    - mappings: — maps folders to integrations (do not edit unless changing routing)
    - specs:    — optional per-spec config, keyed by file path
+
+   The parent: field in mappings supports three forms:
+     parent: alias:<name>      # dashboard alias
+     parent: id:<nativeId>     # raw native ID (ClickUp space/list/doc ID, Notion page ID, etc.)
+     parent: <bare>            # tries alias first, falls back to raw ID
 
 3. When you CREATE a new spec file:
    - If it needs a custom title (different from the H1 heading or filename), add an entry:

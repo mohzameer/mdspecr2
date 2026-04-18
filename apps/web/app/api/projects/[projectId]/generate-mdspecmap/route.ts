@@ -65,8 +65,8 @@ export async function GET(
     lines.push('# Default integration applied to all mappings unless overridden')
     lines.push('default:')
     lines.push(`  integration: ${defaultIntType}`)
-    if (defaultAliasName) lines.push(`  parent: ${defaultAliasName}`)
-    else lines.push(`  # parent: <define an alias in Dashboard → Map → Aliases>`)
+    if (defaultAliasName) lines.push(`  parent: alias:${defaultAliasName}`)
+    else lines.push(`  # parent: alias:<alias-name>  or  id:<nativeId>`)
     lines.push('')
   }
 
@@ -84,11 +84,10 @@ export async function GET(
       // Only emit integration/parent per-mapping if they differ from default
       if (!useDefault) {
         if (intType) lines.push(`    integration: ${intType}`)
-        if (aliasName) lines.push(`    parent: ${aliasName}`)
-        else lines.push(`    # parent: <define an alias in Dashboard → Map → Aliases>`)
+        if (aliasName) lines.push(`    parent: alias:${aliasName}`)
+        else if (m.integration_id) lines.push(`    # parent: alias:<alias-name>  or  id:<nativeId>`)
       } else if (aliasName && aliasName !== defaultAliasName) {
-        // Override default parent for this specific mapping
-        lines.push(`    parent: ${aliasName}`)
+        lines.push(`    parent: alias:${aliasName}`)
       }
 
       if (target !== 'document') lines.push(`    target: ${target}`)

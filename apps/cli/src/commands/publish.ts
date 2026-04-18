@@ -248,7 +248,7 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
         console.error(`  - '${a.alias}' in folder '${a.folder}'${hint}`)
       }
       console.error('')
-      console.error('  Define aliases in Dashboard → Integrations → Aliases')
+      console.error('  Use alias:<name> to reference a dashboard alias, or id:<nativeId> to use a raw ID directly')
     } else {
       console.error(`✗ Validation error: ${body.error}`)
     }
@@ -349,6 +349,15 @@ export async function readMdspecMap(): Promise<MdspecMapConfig> {
       if (m.depth !== undefined && (!Number.isInteger(m.depth) || (m.depth as number) < 1)) {
         errors.push(`mappings[${i}].depth: must be a positive integer`)
       }
+      if (m.parent && typeof m.parent === 'string') {
+        const parsed = parseParent(m.parent as string)
+        if (parsed.type === 'alias' && !parsed.value) {
+          errors.push(`mappings[${i}].parent: alias: prefix requires a non-empty alias name`)
+        }
+        if (parsed.type === 'id' && !parsed.value) {
+          errors.push(`mappings[${i}].parent: id: prefix requires a non-empty ID`)
+        }
+      }
     }
   }
 
@@ -437,6 +446,12 @@ export function resolveFirstRunMode(
   if (!isFirstRun) return 'detect_changes'
   if (syncAllOnFirstRun === true) return 'publish_all'
   return 'exit'
+}
+
+export function parseParent(parent: string): { type: 'alias' | 'id' | 'bare'; value: string } {
+  if (parent.startsWith('alias:')) return { type: 'alias', value: parent.slice(6) }
+  if (parent.startsWith('id:'))    return { type: 'id',    value: parent.slice(3) }
+  return { type: 'bare', value: parent }
 }
 
 export function normalizeFolder(folder: string): string {

@@ -24,6 +24,16 @@ function resolveMapping(mapping: MdspecMapConfig['mappings'][number], config: Md
   }
 }
 
+// Parse parent field prefix:
+//   alias:<name>  → { type: 'alias', value: 'name' }
+//   id:<nativeId> → { type: 'id',    value: 'nativeId' }
+//   <bare>        → { type: 'bare',  value: '<bare>' }  — resolved as alias first, then raw ID
+function parseParent(parent: string): { type: 'alias' | 'id' | 'bare'; value: string } {
+  if (parent.startsWith('alias:')) return { type: 'alias', value: parent.slice(6) }
+  if (parent.startsWith('id:'))    return { type: 'id',    value: parent.slice(3) }
+  return { type: 'bare', value: parent }
+}
+
 export async function POST(request: Request) {
   try {
     // -------------------------------------------------------------------------
@@ -167,6 +177,21 @@ export async function POST(request: Request) {
     }
 
     // -------------------------------------------------------------------------
+    // Fetch active integrations for this org (needed for parent resolution below)
+    // -------------------------------------------------------------------------
+    const { data: integrations } = await supabase
+      .from('integrations')
+      .select('id, type')
+      .eq('org_id', project.org_id)
+      .eq('status', 'connected')
+
+    const activeIntegrations = integrations ?? []
+    const integrationByType = new Map<string, string>()
+    for (const i of activeIntegrations) {
+      integrationByType.set(i.type, i.id)
+    }
+
+    // -------------------------------------------------------------------------
     // Register repo on first publish
     // -------------------------------------------------------------------------
     if (!project.registered_repo) {
@@ -177,75 +202,70 @@ export async function POST(request: Request) {
     }
 
     // -------------------------------------------------------------------------
-    // Resolve aliases from payload config
+    // Resolve parent fields — supports alias:<name>, id:<nativeId>, bare value
     // -------------------------------------------------------------------------
     const resolvedMappings = config.mappings.map((m) => resolveMapping(m, config))
     const mappingsWithParent = resolvedMappings.filter((m) => m.parent && m.integration)
-    const aliasNames = [...new Set(mappingsWithParent.map((m) => m.parent!))]
 
-    // Fetch all aliases for this org
-    const { data: orgAliases } = aliasNames.length > 0
+    // Collect alias names that need DB lookup (alias: prefix or bare values)
+    const aliasLookupNames = [...new Set(
+      mappingsWithParent
+        .map((m) => parseParent(m.parent!))
+        .filter((p) => p.type === 'alias' || p.type === 'bare')
+        .map((p) => p.value)
+    )]
+
+    const { data: orgAliases } = aliasLookupNames.length > 0
       ? await supabase
           .from('aliases')
           .select('name, integration_id, native_id, integrations(type)')
           .eq('org_id', project.org_id)
-          .in('name', aliasNames)
+          .in('name', aliasLookupNames)
       : { data: [] }
 
-    const resolvedAliases = new Map<string, { integration_id: string; native_id: string; type: string }>()
+    const aliasMap = new Map<string, { integration_id: string; native_id: string; type: string }>()
     for (const a of orgAliases ?? []) {
       const intType = (a.integrations as unknown as { type: string })?.type
-      if (intType) {
-        resolvedAliases.set(a.name, { integration_id: a.integration_id, native_id: a.native_id, type: intType })
-      }
+      if (intType) aliasMap.set(a.name, { integration_id: a.integration_id, native_id: a.native_id, type: intType })
     }
 
-    // Check for unresolved aliases — hard block
+    // Build resolved map: folder → { integration_id, native_id }
+    // Also validate: alias: must resolve, id: used as-is, bare: alias first then raw ID
+    const resolvedAliases = new Map<string, { integration_id: string; native_id: string; type: string }>()
     const unresolvedAliases: Array<{ alias: string; folder: string; suggestion?: string }> = []
+
     for (const m of mappingsWithParent) {
-      if (!resolvedAliases.has(m.parent!)) {
-        // Find closest match for suggestion
-        const allAliasNames = (orgAliases ?? []).map((a) => a.name)
-        const suggestion = findClosestMatch(m.parent!, allAliasNames)
-        unresolvedAliases.push({ alias: m.parent!, folder: m.folder, suggestion })
+      const parsed = parseParent(m.parent!)
+      if (parsed.type === 'alias') {
+        const found = aliasMap.get(parsed.value)
+        if (!found) {
+          const suggestion = findClosestMatch(parsed.value, [...aliasMap.keys()])
+          unresolvedAliases.push({ alias: m.parent!, folder: m.folder, suggestion })
+        } else {
+          resolvedAliases.set(m.parent!, found)
+        }
+      } else if (parsed.type === 'id') {
+        // Raw ID — use the integration from the mapping to find integration_id
+        const integrationId = integrationByType.get(m.integration!)
+        if (integrationId) {
+          resolvedAliases.set(m.parent!, { integration_id: integrationId, native_id: parsed.value, type: m.integration! })
+        }
+      } else {
+        // Bare — try alias lookup first, fall back to raw ID
+        const found = aliasMap.get(parsed.value)
+        if (found) {
+          resolvedAliases.set(m.parent!, found)
+        } else {
+          const integrationId = integrationByType.get(m.integration!)
+          if (integrationId) {
+            resolvedAliases.set(m.parent!, { integration_id: integrationId, native_id: parsed.value, type: m.integration! })
+          }
+        }
       }
     }
 
     if (unresolvedAliases.length > 0) {
-      return Response.json({
-        error: 'unresolved_aliases',
-        aliases: unresolvedAliases,
-      }, { status: 422 })
-    }
-
-    // Also verify alias integration type matches mapping integration type
-    for (const m of mappingsWithParent) {
-      const resolved = resolvedAliases.get(m.parent!)
-      if (resolved && resolved.type !== m.integration) {
-        return Response.json({
-          error: 'alias_integration_mismatch',
-          alias: m.parent,
-          expected: m.integration,
-          actual: resolved.type,
-        }, { status: 422 })
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // Fetch active integrations for this org
-    // -------------------------------------------------------------------------
-    const { data: integrations } = await supabase
-      .from('integrations')
-      .select('id, type')
-      .eq('org_id', project.org_id)
-      .eq('status', 'connected')
-
-    const activeIntegrations = integrations ?? []
-
-    // Build integration type → id map
-    const integrationByType = new Map<string, string>()
-    for (const i of activeIntegrations) {
-      integrationByType.set(i.type, i.id)
+      return Response.json({ error: 'unresolved_aliases', aliases: unresolvedAliases }, { status: 422 })
     }
 
     // -------------------------------------------------------------------------
