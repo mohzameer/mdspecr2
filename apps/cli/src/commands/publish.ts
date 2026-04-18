@@ -20,18 +20,16 @@ export interface MdspecMapMapping {
 }
 
 export interface MdspecMapSpecEntry {
-  path: string
   title?: string
   agent?: string
-  publish?: 'on-merge' | 'manual'
+  task?: string
 }
 
 export interface MdspecMapConfig {
   version: 1
   sync_all_on_first_run?: boolean
   mappings: MdspecMapMapping[]
-  specs?: Record<string, MdspecMapSpecEntry>
-  links?: Record<string, string>
+  specs?: Record<string, MdspecMapSpecEntry>   // keyed by file path
 }
 
 interface PublishOptions {
@@ -44,11 +42,9 @@ export interface SpecArtifact {
   path: string
   previous_path?: string
   hash: string
-  mdspec_id: string
   title: string
   task_ref?: string
   agent?: string
-  publish?: 'on-merge' | 'manual'
   content: string
 }
 
@@ -604,11 +600,9 @@ export async function buildSpecArtifact(
       path: filePath,
       ...(previousPath ? { previous_path: previousPath } : {}),
       hash,
-      mdspec_id: specConfig.id,
       title,
       ...(specConfig.task_ref ? { task_ref: specConfig.task_ref } : {}),
       ...(specConfig.agent ? { agent: specConfig.agent } : {}),
-      ...(specConfig.publish ? { publish: specConfig.publish } : {}),
       content,
     }
   } catch (err) {
@@ -622,40 +616,18 @@ export async function buildSpecArtifact(
 // ---------------------------------------------------------------------------
 
 interface ResolvedSpecConfig {
-  id: string
   title: string
   task_ref?: string
   agent?: string
-  publish?: 'on-merge' | 'manual'
 }
 
 export function resolveSpecConfig(filePath: string, config: MdspecMapConfig): ResolvedSpecConfig {
-  // Check if an explicit specs: entry declares this path
-  const specsEntries = Object.entries(config.specs ?? {})
-  const explicit = specsEntries.find(([, entry]) => entry.path === filePath)
-
-  let id: string
-  let specEntry: MdspecMapSpecEntry | undefined
-
-  if (explicit) {
-    id = explicit[0]
-    specEntry = explicit[1]
-  } else {
-    id = filePath
-  }
-
-  // Title: specs entry > first H1 in content (resolved later in buildSpecArtifact) > filename
-  // For now we only have the path here; H1 extraction happens in buildSpecArtifact
-  const title = specEntry?.title ?? deriveTitle(filePath)
-
-  const task_ref = config.links?.[id]
+  const entry = config.specs?.[filePath]   // O(1) path lookup
 
   return {
-    id,
-    title,
-    ...(task_ref ? { task_ref } : {}),
-    ...(specEntry?.agent ? { agent: specEntry.agent } : {}),
-    ...(specEntry?.publish ? { publish: specEntry.publish } : {}),
+    title: entry?.title ?? deriveTitle(filePath),
+    ...(entry?.task ? { task_ref: entry.task } : {}),
+    ...(entry?.agent ? { agent: entry.agent } : {}),
   }
 }
 

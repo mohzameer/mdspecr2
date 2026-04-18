@@ -279,7 +279,7 @@ export async function POST(request: Request) {
             project_id,
             repo: repo_name,
             path: spec.path,
-            mdspec_id: spec.mdspec_id ?? null,
+            mdspec_id: null,
             commit_sha,
             content_hash: spec.hash,
             title: spec.title,

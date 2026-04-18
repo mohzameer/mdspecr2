@@ -67,7 +67,6 @@ const NAV = [
   { label: 'The .mdspecmap file', href: '#mdspecmap' },
   { label: 'mappings:', href: '#mappings' },
   { label: 'specs:', href: '#specs' },
-  { label: 'links:', href: '#links' },
   { label: 'Generating the file', href: '#generating' },
   { label: 'CI setup', href: '#ci' },
   { label: 'CLI reference', href: '#cli' },
@@ -75,6 +74,7 @@ const NAV = [
   { label: 'Skip patterns', href: '#skip' },
   { label: 'Depth limiting', href: '#depth' },
   { label: 'Multiple integrations', href: '#multi' },
+  { label: 'Tell your agent', href: '#agent-prompt' },
 ]
 
 export default function DocsPage() {
@@ -132,13 +132,12 @@ export default function DocsPage() {
               It is the single source of configuration for mdspec — all routing, IDs, titles, and task wiring live here.
               Spec files are plain markdown with no special syntax.
             </p>
-            <p className="text-sm text-muted-foreground">The file has three optional top-level sections beyond <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mappings</code>:</p>
+            <p className="text-sm text-muted-foreground">The file has two top-level sections:</p>
             <Table
               headers={['Section', 'Purpose']}
               rows={[
                 ['`mappings`', 'Required. Maps folders to integrations.'],
-                ['`specs`', 'Optional. Assigns stable IDs, custom titles, agent templates, and publish mode per spec.'],
-                ['`links`', 'Optional. Wires specs to external tasks (ClickUp, Jira) by mdspec ID.'],
+                ['`specs`', 'Optional. Per-spec config keyed by file path — title, agent, task link.'],
               ]}
             />
             <p className="text-sm text-muted-foreground">A full example:</p>
@@ -159,23 +158,18 @@ mappings:
     parent: dev-tasks
     target: task
 
-# Optional — stable IDs, titles, agent config per spec
+# Optional — per-spec config keyed by file path
 specs:
-  auth_spec_v2:
-    path: docs/specs/auth/sso-setup.md
+  docs/specs/auth/sso-setup.md:
     title: SSO Setup Guide
 
-  checkout_retry:
-    path: docs/specs/checkout-retry.md
+  docs/specs/checkout-retry.md:
     title: Checkout Retry Policy
     agent: task_template
-    publish: on-merge
+    task: CU-182
 
-# Optional — wire specs to external tasks
-links:
-  checkout_retry: CU-182
-  auth_spec_v2: CU-291
-  docs/specs/sla-policy.md: CU-305   # auto-ID spec — use path as key`}</CodeBlock>
+  docs/specs/sla-policy.md:
+    task: CU-305`}</CodeBlock>
           </section>
 
           <Separator />
@@ -225,85 +219,52 @@ links:
           <section id="specs" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">specs:</h2>
             <p className="text-sm text-muted-foreground">
-              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> section is optional. Use it to assign a stable ID to a spec, override its title, configure an agent template, or set its publish mode.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Specs <em>not</em> listed here get an auto-ID equal to their file path. Auto-IDs change if the file is moved — the old page in the target tool is orphaned. Listing a spec under <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> gives it a stable ID that survives renames.
+              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> section is optional. It is a map keyed by file path. Add an entry only when you need to override the title, set an agent, or link a task. Specs not listed here are auto-configured from their path.
             </p>
 
             <Table
-              headers={['Field', 'Required', 'What it does']}
+              headers={['Field', 'What it does']}
               rows={[
-                ['`path`', 'Yes', 'File path relative to repo root. Must be unique across all specs: entries.'],
-                ['`title`', 'No', 'Page title in the target tool. Overrides H1 heading and filename derivation.'],
-                ['`agent`', 'No', 'Agent template name to apply before publishing. Set to none to opt out of a folder-level agent.'],
-                ['`publish`', 'No', 'on-merge (default) or manual. manual specs are saved to the ledger but not queued for integration sync.'],
+                ['`title`', 'Page title in the target tool. Overrides H1 heading and filename derivation.'],
+                ['`agent`', 'Agent template name to apply before publishing. Set to none to opt out of a folder-level agent.'],
+                ['`task`', 'Task ID in ClickUp or Jira. On first publish, mdspec adopts the existing task and updates it from then on. Only applies to target: task mappings.'],
               ]}
             />
 
-            <h3 className="text-sm font-semibold">ID resolution order</h3>
-            <CodeBlock>{`specs:
-  auth_spec_v2:                       # ← this is the mdspec_id
-    path: docs/specs/auth/sso-setup.md
-
-# A spec with no entry here gets:
-#   mdspec_id = "docs/specs/sla-policy.md"  (the file path)`}</CodeBlock>
-
             <h3 className="text-sm font-semibold">Title resolution order</h3>
-            <p className="text-sm text-muted-foreground">When no explicit title is set, the CLI resolves in this order:</p>
             <Table
               headers={['Priority', 'Source']}
               rows={[
-                ['1', 'specs[id].title in .mdspecmap'],
-                ['2', 'First # H1 heading in the markdown file'],
+                ['1', 'specs[path].title in .mdspecmap'],
+                ['2', 'First # H1 heading in the file'],
                 ['3', 'Filename without extension (hyphens and underscores → spaces)'],
               ]}
             />
 
-            <h3 className="text-sm font-semibold">Safe renames</h3>
-            <p className="text-sm text-muted-foreground">
-              Without a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> entry, moving a file changes its auto-ID — mdspec creates a new page in the target tool and the old one is orphaned.
-              With a stable ID, update the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">path</code> value in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> and the existing page updates in-place.
-            </p>
-            <CodeBlock>{`# Before rename
-specs:
-  auth_spec_v2:
-    path: docs/specs/auth/sso-setup.md
+            <h3 className="text-sm font-semibold">Examples</h3>
+            <CodeBlock>{`specs:
+  # Just override the title
+  docs/specs/auth/sso-setup.md:
+    title: SSO Setup Guide
 
-# After file moved to docs/auth.md — update path, ID stays the same
-specs:
-  auth_spec_v2:
-    path: docs/auth.md                # page in Notion updates in-place`}</CodeBlock>
-          </section>
+  # Title + agent template + task link
+  docs/specs/checkout-retry.md:
+    title: Checkout Retry Policy
+    agent: task_template
+    task: CU-182
 
-          <Separator />
+  # Just link a task — nothing else needed
+  docs/specs/sla-policy.md:
+    task: CU-305`}</CodeBlock>
 
-          {/* links */}
-          <section id="links" className="scroll-mt-20 space-y-4">
-            <h2 className="text-xl font-semibold tracking-tight">links:</h2>
+            <h3 className="text-sm font-semibold">Renames</h3>
             <p className="text-sm text-muted-foreground">
-              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">links:</code> section wires specs to external tasks. It is the only place task wiring is declared — there is no per-file frontmatter equivalent.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Keys are mdspec IDs — either an explicit key from the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> section, or the file path for auto-ID specs.
-              Values are task IDs in the target tool.
-            </p>
-            <CodeBlock>{`links:
-  checkout_retry: CU-182              # explicit mdspec_id → ClickUp task
-  auth_spec_v2: CU-291
-  docs/specs/sla-policy.md: CU-305   # auto-ID spec — key is the file path`}</CodeBlock>
-
-            <h3 className="text-sm font-semibold">How it works</h3>
-            <p className="text-sm text-muted-foreground">
-              On the first publish of a spec with a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">links:</code> entry, mdspec looks up the task ID in ClickUp and adopts that existing task — updating it rather than creating a new one. The native task ID is then stored in the mdspec ledger. Subsequent publishes update the same task without re-resolving the ID.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Remove the entry from <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">links:</code> to have mdspec create a new task on the next publish.
+              If a file is renamed, the key in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> becomes stale. Title overrides, agent config, and task links stop applying until the user updates the key to the new path. Git rename detection still fires on that commit and the page in the target tool updates in-place regardless.
             </p>
 
-            <h3 className="text-sm font-semibold">Only applies to task_list mappings</h3>
+            <h3 className="text-sm font-semibold">Task wiring details</h3>
             <p className="text-sm text-muted-foreground">
-              <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">links:</code> has no effect on <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">document</code> mode mappings or non-ClickUp integrations. The entry is silently ignored for those specs.
+              On first publish of a spec with a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">task:</code> entry, mdspec resolves the task ID in ClickUp and adopts that existing task — updating it rather than creating a new one. The native task ID is stored in the mdspec ledger. Subsequent publishes update the same task without re-resolving. Remove the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">task:</code> field to have mdspec create a new task on the next publish.
             </p>
           </section>
 
@@ -484,6 +445,64 @@ On transient failures, the checkout service retries up to 3 times...`}</CodeBloc
             <p className="text-sm text-muted-foreground">
               Note: the most-specific-folder rule applies per integration independently. A spec can match different mappings for different integrations simultaneously.
             </p>
+          </section>
+
+          <Separator />
+
+          {/* Tell your agent */}
+          <section id="agent-prompt" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">Tell your agent</h2>
+            <p className="text-sm text-muted-foreground">
+              If you use an AI code editor (Cursor, Windsurf, Claude, Copilot), paste this prompt into your project rules or context file.
+              It tells the agent to keep your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> in sync as it writes and moves spec files.
+            </p>
+            <p className="text-sm text-muted-foreground">This is a suggestion — adapt it to your project structure.</p>
+            <CodeBlock>{`This project uses mdspec to publish markdown spec files to external tools (Notion, ClickUp, etc.).
+
+Rules for working with spec files:
+
+1. Spec files are plain markdown — no YAML frontmatter, no special syntax.
+   Any .md file in a mapped folder is automatically picked up by mdspec on the next CI run.
+
+2. The .mdspecmap file at the repo root controls all per-spec configuration.
+   It has two sections:
+   - mappings: — maps folders to integrations (do not edit unless changing routing)
+   - specs:    — optional per-spec config, keyed by file path
+
+3. When you CREATE a new spec file:
+   - If it needs a custom title (different from the H1 heading or filename), add an entry:
+     specs:
+       path/to/new-file.md:
+         title: Human Readable Title
+
+4. When you CREATE a spec that should link to an existing ClickUp task:
+   - Add the task ID under the file path:
+     specs:
+       path/to/new-file.md:
+         task: CU-123
+
+5. When you RENAME or MOVE a spec file:
+   - Update the key in specs: to the new path if an entry exists.
+   - The old key becomes stale and the title/task config stops applying.
+   - Example:
+       # Before
+       specs:
+         docs/old-name.md:
+           title: My Spec
+           task: CU-123
+
+       # After rename to docs/new-name.md
+       specs:
+         docs/new-name.md:
+           title: My Spec
+           task: CU-123
+
+6. When you DELETE a spec file:
+   - Remove its entry from specs: if one exists.
+   - Do not remove the folder mapping — other files may still use it.
+
+7. Never add mdspec_id, mdspec_taskid, or any mdspec frontmatter to spec files.
+   All configuration belongs in .mdspecmap.`}</CodeBlock>
           </section>
         </main>
       </div>

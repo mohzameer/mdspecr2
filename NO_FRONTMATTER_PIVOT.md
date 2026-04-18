@@ -7,19 +7,21 @@
 
 Frontmatter is removed entirely. Spec files are pure markdown — no YAML headers, no mdspec-specific syntax. All configuration that previously lived in frontmatter now lives in `.mdspecmap`.
 
+The `specs:` and `links:` sections are merged into a single `specs:` section keyed by file path. Path-as-key gives YAML-level duplicate detection for free, O(1) lookup at any scale, and zero friction — paths are already unique in a repo, no invented names required.
+
 ---
 
 ## What Was in Frontmatter → Where It Lives Now
 
 | Was in frontmatter | Now in `.mdspecmap` |
 |---|---|
-| `mdspec_id` | `specs.{id}` key |
-| `title` | `specs.{id}.title` |
+| `title` | `specs[path].title` |
 | `targets` | `mappings[].folder` |
-| `mdspec_agent` | `specs.{id}.agent` |
-| `mdspec_no_agent` | `specs.{id}.agent: none` |
-| `publish` | `specs.{id}.publish` |
-| `task_id` | `links.{mdspec_id}: task_ref` |
+| `mdspec_agent` | `specs[path].agent` |
+| `mdspec_no_agent` | `specs[path].agent: none` |
+| `task_id` / `mdspec_taskid` | `specs[path].task` |
+
+`mdspec_id` and `publish` are removed. mdspec_id is replaced by the path key itself. publish mode is removed — mdspec has no control over when CI runs.
 
 ---
 
@@ -51,89 +53,81 @@ mappings:
     integration: confluence
     parent: arch-confluence
 
-# Optional — assign stable mdspec_id, override title, set agent, set publish mode
-# Only needed when you want stability or per-spec config
-# Specs not listed here get auto-ID from their file path
+# Optional — per-spec config, keyed by file path
+# Only needed when you want a stable ID, custom title, agent, or task link
+# Specs not listed here are auto-configured from their path
 specs:
-  checkout_retry:
-    path: docs/specs/checkout-retry.md
-    title: Checkout Retry Policy        # overrides filename-derived title
+  docs/specs/checkout-retry.md:
+    title: Checkout Retry Policy        # overrides H1/filename-derived title
     agent: task_template                # agent template to apply
-    publish: on-merge                   # on-merge (default) | manual
+    task: CU-182                        # ClickUp / Jira task to adopt on first publish
 
-  auth_spec_v2:
-    path: docs/specs/auth/sso-setup.md
+  docs/specs/auth/sso-setup.md:
     agent: none                         # explicitly opt out of folder agent
+    task: CU-291
 
-  payments_onboarding:
-    path: docs/specs/payments/onboarding.md
-
-# Task and external wiring — keyed by mdspec_id
-# Works for both explicit IDs (specs: section) and auto-IDs (path-derived)
-links:
-  checkout_retry: CU-182              # ClickUp task
-  auth_spec_v2: CU-291
-  payments_onboarding: JRA-4421       # Jira ticket
-  docs/specs/sla-policy.md: CU-305   # auto-ID spec — path is the key
+  docs/specs/sla-policy.md:
+    task: CU-305                        # just link a task — nothing else needed
 ```
+
+---
+
+## `specs:` Section
+
+Keyed by file path relative to repo root. Every field is optional. Add only what you need.
+
+| Field | Type | What it does |
+|---|---|---|
+| `title` | string | Page title in the target tool. Overrides H1 heading and filename derivation. |
+| `agent` | string | Agent template name to apply before publishing. Set to `none` to opt out of a folder-level agent. |
+| `task` | string | Task ID in ClickUp or Jira. On first publish, mdspec adopts the existing task and updates it from then on. |
+
+### Path as key — why it works
+
+```yaml
+specs:
+  docs/specs/sla-policy.md:    # ← the key IS the path, no invention needed
+    task: CU-305
+```
+
+- YAML rejects duplicate keys automatically — no CLI validation needed
+- O(1) lookup at any scale — the CLI maps each incoming file path directly to its config entry
+- Zero friction — the path already exists, nothing to invent
+- Self-documenting — you read the key and immediately know which file it is
+
+### Renames
+
+If a file is renamed, the `specs:` entry key is now stale. The old entry stops matching. Title overrides, agent config, and task links for that file are lost until the user updates the key to the new path. This is intentional — the onus is on the user. Git rename detection still fires and the page in the target tool updates in-place on that commit regardless.
 
 ---
 
 ## ID Resolution
 
-### Explicit `mdspec_id` (via `specs:` section)
+The file path is always the mdspec_id. No other identifier exists.
 
-```yaml
-specs:
-  checkout_retry:
-    path: docs/specs/checkout-retry.md
-```
+---
 
-- `mdspec_id` = `checkout_retry`
-- Stable regardless of where the file moves
-- If file moves, update `path` in `.mdspecmap` → page updates in-place in target tool
-- Used as key in `links:` section
-
-### Auto-ID (no `specs:` entry)
-
-- `mdspec_id` = relative file path from repo root (e.g. `docs/specs/sla-policy.md`)
-- Changes if file moves → new page created, old page orphaned in target tool
-- Team cleans up manually — consistent with mdspec's no-deletion principle
-- Used as key in `links:` section using the path directly
-
-### Priority — explicit always wins over auto:
+## Title Resolution Order
 
 ```
-specs: section entry exists  → use declared mdspec_id
-No specs: entry              → use file path as ID
+1. specs[path].title           → explicit title in .mdspecmap
+2. First # H1 in markdown      → heading at top of file
+3. Filename without extension  → checkout-retry.md → Checkout Retry
 ```
 
 ---
 
-## Links Section
+## Task Wiring
 
-The `links:` section wires specs to external tasks. Keyed by `mdspec_id` (explicit or auto path-based).
+`specs[path].task` is the only place task wiring is declared. It applies only to `target: task` (ClickUp task_list) mappings. Ignored for document mode and non-ClickUp integrations.
 
-```yaml
-links:
-  checkout_retry: CU-182           # explicit mdspec_id → ClickUp task
-  docs/specs/sla.md: CU-305        # auto-ID spec → ClickUp task
-  auth_spec_v2: JRA-4421           # explicit mdspec_id → Jira ticket
-```
-
-No `task_id` field exists anywhere else in the system. `links:` is the only place task wiring is declared.
-
-**Future extensibility** — links section can expand without breaking existing format:
+On first publish, mdspec resolves the task ID to a native ClickUp ID and stores it in the ledger. Subsequent publishes update the same task without re-resolving.
 
 ```yaml
-links:
-  checkout_retry:
-    task: CU-182               # ClickUp / Jira task
-    pr: 441                    # GitHub PR (future)
-    adr: arch_decision_12      # another mdspec_id (future)
+specs:
+  docs/tasks/long-job-convert.md:
+    task: 86ev2bkbk
 ```
-
-Both formats (scalar and map) are valid. CLI handles both.
 
 ---
 
@@ -166,52 +160,38 @@ const taskId = frontmatter.task_id
 // After
 const content = fileContent   // raw markdown, no parsing
 const specConfig = resolveSpecConfig(filePath, mdspecmap)
-const title = specConfig?.title || deriveFromFilename(path)
-const agent = specConfig?.agent
-const taskId = mdspecmap.links?.[specConfig.id]
+const title = specConfig.title
+const agent = specConfig.agent
+const taskRef = specConfig.task
 ```
 
 ### `resolveSpecConfig` logic
 
 ```typescript
-function resolveSpecConfig(filePath: string, map: MdspecMap) {
-  // check if this path has an explicit specs: entry
-  const explicit = Object.entries(map.specs ?? {}).find(
-    ([id, spec]) => spec.path === filePath
-  )
+function resolveSpecConfig(filePath: string, map: MdspecMap): ResolvedSpecConfig {
+  const entry = map.specs?.[filePath]   // O(1) map lookup
 
-  if (explicit) {
-    return {
-      id: explicit[0],          // the declared mdspec_id
-      ...explicit[1]            // title, agent, publish etc.
-    }
-  }
-
-  // fall back to auto-ID from path
   return {
-    id: filePath,               // path is the ID
-    title: deriveFromFilename(filePath),
-    agent: resolveFolder(filePath, map)?.agent ?? null,
-    publish: 'on-merge'
+    id: filePath,                        // path is always the ID
+    title: entry?.title ?? extractH1(content) ?? deriveFromFilename(filePath),
+    agent: entry?.agent,
+    task: entry?.task,
   }
 }
 ```
 
-### SpecArtifact payload — unchanged structure
-
-The server sees the same `SpecArtifact` shape as before. The CLI resolves everything from `.mdspecmap` and injects it before sending — zero server-side changes needed.
+### SpecArtifact payload
 
 ```typescript
 interface SpecArtifact {
   path: string
   previous_path?: string      // rename detection — unchanged
-  mdspec_id: string           // resolved by CLI from .mdspecmap
-  title: string               // resolved by CLI
+  mdspec_id: string           // always the file path
+  title: string               // resolved by CLI: specs.title > H1 > filename
   hash: string
   content: string             // raw markdown, no frontmatter
-  task_ref?: string           // resolved from links: section
-  agent?: string              // resolved from specs: or folder mapping
-  publish: 'on-merge' | 'manual'
+  task_ref?: string           // resolved from specs[path].task
+  agent?: string              // resolved from specs[path].agent or folder mapping
 }
 ```
 
@@ -219,34 +199,11 @@ interface SpecArtifact {
 
 ## Agent Resolution Order
 
-Without frontmatter, agent resolution is purely from `.mdspecmap`:
-
 ```
-1. specs.{id}.agent: none     → explicitly no agent (highest priority)
-2. specs.{id}.agent: template → explicit agent for this spec
-3. mappings[].agent           → folder-level agent assignment
-4. parent folder agent        → inherited
-5. no agent                   → publish raw markdown
-```
-
----
-
-## Title Resolution Order
-
-```
-1. specs.{id}.title           → explicit title in .mdspecmap
-2. First H1 in markdown       → # Heading at top of file
-3. Filename without extension → checkout-retry → Checkout Retry
-```
-
----
-
-## Publish Mode Resolution
-
-```
-1. specs.{id}.publish: manual    → only publish when manually triggered
-2. specs.{id}.publish: on-merge  → publish on every merge (default)
-3. No entry                      → on-merge
+1. specs[path].agent: none     → explicitly no agent (highest priority)
+2. specs[path].agent: template → explicit agent for this spec
+3. mappings[].agent            → folder-level agent assignment
+4. no agent                    → publish raw markdown
 ```
 
 ---
@@ -256,7 +213,6 @@ Without frontmatter, agent resolution is purely from `.mdspecmap`:
 - Folder mapping and alias resolution — identical
 - Skip patterns — identical
 - Rename detection via `git diff --name-status` — identical
-- File move behaviour (auto-ID changes, old page orphaned) — identical
 - Server-side routing and publishing — identical
 - Agent transformation pipeline — identical
 - QStash job delivery — identical
@@ -267,10 +223,10 @@ Without frontmatter, agent resolution is purely from `.mdspecmap`:
 
 For teams upgrading from a frontmatter-based project:
 
-1. Run `npx mdspec migrate` — reads all frontmatter in spec files, generates `specs:` and `links:` sections in `.mdspecmap`, strips frontmatter from spec files
+1. Run `npx mdspec migrate` — reads all frontmatter in spec files, generates `specs:` entries in `.mdspecmap` keyed by path, strips frontmatter from spec files
 2. Review generated `.mdspecmap`
 3. Commit both the updated `.mdspecmap` and cleaned spec files
-4. Push — CI publishes normally, ledger matches via `mdspec_id`
+4. Push — CI publishes normally, ledger matches via path
 
 `npx mdspec migrate` is idempotent — safe to run multiple times.
 
