@@ -77,17 +77,17 @@ it('1.5.5 returns null and logs error when file read fails', async () => {
 })
 
 // 1.5.6
-it('1.5.6 task_ref resolved from specs[path].task', async () => {
+it('1.5.6 id_ref resolved from specs[path].task', async () => {
   mockFile('# SLA Policy\n')
   const config: MdspecMapConfig = {
     version: 1,
     mappings: [{ folder: 'docs' }],
     specs: {
-      'docs/sla.md': { task: 'CU-305' },
+      'docs/sla.md': { id: 'CU-305' },
     },
   }
   const artifact = await buildSpecArtifact('docs/sla.md', config)
-  expect(artifact!.task_ref).toBe('CU-305')
+  expect(artifact!.id_ref).toBe('CU-305')
 })
 
 // 1.5.7
@@ -105,10 +105,10 @@ it('1.5.7 agent resolved from specs[path].agent', async () => {
 })
 
 // 1.5.8
-it('1.5.8 spec with no specs: entry has no task_ref or agent', async () => {
+it('1.5.8 spec with no specs: entry has no id_ref or agent', async () => {
   mockFile('# Plain\n')
   const artifact = await buildSpecArtifact('docs/plain.md', minimalConfig)
-  expect(artifact!.task_ref).toBeUndefined()
+  expect(artifact!.id_ref).toBeUndefined()
   expect(artifact!.agent).toBeUndefined()
 })
 
@@ -116,7 +116,7 @@ it('1.5.8 spec with no specs: entry has no task_ref or agent', async () => {
 it('resolveSpecConfig: no entry — title from filename', () => {
   const cfg = resolveSpecConfig('src/utils/SPEC7.md', minimalConfig)
   expect(cfg.title).toBe('SPEC7')
-  expect(cfg.task_ref).toBeUndefined()
+  expect(cfg.id_ref).toBeUndefined()
 })
 
 it('resolveSpecConfig: specs[path] entry — title overrides', () => {
@@ -129,23 +129,23 @@ it('resolveSpecConfig: specs[path] entry — title overrides', () => {
   expect(cfg.title).toBe('My Spec')
 })
 
-it('resolveSpecConfig: specs[path].task resolved as task_ref', () => {
+it('resolveSpecConfig: specs[path].task resolved as id_ref', () => {
   const config: MdspecMapConfig = {
     version: 1,
     mappings: [],
-    specs: { 'docs/auth.md': { task: 'CU-291' } },
+    specs: { 'docs/auth.md': { id: 'CU-291' } },
   }
   const cfg = resolveSpecConfig('docs/auth.md', config)
-  expect(cfg.task_ref).toBe('CU-291')
+  expect(cfg.id_ref).toBe('CU-291')
 })
 
 it('resolveSpecConfig: unmatched path has no entry', () => {
   const config: MdspecMapConfig = {
     version: 1,
     mappings: [],
-    specs: { 'docs/other.md': { task: 'CU-100' } },
+    specs: { 'docs/other.md': { id: 'CU-100' } },
   }
   const cfg = resolveSpecConfig('docs/auth.md', config)
-  expect(cfg.task_ref).toBeUndefined()
+  expect(cfg.id_ref).toBeUndefined()
   expect(cfg.title).toBe('auth')
 })

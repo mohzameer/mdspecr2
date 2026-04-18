@@ -166,10 +166,10 @@ specs:
   docs/specs/checkout-retry.md:
     title: Checkout Retry Policy
     agent: task_template
-    task: CU-182
+    id: CU-182
 
   docs/specs/sla-policy.md:
-    task: CU-305`}</CodeBlock>
+    id: CU-305`}</CodeBlock>
           </section>
 
           <Separator />
@@ -227,7 +227,7 @@ specs:
               rows={[
                 ['`title`', 'Page title in the target tool. Overrides H1 heading and filename derivation.'],
                 ['`agent`', 'Agent template name to apply before publishing. Set to none to opt out of a folder-level agent.'],
-                ['`task`', 'Task ID in ClickUp or Jira. On first publish, mdspec adopts the existing task and updates it from then on. Only applies to target: task mappings.'],
+                ['`id`', 'Native ID of an existing page, doc, or task in the target tool. On first publish, mdspec adopts it and updates it from then on. Works across all integrations.'],
               ]}
             />
 
@@ -255,20 +255,20 @@ specs:
   docs/specs/checkout-retry.md:
     title: Checkout Retry Policy
     agent: task_template
-    task: CU-182
+    id: CU-182
 
   # Just link a task — nothing else needed
   docs/specs/sla-policy.md:
-    task: CU-305`}</CodeBlock>
+    id: CU-305`}</CodeBlock>
 
             <h3 className="text-sm font-semibold">Renames</h3>
             <p className="text-sm text-muted-foreground">
               If a file is renamed, the key in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> becomes stale. Title overrides, agent config, and task links stop applying until the user updates the key to the new path. Git rename detection still fires on that commit and the page in the target tool updates in-place regardless.
             </p>
 
-            <h3 className="text-sm font-semibold">Task wiring details</h3>
+            <h3 className="text-sm font-semibold">id: adoption details</h3>
             <p className="text-sm text-muted-foreground">
-              On first publish of a spec with a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">task:</code> entry, mdspec resolves the task ID in ClickUp and adopts that existing task — updating it rather than creating a new one. The native task ID is stored in the mdspec ledger. Subsequent publishes update the same task without re-resolving. Remove the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">task:</code> field to have mdspec create a new task on the next publish.
+              On first publish of a spec with an <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id:</code> entry, mdspec looks up that ID in the target tool and adopts the existing page, doc, or task — updating it rather than creating a new one. Works across all integrations: Notion page ID, Confluence page ID, ClickUp doc or task ID. The native ID is stored in the mdspec ledger and subsequent publishes update the same record without re-resolving. Remove the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id:</code> field to have mdspec create a new record on the next publish.
             </p>
           </section>
 
@@ -479,11 +479,11 @@ Rules for working with spec files:
        path/to/new-file.md:
          title: Human Readable Title
 
-4. When you CREATE a spec that should link to an existing ClickUp task:
-   - Add the task ID under the file path:
+4. When you CREATE a spec that should link to an existing page, doc, or task in the target tool:
+   - Add the native ID under the file path:
      specs:
        path/to/new-file.md:
-         task: CU-123
+         id: CU-123        # ClickUp task/doc ID, Notion page ID, Confluence page ID, etc.
 
 5. When you RENAME or MOVE a spec file:
    - Update the key in specs: to the new path if an entry exists.
@@ -493,13 +493,13 @@ Rules for working with spec files:
        specs:
          docs/old-name.md:
            title: My Spec
-           task: CU-123
+           id: CU-123
 
        # After rename to docs/new-name.md
        specs:
          docs/new-name.md:
            title: My Spec
-           task: CU-123
+           id: CU-123
 
 6. When you DELETE a spec file:
    - Remove its entry from specs: if one exists.

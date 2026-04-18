@@ -312,26 +312,26 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         if (!ctx.clickupListId) throw new Error('clickup_list_id not configured for task_list mode')
 
         console.log(`[publish:task] spec=${spec_id} path=${path}`)
-        console.log(`[publish:task] task_ref from .mdspecmap links: ${spec.task_ref ?? '(not set)'}`)
+        console.log(`[publish:task] id_ref from .mdspecmap specs: ${spec.id_ref ?? '(not set)'}`)
         console.log(`[publish:task] existingPageId from DB: ${existingPageId ?? '(none)'}`)
 
         // Adopt task ID from links: section in .mdspecmap (one-time link to a pre-existing task).
         // Resolve to native ID — one GET call here, never again after the native ID is stored.
-        if (!existingPageId && spec.task_ref) {
-          const nativeId = await resolveToNativeTaskId(clickupCreds, spec.task_ref, ctx.clickupUseCustomTaskIds)
-          console.log(`[publish:task] resolveToNativeTaskId("${spec.task_ref}") → ${nativeId ?? 'null (not found)'}`)
+        if (!existingPageId && spec.id_ref) {
+          const nativeId = await resolveToNativeTaskId(clickupCreds, spec.id_ref, ctx.clickupUseCustomTaskIds)
+          console.log(`[publish:task] resolveToNativeTaskId("${spec.id_ref}") → ${nativeId ?? 'null (not found)'}`)
           if (nativeId) {
             existingPageId = nativeId
             await supabase
               .from('spec_publish_targets')
               .update({ external_page_id: nativeId })
               .eq('id', spec_publish_target_id)
-            console.log(`[publish:task] adopted task ${spec.task_ref} → native id ${nativeId}`)
+            console.log(`[publish:task] adopted task ${spec.id_ref} → native id ${nativeId}`)
           } else {
-            console.log(`[publish:task] task ref ${spec.task_ref} not found in ClickUp — will create new task`)
+            console.log(`[publish:task] task ref ${spec.id_ref} not found in ClickUp — will create new task`)
           }
         } else if (!existingPageId) {
-          console.log(`[publish:task] no task_ref in links — will create new task`)
+          console.log(`[publish:task] no id_ref in specs — will create new task`)
         }
 
         let taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId, ctx.clickupFrontmatterMap)
@@ -339,11 +339,11 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         // Stored ID was stale (task deleted in ClickUp) — try to re-resolve from
         // links: section before falling through to create a brand new task.
         if (taskResult.previousIdStale) {
-          console.log(`[publish:task] stale stored id — re-checking task_ref: ${spec.task_ref ?? '(not set)'}`)
+          console.log(`[publish:task] stale stored id — re-checking task_ref: ${spec.id_ref ?? '(not set)'}`)
           let resolvedId: string | null = null
-          if (spec.task_ref) {
-            resolvedId = await resolveToNativeTaskId(clickupCreds, spec.task_ref, ctx.clickupUseCustomTaskIds)
-            console.log(`[publish:task] re-resolve "${spec.task_ref}" → ${resolvedId ?? 'null'}`)
+          if (spec.id_ref) {
+            resolvedId = await resolveToNativeTaskId(clickupCreds, spec.id_ref, ctx.clickupUseCustomTaskIds)
+            console.log(`[publish:task] re-resolve "${spec.id_ref}" → ${resolvedId ?? 'null'}`)
           }
           // Clear stale ID from DB — will be replaced with new one after this publish
           await supabase

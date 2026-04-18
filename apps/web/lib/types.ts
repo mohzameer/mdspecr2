@@ -25,7 +25,7 @@ export interface MdspecMapMapping {
 export interface MdspecMapSpecEntry {
   title?: string
   agent?: string                     // template name or 'none'
-  task?: string                      // ClickUp / Jira task ID to adopt on first publish
+  id?: string                        // native ID in the target tool to adopt on first publish
 }
 
 export interface MdspecMapConfig {
@@ -44,7 +44,7 @@ export interface SpecArtifact {
   previous_path?: string             // set on rename (git R status)
   hash: string
   title: string                      // resolved by CLI: specs[path].title > H1 > filename
-  task_ref?: string                  // resolved from specs[path].task
+  id_ref?: string                    // resolved from specs[path].id
   agent?: string                     // resolved from specs[path].agent or folder mapping
   content: string
 }
@@ -70,7 +70,7 @@ export interface PublishGroupSpec {
   spec_publish_target_id: string
   path: string
   title: string
-  task_ref?: string
+  id_ref?: string
   content: string
   content_hash: string
   frontmatter: Record<string, unknown>

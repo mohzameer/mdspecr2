@@ -19,7 +19,7 @@ The `specs:` and `links:` sections are merged into a single `specs:` section key
 | `targets` | `mappings[].folder` |
 | `mdspec_agent` | `specs[path].agent` |
 | `mdspec_no_agent` | `specs[path].agent: none` |
-| `task_id` / `mdspec_taskid` | `specs[path].task` |
+| `task_id` / `mdspec_taskid` | `specs[path].id` |
 
 `mdspec_id` and `publish` are removed. mdspec_id is replaced by the path key itself. publish mode is removed — mdspec has no control over when CI runs.
 
@@ -60,14 +60,14 @@ specs:
   docs/specs/checkout-retry.md:
     title: Checkout Retry Policy        # overrides H1/filename-derived title
     agent: task_template                # agent template to apply
-    task: CU-182                        # ClickUp / Jira task to adopt on first publish
+    id: CU-182                          # native ID to adopt on first publish (any integration)
 
   docs/specs/auth/sso-setup.md:
     agent: none                         # explicitly opt out of folder agent
-    task: CU-291
+    id: CU-291
 
   docs/specs/sla-policy.md:
-    task: CU-305                        # just link a task — nothing else needed
+    id: CU-305                          # just link an existing record — nothing else needed
 ```
 
 ---
@@ -80,7 +80,7 @@ Keyed by file path relative to repo root. Every field is optional. Add only what
 |---|---|---|
 | `title` | string | Page title in the target tool. Overrides H1 heading and filename derivation. |
 | `agent` | string | Agent template name to apply before publishing. Set to `none` to opt out of a folder-level agent. |
-| `task` | string | Task ID in ClickUp or Jira. On first publish, mdspec adopts the existing task and updates it from then on. |
+| `id` | string | Native ID of an existing page, doc, or task in the target tool. On first publish, mdspec adopts it and updates it from then on. Works across all integrations. |
 
 ### Path as key — why it works
 
@@ -126,7 +126,7 @@ On first publish, mdspec resolves the task ID to a native ClickUp ID and stores 
 ```yaml
 specs:
   docs/tasks/long-job-convert.md:
-    task: 86ev2bkbk
+    id: 86ev2bkbk
 ```
 
 ---
@@ -162,7 +162,7 @@ const content = fileContent   // raw markdown, no parsing
 const specConfig = resolveSpecConfig(filePath, mdspecmap)
 const title = specConfig.title
 const agent = specConfig.agent
-const taskRef = specConfig.task
+const idRef = specConfig.id
 ```
 
 ### `resolveSpecConfig` logic
@@ -175,7 +175,7 @@ function resolveSpecConfig(filePath: string, map: MdspecMap): ResolvedSpecConfig
     id: filePath,                        // path is always the ID
     title: entry?.title ?? extractH1(content) ?? deriveFromFilename(filePath),
     agent: entry?.agent,
-    task: entry?.task,
+    id: entry?.id,
   }
 }
 ```
@@ -190,9 +190,16 @@ interface SpecArtifact {
   title: string               // resolved by CLI: specs.title > H1 > filename
   hash: string
   content: string             // raw markdown, no frontmatter
-  task_ref?: string           // resolved from specs[path].task
+  id_ref?: string             // resolved from specs[path].id
   agent?: string              // resolved from specs[path].agent or folder mapping
 }
+
+## Task Wiring
+
+`specs[path].id` is the only place external record wiring is declared. It works across all integrations:
+- ClickUp: task ID or doc ID
+- Notion: page ID
+- Confluence: page ID
 ```
 
 ---

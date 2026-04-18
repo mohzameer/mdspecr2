@@ -397,7 +397,7 @@ export async function POST(request: Request) {
               spec_publish_target_id: target.id,
               path: spec.path,
               title: spec.title,
-              ...(spec.task_ref ? { task_ref: spec.task_ref } : {}),
+              ...(spec.id_ref ? { task_ref: spec.id_ref } : {}),
               content: spec.content,
               content_hash: spec.hash,
               frontmatter: {},

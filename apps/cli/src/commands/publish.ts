@@ -22,7 +22,7 @@ export interface MdspecMapMapping {
 export interface MdspecMapSpecEntry {
   title?: string
   agent?: string
-  task?: string
+  id?: string
 }
 
 export interface MdspecMapConfig {
@@ -43,7 +43,7 @@ export interface SpecArtifact {
   previous_path?: string
   hash: string
   title: string
-  task_ref?: string
+  id_ref?: string
   agent?: string
   content: string
 }
@@ -601,7 +601,7 @@ export async function buildSpecArtifact(
       ...(previousPath ? { previous_path: previousPath } : {}),
       hash,
       title,
-      ...(specConfig.task_ref ? { task_ref: specConfig.task_ref } : {}),
+      ...(specConfig.id_ref ? { id_ref: specConfig.id_ref } : {}),
       ...(specConfig.agent ? { agent: specConfig.agent } : {}),
       content,
     }
@@ -617,7 +617,7 @@ export async function buildSpecArtifact(
 
 interface ResolvedSpecConfig {
   title: string
-  task_ref?: string
+  id_ref?: string
   agent?: string
 }
 
@@ -626,7 +626,7 @@ export function resolveSpecConfig(filePath: string, config: MdspecMapConfig): Re
 
   return {
     title: entry?.title ?? deriveTitle(filePath),
-    ...(entry?.task ? { task_ref: entry.task } : {}),
+    ...(entry?.id ? { id_ref: entry.id } : {}),
     ...(entry?.agent ? { agent: entry.agent } : {}),
   }
 }
