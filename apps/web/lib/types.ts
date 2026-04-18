@@ -22,10 +22,19 @@ export interface MdspecMapMapping {
   depth?: number                     // max folder depth to sync (1 = direct children only)
 }
 
+export interface MdspecMapSpecEntry {
+  path: string
+  title?: string
+  agent?: string                     // template name or 'none'
+  publish?: 'on-merge' | 'manual'
+}
+
 export interface MdspecMapConfig {
   version: 1
   sync_all_on_first_run?: boolean    // default false
   mappings: MdspecMapMapping[]
+  specs?: Record<string, MdspecMapSpecEntry>   // optional stable IDs + per-spec config
+  links?: Record<string, string>               // mdspec_id → task ref (scalar form)
 }
 
 // ---------------------------------------------------------------------------
@@ -36,7 +45,11 @@ export interface SpecArtifact {
   path: string
   previous_path?: string             // set on rename (git R status)
   hash: string
-  frontmatter: Record<string, unknown>
+  mdspec_id: string                  // stable ID — explicit from specs: or path-derived
+  title: string                      // resolved by CLI: specs[id].title > H1 > filename
+  task_ref?: string                  // resolved from links: section
+  agent?: string                     // resolved from specs[id].agent or folder mapping
+  publish?: 'on-merge' | 'manual'
   content: string
 }
 
@@ -61,6 +74,7 @@ export interface PublishGroupSpec {
   spec_publish_target_id: string
   path: string
   title: string
+  task_ref?: string
   content: string
   content_hash: string
   frontmatter: Record<string, unknown>

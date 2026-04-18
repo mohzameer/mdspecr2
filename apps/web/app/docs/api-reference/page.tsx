@@ -64,12 +64,14 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
 }
 
 const NAV = [
-  { label: '.mdspecmap file', href: '#mdspecmap' },
-  { label: 'Field reference', href: '#fields' },
+  { label: 'The .mdspecmap file', href: '#mdspecmap' },
+  { label: 'mappings:', href: '#mappings' },
+  { label: 'specs:', href: '#specs' },
+  { label: 'links:', href: '#links' },
   { label: 'Generating the file', href: '#generating' },
   { label: 'CI setup', href: '#ci' },
   { label: 'CLI reference', href: '#cli' },
-  { label: 'Frontmatter reference', href: '#frontmatter' },
+  { label: 'Spec files', href: '#specfiles' },
   { label: 'Skip patterns', href: '#skip' },
   { label: 'Depth limiting', href: '#depth' },
   { label: 'Multiple integrations', href: '#multi' },
@@ -119,13 +121,27 @@ export default function DocsPage() {
 
           <Separator />
 
-          {/* .mdspecmap */}
+          {/* .mdspecmap overview */}
           <section id="mdspecmap" className="scroll-mt-20 space-y-4">
-            <h2 className="text-xl font-semibold tracking-tight">Step 1 — Create your <code className="font-mono text-base bg-muted px-1.5 py-0.5 rounded">.mdspecmap</code> file</h2>
+            <h2 className="text-xl font-semibold tracking-tight">
+              Step 1 — Create your{' '}
+              <code className="font-mono text-base bg-muted px-1.5 py-0.5 rounded">.mdspecmap</code> file
+            </h2>
             <p className="text-sm text-muted-foreground">
               The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> file lives at the root of your repo.
-              It tells mdspec which folders to sync and where they should go.
+              It is the single source of configuration for mdspec — all routing, IDs, titles, and task wiring live here.
+              Spec files are plain markdown with no special syntax.
             </p>
+            <p className="text-sm text-muted-foreground">The file has three optional top-level sections beyond <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mappings</code>:</p>
+            <Table
+              headers={['Section', 'Purpose']}
+              rows={[
+                ['`mappings`', 'Required. Maps folders to integrations.'],
+                ['`specs`', 'Optional. Assigns stable IDs, custom titles, agent templates, and publish mode per spec.'],
+                ['`links`', 'Optional. Wires specs to external tasks (ClickUp, Jira) by mdspec ID.'],
+              ]}
+            />
+            <p className="text-sm text-muted-foreground">A full example:</p>
             <CodeBlock>{`# .mdspecmap
 version: 1
 
@@ -135,30 +151,163 @@ mappings:
   - folder: docs/specs
     integration: notion
     parent: eng-docs
-    depth: 1          # only docs/specs/*.md — no subdirectories
     skip:
       - DRAFT_*.md
 
   - folder: docs/tasks
     integration: clickup
-    parent: dev-tasks`}</CodeBlock>
+    parent: dev-tasks
+    target: task
+
+# Optional — stable IDs, titles, agent config per spec
+specs:
+  auth_spec_v2:
+    path: docs/specs/auth/sso-setup.md
+    title: SSO Setup Guide
+
+  checkout_retry:
+    path: docs/specs/checkout-retry.md
+    title: Checkout Retry Policy
+    agent: task_template
+    publish: on-merge
+
+# Optional — wire specs to external tasks
+links:
+  checkout_retry: CU-182
+  auth_spec_v2: CU-291
+  docs/specs/sla-policy.md: CU-305   # auto-ID spec — use path as key`}</CodeBlock>
           </section>
 
-          {/* Field reference */}
-          <section id="fields" className="scroll-mt-20 space-y-4">
-            <h3 className="text-base font-semibold">Field reference</h3>
+          <Separator />
+
+          {/* mappings */}
+          <section id="mappings" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">mappings:</h2>
+            <p className="text-sm text-muted-foreground">
+              Each entry maps a folder in your repo to an integration. mdspec routes each spec to exactly one mapping — the most specific (longest prefix) folder that matches. Subfolders with their own mapping are never double-published by a parent mapping.
+            </p>
             <Table
-              headers={['Field', 'What it does']}
+              headers={['Field', 'Required', 'What it does']}
               rows={[
-                ['`folder`', 'Which folder in your repo to watch'],
-                ['`integration`', 'Where to sync: notion, confluence, or clickup'],
-                ['`parent`', 'An alias pointing to the target page/space (set up in the Dashboard)'],
-                ['`depth`', 'Max subfolder depth to sync. 1 = direct children only, 2 = one level of nesting. Omit to sync all depths.'],
-                ['`skip`', 'Glob patterns for files to ignore'],
-                ['`sync_all_on_first_run`', 'false (default) starts empty. true syncs everything on first push.'],
+                ['`folder`', 'Yes', 'Folder path relative to repo root. Use / or leave blank for repo root.'],
+                ['`integration`', 'No', 'Target: notion, confluence, clickup, or s3.'],
+                ['`parent`', 'No', 'Alias name pointing to the target page/container (set up in Dashboard → Map → Aliases).'],
+                ['`target`', 'No', 'For ClickUp only: document (default) or task. task publishes specs as ClickUp tasks.'],
+                ['`depth`', 'No', 'Max subfolder depth. 1 = direct children only. Omit for unlimited depth.'],
+                ['`skip`', 'No', 'Glob patterns for files to exclude from this mapping.'],
               ]}
             />
+            <CodeBlock>{`mappings:
+  # Root-level specs → Notion
+  - folder: /
+    integration: notion
+    parent: eng-docs
+    depth: 1                # only root *.md files
+
+  # src/ specs → Notion, nested
+  - folder: src
+    integration: notion
+    parent: eng-docs
+
+  # src/utils/ specs → ClickUp tasks (overrides src/ for this subfolder)
+  - folder: src/utils
+    integration: clickup
+    parent: dev-tasks
+    target: task`}</CodeBlock>
+            <p className="text-sm text-muted-foreground">
+              In the example above, a file at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils/SPEC7.md</code> goes only to the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils</code> mapping — not to <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src</code> or <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/</code>.
+            </p>
           </section>
+
+          <Separator />
+
+          {/* specs */}
+          <section id="specs" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">specs:</h2>
+            <p className="text-sm text-muted-foreground">
+              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> section is optional. Use it to assign a stable ID to a spec, override its title, configure an agent template, or set its publish mode.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Specs <em>not</em> listed here get an auto-ID equal to their file path. Auto-IDs change if the file is moved — the old page in the target tool is orphaned. Listing a spec under <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> gives it a stable ID that survives renames.
+            </p>
+
+            <Table
+              headers={['Field', 'Required', 'What it does']}
+              rows={[
+                ['`path`', 'Yes', 'File path relative to repo root. Must be unique across all specs: entries.'],
+                ['`title`', 'No', 'Page title in the target tool. Overrides H1 heading and filename derivation.'],
+                ['`agent`', 'No', 'Agent template name to apply before publishing. Set to none to opt out of a folder-level agent.'],
+                ['`publish`', 'No', 'on-merge (default) or manual. manual specs are saved to the ledger but not queued for integration sync.'],
+              ]}
+            />
+
+            <h3 className="text-sm font-semibold">ID resolution order</h3>
+            <CodeBlock>{`specs:
+  auth_spec_v2:                       # ← this is the mdspec_id
+    path: docs/specs/auth/sso-setup.md
+
+# A spec with no entry here gets:
+#   mdspec_id = "docs/specs/sla-policy.md"  (the file path)`}</CodeBlock>
+
+            <h3 className="text-sm font-semibold">Title resolution order</h3>
+            <p className="text-sm text-muted-foreground">When no explicit title is set, the CLI resolves in this order:</p>
+            <Table
+              headers={['Priority', 'Source']}
+              rows={[
+                ['1', 'specs[id].title in .mdspecmap'],
+                ['2', 'First # H1 heading in the markdown file'],
+                ['3', 'Filename without extension (hyphens and underscores → spaces)'],
+              ]}
+            />
+
+            <h3 className="text-sm font-semibold">Safe renames</h3>
+            <p className="text-sm text-muted-foreground">
+              Without a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> entry, moving a file changes its auto-ID — mdspec creates a new page in the target tool and the old one is orphaned.
+              With a stable ID, update the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">path</code> value in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> and the existing page updates in-place.
+            </p>
+            <CodeBlock>{`# Before rename
+specs:
+  auth_spec_v2:
+    path: docs/specs/auth/sso-setup.md
+
+# After file moved to docs/auth.md — update path, ID stays the same
+specs:
+  auth_spec_v2:
+    path: docs/auth.md                # page in Notion updates in-place`}</CodeBlock>
+          </section>
+
+          <Separator />
+
+          {/* links */}
+          <section id="links" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">links:</h2>
+            <p className="text-sm text-muted-foreground">
+              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">links:</code> section wires specs to external tasks. It is the only place task wiring is declared — there is no per-file frontmatter equivalent.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Keys are mdspec IDs — either an explicit key from the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> section, or the file path for auto-ID specs.
+              Values are task IDs in the target tool.
+            </p>
+            <CodeBlock>{`links:
+  checkout_retry: CU-182              # explicit mdspec_id → ClickUp task
+  auth_spec_v2: CU-291
+  docs/specs/sla-policy.md: CU-305   # auto-ID spec — key is the file path`}</CodeBlock>
+
+            <h3 className="text-sm font-semibold">How it works</h3>
+            <p className="text-sm text-muted-foreground">
+              On the first publish of a spec with a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">links:</code> entry, mdspec looks up the task ID in ClickUp and adopts that existing task — updating it rather than creating a new one. The native task ID is then stored in the mdspec ledger. Subsequent publishes update the same task without re-resolving the ID.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Remove the entry from <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">links:</code> to have mdspec create a new task on the next publish.
+            </p>
+
+            <h3 className="text-sm font-semibold">Only applies to task_list mappings</h3>
+            <p className="text-sm text-muted-foreground">
+              <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">links:</code> has no effect on <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">document</code> mode mappings or non-ClickUp integrations. The entry is silently ignored for those specs.
+            </p>
+          </section>
+
+          <Separator />
 
           {/* Generating */}
           <section id="generating" className="scroll-mt-20 space-y-4">
@@ -169,7 +318,7 @@ mappings:
                 <CardContent className="p-5 space-y-2">
                   <p className="text-sm font-medium">From the Dashboard</p>
                   <p className="text-sm text-muted-foreground">
-                    Go to your project&apos;s Map page and click <strong>Download .mdspecmap</strong>. The file is generated from your current integration setup.
+                    Go to your project&apos;s <strong>Map</strong> page and click <strong>Download .mdspecmap</strong>. The file is generated from your current folder mappings and aliases.
                   </p>
                 </CardContent>
               </Card>
@@ -178,7 +327,7 @@ mappings:
                   <p className="text-sm font-medium">From the CLI</p>
                   <CodeBlock>{`MDSPEC_TOKEN=mds_xxx npx mdspeci init --project <project-id>`}</CodeBlock>
                   <p className="text-sm text-muted-foreground">
-                    Fetches your project config and defined aliases, then writes a starter <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> to your repo root.
+                    Fetches your project config and aliases, then writes a starter <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> to your repo root.
                   </p>
                 </CardContent>
               </Card>
@@ -245,85 +394,22 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
 
           <Separator />
 
-          {/* Frontmatter reference */}
-          <section id="frontmatter" className="scroll-mt-20 space-y-6">
-            <h2 className="text-xl font-semibold tracking-tight">Frontmatter reference</h2>
+          {/* Spec files */}
+          <section id="specfiles" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">Spec files</h2>
             <p className="text-sm text-muted-foreground">
-              Add a YAML frontmatter block to any spec file to control how mdspec handles it.
-              All fields are optional.
+              Spec files are plain markdown. No YAML frontmatter, no special syntax. Any <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.md</code> file in a mapped folder is a valid spec.
             </p>
+            <CodeBlock>{`# Checkout Retry Policy
 
-            <Table
-              headers={['Field', 'Type', 'When to use', 'What it does']}
-              rows={[
-                ['`mdspec_skip`', 'boolean', 'Any file', 'Set to true to exclude this file from all syncing. Overrides all folder mappings.'],
-                ['`mdspec_id`', 'string', 'Any file', 'Stable identifier for this spec (lowercase alphanumeric + underscores, max 64 chars). Use this to rename a file without creating a new page in the target tool.'],
-                ['`mdspec_taskid`', 'string', 'ClickUp task_list mappings only', 'Links this spec to an existing ClickUp task by its task ID. On first publish, mdspec adopts the existing task and updates it from then on. Has no effect on doc or non-ClickUp mappings.'],
-                ['`title`', 'string', 'Any file', 'Sets the page title in the target tool. If omitted, mdspec derives the title from the filename (hyphens and underscores replaced with spaces).'],
-              ]}
-            />
+This spec describes the retry behaviour for the checkout service.
 
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold">Skip a file</h3>
-              <p className="text-xs text-muted-foreground">Exclude a single file from syncing without adding it to skip patterns in .mdspecmap.</p>
-              <CodeBlock>{`---
-mdspec_skip: true
----
+## Overview
 
-# Draft: New Auth Flow
-
-This file won't be published until the flag is removed.`}</CodeBlock>
-
-              <h3 className="text-sm font-semibold">Stable ID for safe renames</h3>
-              <p className="text-xs text-muted-foreground">
-                Without an ID, mdspec tracks files by path. Renaming a file creates a new page and orphans the old one.
-                With <code className="font-mono bg-muted px-1 py-0.5 rounded text-xs">mdspec_id</code>, the page in the target tool is updated in-place regardless of the filename.
-              </p>
-              <CodeBlock>{`---
-mdspec_id: auth_spec_v2
----
-
-# Authentication Spec
-
-Content here...`}</CodeBlock>
-
-              <h3 className="text-sm font-semibold">Custom title</h3>
-              <p className="text-xs text-muted-foreground">Override what appears as the page title in Notion, Confluence, or ClickUp.</p>
-              <CodeBlock>{`---
-title: "Authentication — v2 (internal)"
----
-
-# Auth Spec
-
-The frontmatter title takes precedence over the heading.`}</CodeBlock>
-
-              <h3 className="text-sm font-semibold">Link to an existing ClickUp task</h3>
-              <p className="text-xs text-muted-foreground">
-                For <code className="font-mono bg-muted px-1 py-0.5 rounded text-xs">target: task</code> mappings only.
-                On first publish, mdspec adopts the existing task and updates it going forward.
-                Do not confuse with <code className="font-mono bg-muted px-1 py-0.5 rounded text-xs">mdspec_id</code> — that is a rename tracker, not a task link.
-              </p>
-              <CodeBlock>{`---
-mdspec_taskid: 86ev2bkbk
-title: "Long Job Conversion"
----
-
-# Long Job Conversion Spec
-
-mdspec will find task 86ev2bkbk in ClickUp and update it.
-Remove this field to have mdspec create a new task instead.`}</CodeBlock>
-
-              <h3 className="text-sm font-semibold">All fields together</h3>
-              <CodeBlock>{`---
-mdspec_id: payments_overview
-title: "Payments Service Overview"
----
-
-# Payments
-
-Everything here will be published under the custom title,
-tracked by the stable ID, and never skipped.`}</CodeBlock>
-            </div>
+On transient failures, the checkout service retries up to 3 times...`}</CodeBlock>
+            <p className="text-sm text-muted-foreground">
+              All configuration — IDs, titles, task wiring, skip rules — lives in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code>. Teams can adopt mdspec without touching any existing spec files.
+            </p>
           </section>
 
           <Separator />
@@ -331,7 +417,9 @@ tracked by the stable ID, and never skipped.`}</CodeBlock>
           {/* Skip patterns */}
           <section id="skip" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">Skip patterns</h2>
-            <p className="text-sm text-muted-foreground">Exclude files with glob patterns in your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code>:</p>
+            <p className="text-sm text-muted-foreground">
+              Exclude files with glob patterns in the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">skip:</code> field of any mapping:
+            </p>
             <CodeBlock>{`mappings:
   - folder: docs/specs
     integration: notion
@@ -341,13 +429,13 @@ tracked by the stable ID, and never skipped.`}</CodeBlock>
       - _*.md             # skip private files
       - "**/scratch/**"   # skip scratch directories
 
-  # Project-wide skips (no integration, just exclusions)
+  # Project-wide skips — no integration, just exclusions
   - folder: /
     skip:
       - CHANGELOG.md
       - README.md`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
-              You can also skip individual files using frontmatter — see <a href="#frontmatter" className="underline underline-offset-2">Frontmatter reference</a>.
+              Patterns are matched against both the filename and the full relative path.
             </p>
           </section>
 
@@ -357,14 +445,13 @@ tracked by the stable ID, and never skipped.`}</CodeBlock>
           <section id="depth" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">Depth limiting</h2>
             <p className="text-sm text-muted-foreground">
-              By default, a folder mapping syncs all files recursively — including every subdirectory, no matter how deeply nested.
-              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">depth</code> to cap how far down the tree mdspec will look.
+              By default, a mapping syncs all files recursively. Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">depth</code> to cap how deep mdspec looks.
             </p>
             <CodeBlock>{`mappings:
   - folder: docs/specs
     integration: notion
     parent: eng-docs
-    depth: 1          # only docs/specs/*.md — subdirectories are ignored`}</CodeBlock>
+    depth: 1          # only docs/specs/*.md — subdirectories ignored`}</CodeBlock>
             <Table
               headers={['Value', 'What syncs']}
               rows={[
@@ -373,10 +460,6 @@ tracked by the stable ID, and never skipped.`}</CodeBlock>
                 ['`depth: 2`', 'One level of nesting — docs/specs/api/auth.md syncs, docs/specs/api/v2/auth.md does not'],
               ]}
             />
-            <p className="text-sm text-muted-foreground">
-              Specs that exceed the depth limit are still saved to the mdspec ledger — they just won&apos;t be published to the integration.
-              If a file is covered by two mappings and one has no depth limit, it will be synced via that mapping.
-            </p>
           </section>
 
           <Separator />
@@ -384,7 +467,9 @@ tracked by the stable ID, and never skipped.`}</CodeBlock>
           {/* Multiple integrations */}
           <section id="multi" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">Multiple integrations</h2>
-            <p className="text-sm text-muted-foreground">The same folder can sync to multiple integrations:</p>
+            <p className="text-sm text-muted-foreground">
+              The same folder can sync to multiple integrations by adding multiple mappings with the same folder path:
+            </p>
             <CodeBlock>{`mappings:
   - folder: docs/architecture
     integration: notion
@@ -395,6 +480,9 @@ tracked by the stable ID, and never skipped.`}</CodeBlock>
     parent: arch-confluence`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
               Each spec is published independently to both. Failure on one does not block the other.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Note: the most-specific-folder rule applies per integration independently. A spec can match different mappings for different integrations simultaneously.
             </p>
           </section>
         </main>

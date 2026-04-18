@@ -6,13 +6,6 @@ import type { PublishPayload, PublishGroupJobData, PublishGroupSpec, Integration
 const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
 
 
-function resolveTitle(path: string, frontmatter: Record<string, unknown>): string {
-  if (frontmatter?.title && typeof frontmatter.title === 'string') {
-    return frontmatter.title
-  }
-  const filename = path.split('/').pop() ?? path
-  return filename.replace(/\.md$/, '').replace(/[-_]/g, ' ')
-}
 
 function normalizeFolder(folder: string): string {
   const raw = folder.trim()
@@ -286,11 +279,11 @@ export async function POST(request: Request) {
             project_id,
             repo: repo_name,
             path: spec.path,
-            mdspec_id: (spec.frontmatter?.mdspec_id as string) ?? null,
+            mdspec_id: spec.mdspec_id ?? null,
             commit_sha,
             content_hash: spec.hash,
-            title: resolveTitle(spec.path, spec.frontmatter ?? {}),
-            frontmatter: spec.frontmatter ?? null,
+            title: spec.title,
+            frontmatter: null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'project_id,path' }
@@ -403,10 +396,11 @@ export async function POST(request: Request) {
               spec_id: upsertedSpec.id,
               spec_publish_target_id: target.id,
               path: spec.path,
-              title: resolveTitle(spec.path, spec.frontmatter ?? {}),
+              title: spec.title,
+              ...(spec.task_ref ? { task_ref: spec.task_ref } : {}),
               content: spec.content,
               content_hash: spec.hash,
-              frontmatter: spec.frontmatter ?? {},
+              frontmatter: {},
             })
           }
         }

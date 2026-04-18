@@ -312,49 +312,38 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         if (!ctx.clickupListId) throw new Error('clickup_list_id not configured for task_list mode')
 
         console.log(`[publish:task] spec=${spec_id} path=${path}`)
-        console.log(`[publish:task] frontmatter keys present: ${Object.keys(frontmatter ?? {}).join(', ') || '(none)'}`)
-        console.log(`[publish:task] frontmatter_map on mapping: ${JSON.stringify(ctx.clickupFrontmatterMap)}`)
+        console.log(`[publish:task] task_ref from .mdspecmap links: ${spec.task_ref ?? '(not set)'}`)
         console.log(`[publish:task] existingPageId from DB: ${existingPageId ?? '(none)'}`)
 
-        // Adopt task ID from frontmatter (one-time link to a pre-existing task).
-        // Resolve to native ID regardless of whether the user supplied a native
-        // or custom ID — one GET call here, never again after the native ID is stored.
-        if (!existingPageId) {
-          // The user may have configured a custom frontmatter key for clickup_task_id
-          // via frontmatter_map. Fall back to the literal key name if not configured.
-          const taskIdKey = ctx.clickupFrontmatterMap?.['clickup_task_id'] ?? 'mdspec_taskid'
-          const frontmatterTaskId = frontmatter?.[taskIdKey]
-          console.log(`[publish:task] looking for task id under frontmatter key "${taskIdKey}", found: ${frontmatterTaskId ?? '(not set)'}`)
-          if (typeof frontmatterTaskId === 'string' && frontmatterTaskId.length > 0) {
-            const nativeId = await resolveToNativeTaskId(clickupCreds, frontmatterTaskId, ctx.clickupUseCustomTaskIds)
-            console.log(`[publish:task] resolveToNativeTaskId("${frontmatterTaskId}") → ${nativeId ?? 'null (not found)'}`)
-            if (nativeId) {
-              existingPageId = nativeId
-              await supabase
-                .from('spec_publish_targets')
-                .update({ external_page_id: nativeId })
-                .eq('id', spec_publish_target_id)
-              console.log(`[publish:task] adopted task ${frontmatterTaskId} → native id ${nativeId}`)
-            } else {
-              console.log(`[publish:task] task id ${frontmatterTaskId} not found in ClickUp — will create new task`)
-            }
+        // Adopt task ID from links: section in .mdspecmap (one-time link to a pre-existing task).
+        // Resolve to native ID — one GET call here, never again after the native ID is stored.
+        if (!existingPageId && spec.task_ref) {
+          const nativeId = await resolveToNativeTaskId(clickupCreds, spec.task_ref, ctx.clickupUseCustomTaskIds)
+          console.log(`[publish:task] resolveToNativeTaskId("${spec.task_ref}") → ${nativeId ?? 'null (not found)'}`)
+          if (nativeId) {
+            existingPageId = nativeId
+            await supabase
+              .from('spec_publish_targets')
+              .update({ external_page_id: nativeId })
+              .eq('id', spec_publish_target_id)
+            console.log(`[publish:task] adopted task ${spec.task_ref} → native id ${nativeId}`)
           } else {
-            console.log(`[publish:task] no task id in frontmatter — will create new task`)
+            console.log(`[publish:task] task ref ${spec.task_ref} not found in ClickUp — will create new task`)
           }
+        } else if (!existingPageId) {
+          console.log(`[publish:task] no task_ref in links — will create new task`)
         }
 
         let taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId, ctx.clickupFrontmatterMap)
 
         // Stored ID was stale (task deleted in ClickUp) — try to re-resolve from
-        // frontmatter before falling through to create a brand new task.
+        // links: section before falling through to create a brand new task.
         if (taskResult.previousIdStale) {
-          const taskIdKey = ctx.clickupFrontmatterMap?.['clickup_task_id'] ?? 'mdspec_taskid'
-          const frontmatterTaskId = frontmatter?.[taskIdKey]
-          console.log(`[publish:task] stale stored id — re-checking frontmatter key "${taskIdKey}", found: ${frontmatterTaskId ?? '(not set)'}`)
+          console.log(`[publish:task] stale stored id — re-checking task_ref: ${spec.task_ref ?? '(not set)'}`)
           let resolvedId: string | null = null
-          if (typeof frontmatterTaskId === 'string' && frontmatterTaskId.length > 0) {
-            resolvedId = await resolveToNativeTaskId(clickupCreds, frontmatterTaskId, ctx.clickupUseCustomTaskIds)
-            console.log(`[publish:task] re-resolve "${frontmatterTaskId}" → ${resolvedId ?? 'null'}`)
+          if (spec.task_ref) {
+            resolvedId = await resolveToNativeTaskId(clickupCreds, spec.task_ref, ctx.clickupUseCustomTaskIds)
+            console.log(`[publish:task] re-resolve "${spec.task_ref}" → ${resolvedId ?? 'null'}`)
           }
           // Clear stale ID from DB — will be replaced with new one after this publish
           await supabase

@@ -1,5 +1,4 @@
 import yaml from 'js-yaml'
-import matter from 'gray-matter'
 import { execSync } from 'child_process'
 import { createHash } from 'crypto'
 import { readFile, access } from 'fs/promises'
@@ -17,13 +16,22 @@ export interface MdspecMapMapping {
   target?: 'document' | 'task'
   parent?: string
   skip?: string[]
-  depth?: number                     // max folder depth (1 = direct children only)
+  depth?: number
+}
+
+export interface MdspecMapSpecEntry {
+  path: string
+  title?: string
+  agent?: string
+  publish?: 'on-merge' | 'manual'
 }
 
 export interface MdspecMapConfig {
   version: 1
   sync_all_on_first_run?: boolean
   mappings: MdspecMapMapping[]
+  specs?: Record<string, MdspecMapSpecEntry>
+  links?: Record<string, string>
 }
 
 interface PublishOptions {
@@ -36,7 +44,11 @@ export interface SpecArtifact {
   path: string
   previous_path?: string
   hash: string
-  frontmatter: Record<string, unknown>
+  mdspec_id: string
+  title: string
+  task_ref?: string
+  agent?: string
+  publish?: 'on-merge' | 'manual'
   content: string
 }
 
@@ -164,7 +176,7 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
   // 7. Build artifacts
   // -------------------------------------------------------------------------
   const artifactResults = await Promise.all(
-    specsToPublish.map((path) => buildSpecArtifact(path, renames.get(path)))
+    specsToPublish.map((path) => buildSpecArtifact(path, config, renames.get(path)))
   )
   const specs = artifactResults.filter((s): s is SpecArtifact => s !== null)
 
@@ -574,37 +586,85 @@ async function collectMdFiles(dir: string, cwd: string, results: string[]): Prom
   }
 }
 
-export async function buildSpecArtifact(filePath: string, previousPath?: string): Promise<SpecArtifact | null> {
+export async function buildSpecArtifact(
+  filePath: string,
+  config: MdspecMapConfig,
+  previousPath?: string
+): Promise<SpecArtifact | null> {
   try {
-    const raw = await readFile(filePath, 'utf8')
-    const { data: frontmatter, content } = matter(raw)
-
-    // Skip if mdspec_skip is set in frontmatter
-    if (frontmatter.mdspec_skip === true) {
-      console.log(`  skipped: ${filePath} (mdspec_skip: true)`)
-      return null
-    }
-
-    // Validate mdspec_id if present
-    if (frontmatter.mdspec_id !== undefined) {
-      const id = String(frontmatter.mdspec_id)
-      if (!/^[a-z0-9_]{1,64}$/.test(id)) {
-        console.warn(`⚠ Warning: invalid mdspec_id "${id}" in ${filePath} — using path as key`)
-        delete frontmatter.mdspec_id
-      }
-    }
-
+    const content = await readFile(filePath, 'utf8')
+    const specConfig = resolveSpecConfig(filePath, config)
+    // If no explicit title in specs: section, try first H1 before falling back to filename
+    const title = specConfig.title !== deriveTitle(filePath)
+      ? specConfig.title
+      : (extractH1(content) ?? specConfig.title)
     const hash = 'sha256:' + createHash('sha256').update(content).digest('hex')
 
     return {
       path: filePath,
       ...(previousPath ? { previous_path: previousPath } : {}),
       hash,
-      frontmatter: frontmatter as Record<string, unknown>,
+      mdspec_id: specConfig.id,
+      title,
+      ...(specConfig.task_ref ? { task_ref: specConfig.task_ref } : {}),
+      ...(specConfig.agent ? { agent: specConfig.agent } : {}),
+      ...(specConfig.publish ? { publish: specConfig.publish } : {}),
       content,
     }
   } catch (err) {
     console.error(`✗ Failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`)
     return null
   }
+}
+
+// ---------------------------------------------------------------------------
+// Spec config resolution — derives ID, title, agent, task_ref from .mdspecmap
+// ---------------------------------------------------------------------------
+
+interface ResolvedSpecConfig {
+  id: string
+  title: string
+  task_ref?: string
+  agent?: string
+  publish?: 'on-merge' | 'manual'
+}
+
+export function resolveSpecConfig(filePath: string, config: MdspecMapConfig): ResolvedSpecConfig {
+  // Check if an explicit specs: entry declares this path
+  const specsEntries = Object.entries(config.specs ?? {})
+  const explicit = specsEntries.find(([, entry]) => entry.path === filePath)
+
+  let id: string
+  let specEntry: MdspecMapSpecEntry | undefined
+
+  if (explicit) {
+    id = explicit[0]
+    specEntry = explicit[1]
+  } else {
+    id = filePath
+  }
+
+  // Title: specs entry > first H1 in content (resolved later in buildSpecArtifact) > filename
+  // For now we only have the path here; H1 extraction happens in buildSpecArtifact
+  const title = specEntry?.title ?? deriveTitle(filePath)
+
+  const task_ref = config.links?.[id]
+
+  return {
+    id,
+    title,
+    ...(task_ref ? { task_ref } : {}),
+    ...(specEntry?.agent ? { agent: specEntry.agent } : {}),
+    ...(specEntry?.publish ? { publish: specEntry.publish } : {}),
+  }
+}
+
+function deriveTitle(filePath: string): string {
+  const filename = filePath.split('/').pop() ?? filePath
+  return filename.replace(/\.md$/, '').replace(/[-_]/g, ' ')
+}
+
+function extractH1(content: string): string | null {
+  const line = content.split('\n').find((l) => l.startsWith('# '))
+  return line ? line.slice(2).trim() : null
 }
