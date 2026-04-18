@@ -25,7 +25,7 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero */}
-      <section className="px-6 pt-24 pb-20 max-w-3xl mx-auto text-center">
+      <section className="px-6 min-h-[calc(100dvh-57px)] max-w-3xl mx-auto text-center flex flex-col items-center justify-center">
         <Badge variant="outline" className="mb-6">CI-first spec publishing</Badge>
         <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-tight">
           Push markdown.<br />
