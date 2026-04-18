@@ -19,6 +19,7 @@ export interface MdspecMapMapping {
   target?: 'document' | 'task'
   parent?: string                    // alias name (resolved server-side)
   skip?: string[]
+  depth?: number                     // max folder depth to sync (1 = direct children only)
 }
 
 export interface MdspecMapConfig {

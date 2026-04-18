@@ -51,6 +51,7 @@ const NAV = [
   { label: 'CI setup', href: '#ci' },
   { label: 'CLI reference', href: '#cli' },
   { label: 'Skip patterns', href: '#skip' },
+  { label: 'Depth limiting', href: '#depth' },
   { label: 'Multiple integrations', href: '#multi' },
 ]
 
@@ -114,6 +115,7 @@ mappings:
   - folder: docs/specs
     integration: notion
     parent: eng-docs
+    depth: 1          # only docs/specs/*.md — no subdirectories
     skip:
       - DRAFT_*.md
 
@@ -131,6 +133,7 @@ mappings:
                 ['`folder`', 'Which folder in your repo to watch'],
                 ['`integration`', 'Where to sync: notion, confluence, or clickup'],
                 ['`parent`', 'An alias pointing to the target page/space (set up in the Dashboard)'],
+                ['`depth`', 'Max subfolder depth to sync. 1 = direct children only, 2 = one level of nesting. Omit to sync all depths.'],
                 ['`skip`', 'Glob patterns for files to ignore'],
                 ['`sync_all_on_first_run`', 'false (default) starts empty. true syncs everything on first push.'],
               ]}
@@ -246,6 +249,34 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
             <CodeBlock>{`---
 mdspec_skip: true
 ---`}</CodeBlock>
+          </section>
+
+          <Separator />
+
+          {/* Depth */}
+          <section id="depth" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">Depth limiting</h2>
+            <p className="text-sm text-muted-foreground">
+              By default, a folder mapping syncs all files recursively — including every subdirectory, no matter how deeply nested.
+              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">depth</code> to cap how far down the tree mdspec will look.
+            </p>
+            <CodeBlock>{`mappings:
+  - folder: docs/specs
+    integration: notion
+    parent: eng-docs
+    depth: 1          # only docs/specs/*.md — subdirectories are ignored`}</CodeBlock>
+            <Table
+              headers={['Value', 'What syncs']}
+              rows={[
+                ['omitted', 'Everything under the folder, at any depth'],
+                ['`depth: 1`', 'Direct children only — docs/specs/auth.md syncs, docs/specs/api/auth.md does not'],
+                ['`depth: 2`', 'One level of nesting — docs/specs/api/auth.md syncs, docs/specs/api/v2/auth.md does not'],
+              ]}
+            />
+            <p className="text-sm text-muted-foreground">
+              Specs that exceed the depth limit are still saved to the mdspec ledger — they just won&apos;t be published to the integration.
+              If a file is covered by two mappings and one has no depth limit, it will be synced via that mapping.
+            </p>
           </section>
 
           <Separator />

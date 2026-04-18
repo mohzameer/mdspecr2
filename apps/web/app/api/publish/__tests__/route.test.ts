@@ -452,3 +452,96 @@ describe('2.1 Successful publish', () => {
     expect(res.status).toBe(202)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Depth filtering
+// ---------------------------------------------------------------------------
+
+describe('2.1 Depth filtering', () => {
+  function setupFullPublish(supabase: ReturnType<typeof createServiceMock>) {
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    setupAliasResolution(supabase)
+  }
+
+  it('depth=1: spec at exact folder depth is queued', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupFullPublish(supabase)
+    setupSpecUpsert(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'docs/auth.md', hash: 'sha256:abc', frontmatter: {}, content: '# Auth' }],
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-docs', depth: 1 }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+    const body = await res.json()
+    expect(body.saved).toBe(1)
+    expect(body.queued).toBe(1)
+  })
+
+  it('depth=1: spec nested one level deep is saved but not queued', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupFullPublish(supabase)
+    // spec upsert still runs (saved), but no publish target insert
+    setupSpecUpsert(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'docs/api/tokens.md', hash: 'sha256:abc', frontmatter: {}, content: '# Tokens' }],
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-docs', depth: 1 }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+    const body = await res.json()
+    expect(body.saved).toBe(1)
+    expect(body.queued).toBe(0)
+  })
+
+  it('depth=2: spec two levels deep is queued', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupFullPublish(supabase)
+    setupSpecUpsert(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'docs/api/tokens.md', hash: 'sha256:abc', frontmatter: {}, content: '# Tokens' }],
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-docs', depth: 2 }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+    const body = await res.json()
+    expect(body.queued).toBe(1)
+  })
+
+  it('no depth: all nesting levels are queued', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    setupAliasResolution(supabase)
+    // two specs
+    for (let i = 0; i < 2; i++) setupSpecUpsert(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [
+        { path: 'docs/auth.md', hash: 'sha256:a1', frontmatter: {}, content: '# Auth' },
+        { path: 'docs/api/v2/tokens.md', hash: 'sha256:a2', frontmatter: {}, content: '# Tokens' },
+      ],
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'eng-docs' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+    const body = await res.json()
+    expect(body.queued).toBe(2)
+  })
+})

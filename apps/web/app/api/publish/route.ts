@@ -1,33 +1,10 @@
 import bcrypt from 'bcryptjs'
 import { createSupabaseServiceClient } from '@/lib/db-server'
 import { Client } from '@upstash/qstash'
-import type { PublishPayload, PublishGroupJobData, PublishGroupSpec, IntegrationType, MdspecMapConfig, MdspecMapMapping } from '@/lib/types'
-import { getAncestorFolders } from '@/lib/folder-hierarchy'
+import type { PublishPayload, PublishGroupJobData, PublishGroupSpec, IntegrationType, MdspecMapConfig } from '@/lib/types'
 
 const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
 
-// Returns the most specific mapped folder for a spec path from the config mappings.
-function findBestMappedFolder(
-  specPath: string,
-  integration: string,
-  mappings: MdspecMapMapping[]
-): MdspecMapMapping | null {
-  const ancestors = getAncestorFolders(specPath)
-    .map((a) => a.path)
-    .reverse() // most specific first
-
-  // Also check root ("")
-  const candidates = [...ancestors, '']
-
-  for (const candidate of candidates) {
-    const match = mappings.find((m) => {
-      const normalised = normalizeFolder(m.folder)
-      return normalised === candidate && m.integration === integration
-    })
-    if (match) return match
-  }
-  return null
-}
 
 function normalizeFolder(folder: string): string {
   const raw = folder.trim()
@@ -329,6 +306,15 @@ export async function POST(request: Request) {
           spec.path === normalizedMappingFolder
 
         if (!specInFolder) continue
+
+        // Check depth limit if set
+        if (mapping.depth !== undefined) {
+          const relative = normalizedMappingFolder === ''
+            ? spec.path
+            : spec.path.slice(normalizedMappingFolder.length + 1)
+          const segments = relative.split('/').filter(Boolean)
+          if (segments.length > mapping.depth) continue
+        }
 
         // Resolve integration_id — prefer alias resolution, fall back to type lookup
         let integrationId: string | undefined

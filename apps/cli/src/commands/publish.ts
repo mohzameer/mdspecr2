@@ -17,6 +17,7 @@ export interface MdspecMapMapping {
   target?: 'document' | 'task'
   parent?: string
   skip?: string[]
+  depth?: number                     // max folder depth (1 = direct children only)
 }
 
 export interface MdspecMapConfig {
@@ -155,8 +156,9 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
   // -------------------------------------------------------------------------
   const beforeSkip = specsToPublish.length
   specsToPublish = applySkipPatterns(specsToPublish, globalSkips, folderSkips)
+  specsToPublish = applyDepthFilter(specsToPublish, config)
   const skippedByPattern = beforeSkip - specsToPublish.length
-  if (skippedByPattern > 0) console.log(`— Skipped ${skippedByPattern} file(s) matching skip patterns`)
+  if (skippedByPattern > 0) console.log(`— Skipped ${skippedByPattern} file(s) matching skip patterns or depth limit`)
 
   // -------------------------------------------------------------------------
   // 7. Build artifacts
@@ -317,6 +319,9 @@ export async function readMdspecMap(): Promise<MdspecMapConfig> {
       if (m.target && !['document', 'task'].includes(m.target as string)) {
         errors.push(`mappings[${i}].target: must be 'document' or 'task'`)
       }
+      if (m.depth !== undefined && (!Number.isInteger(m.depth) || (m.depth as number) < 1)) {
+        errors.push(`mappings[${i}].depth: must be a positive integer`)
+      }
     }
   }
 
@@ -334,6 +339,42 @@ export async function readMdspecMap(): Promise<MdspecMapConfig> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns true if `specPath` is within `depth` levels of `normalizedFolder`.
+ * depth=1 means only direct children (no subdirectory nesting).
+ */
+export function isWithinDepth(specPath: string, normalizedFolder: string, depth: number): boolean {
+  const relative = normalizedFolder === ''
+    ? specPath
+    : specPath.slice(normalizedFolder.length + 1)
+  const segments = relative.split('/').filter(Boolean)
+  return segments.length <= depth
+}
+
+/**
+ * Filters out specs that exceed the depth limit of every mapping that would cover them.
+ * If a spec is covered by at least one mapping with no depth limit (or within its depth),
+ * it is kept.
+ */
+export function applyDepthFilter(files: string[], config: MdspecMapConfig): string[] {
+  const hasDepthLimits = config.mappings.some((m) => m.depth !== undefined)
+  if (!hasDepthLimits) return files
+
+  return files.filter((filePath) => {
+    for (const mapping of config.mappings) {
+      const normalizedFolder = normalizeFolder(mapping.folder)
+      const inFolder = normalizedFolder === '' ||
+        filePath.startsWith(normalizedFolder + '/') ||
+        filePath === normalizedFolder
+
+      if (!inFolder) continue
+      if (mapping.depth === undefined) return true
+      if (isWithinDepth(filePath, normalizedFolder, mapping.depth)) return true
+    }
+    return false
+  })
+}
 
 export function applySkipPatterns(
   files: string[],

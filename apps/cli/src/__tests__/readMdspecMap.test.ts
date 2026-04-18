@@ -127,6 +127,35 @@ it('1.1.9 exits on invalid target value', async () => {
   )
 })
 
+// depth validation
+it('depth: valid positive integer is accepted', async () => {
+  vi.mocked(fs.access).mockResolvedValue(undefined)
+  vi.mocked(fs.readFile).mockResolvedValue(
+    'version: 1\nmappings:\n  - folder: docs\n    integration: notion\n    depth: 2\n' as never
+  )
+  const cfg = await readMdspecMap()
+  expect(cfg.mappings[0].depth).toBe(2)
+  expect(mockExit).not.toHaveBeenCalled()
+})
+
+it('depth: zero is invalid', async () => {
+  vi.mocked(fs.access).mockResolvedValue(undefined)
+  vi.mocked(fs.readFile).mockResolvedValue(
+    'version: 1\nmappings:\n  - folder: docs\n    integration: notion\n    depth: 0\n' as never
+  )
+  await expect(readMdspecMap()).rejects.toThrow('exit:1')
+  expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('depth: must be a positive integer'))
+})
+
+it('depth: negative value is invalid', async () => {
+  vi.mocked(fs.access).mockResolvedValue(undefined)
+  vi.mocked(fs.readFile).mockResolvedValue(
+    'version: 1\nmappings:\n  - folder: docs\n    integration: notion\n    depth: -1\n' as never
+  )
+  await expect(readMdspecMap()).rejects.toThrow('exit:1')
+  expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('depth: must be a positive integer'))
+})
+
 // 1.1.10
 it('1.1.10 allows skip-only mapping with no integration', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
