@@ -32,7 +32,7 @@ export default function LandingPage() {
           <span className="text-muted-foreground">Publish everywhere.</span>
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
-          Push markdown from CI — publish to Notion, Confluence, and ClickUp as vanilla docs or transform them with agent-based templates into release notes, task summaries, and more.
+          Push markdown from CI — publish to Notion, Confluence, ClickUp, and S3 as vanilla docs or transform them with agent-based templates into release notes, task summaries, and more.
         </p>
         <div className="mt-10 flex items-center justify-center gap-3">
           <Link href="/login?next=/onboarding" className={buttonVariants({ size: 'lg' })}>
@@ -42,6 +42,15 @@ export default function LandingPage() {
             See pricing
           </Link>
         </div>
+
+        {/* Integration badges */}
+        <div className="mt-10 flex items-center justify-center gap-3 flex-wrap">
+          <IntegrationBadge label="ClickUp" icon="✓" active />
+          <IntegrationBadge label="S3" icon="⬡" active />
+          <IntegrationBadge label="Notion" icon="N" />
+          <IntegrationBadge label="Confluence" icon="C" />
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">Available now — more coming soon</p>
       </section>
 
       <Separator className="max-w-5xl mx-auto" />
@@ -51,7 +60,7 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">How it works</p>
           <div className="grid sm:grid-cols-3 gap-6">
-            <Step number="1" title="Connect an integration" description="Sign up, create a project, connect Notion, Confluence, or ClickUp. Set up aliases that map names to target pages." />
+            <Step number="1" title="Connect an integration" description="Sign up, create a project, connect Notion, Confluence, ClickUp, or S3. Set up aliases that map names to target pages." />
             <Step number="2" title="Generate your .mdspecmap" description="Use the dashboard map builder to configure folder-to-integration mappings, then download the generated .mdspecmap and drop it in your repo root." />
             <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs." />
           </div>
@@ -187,6 +196,22 @@ function Step({ number, title, description }: { number: string; title: string; d
       </div>
       <h3 className="text-sm font-semibold mb-1">{title}</h3>
       <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
+    </div>
+  )
+}
+
+function IntegrationBadge({ label, icon, active }: { label: string; icon: string; active?: boolean }) {
+  return (
+    <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+      active
+        ? 'border-foreground/20 bg-background text-foreground'
+        : 'border-border bg-background text-muted-foreground opacity-40'
+    }`}>
+      <span className="text-xs font-bold w-4 h-4 flex items-center justify-center rounded bg-muted text-muted-foreground">
+        {icon}
+      </span>
+      {label}
+      {active && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
     </div>
   )
 }
