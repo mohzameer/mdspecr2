@@ -18,7 +18,7 @@ export interface MdspecMapMapping {
   skip?: string[]
   depth?: number
   list_id?: string                   // id:<clickupListId> — task_list mode
-  doc_id?: string                    // id:<clickupDocId> — doc mode parent doc
+  parent_doc?: string                // id:<clickupDocId> — specs publish as pages inside this doc
   space_id?: string                  // id:<clickupSpaceOrFolderId> — omit for workspace root
   custom_task_ids?: boolean          // use ClickUp custom task IDs
   agent?: string                     // agent template name

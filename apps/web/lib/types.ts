@@ -21,7 +21,7 @@ export interface MdspecMapMapping {
   skip?: string[]
   depth?: number                     // max folder depth to sync (1 = direct children only)
   list_id?: string                   // id:<clickupListId> — task_list mode
-  doc_id?: string                    // id:<clickupDocId> — doc mode parent doc
+  parent_doc?: string                // id:<clickupDocId> — specs publish as pages inside this doc
   space_id?: string                  // id:<clickupSpaceOrFolderId> — target space/folder (omit for workspace root)
   custom_task_ids?: boolean          // use ClickUp custom task IDs
   agent?: string                     // agent template name

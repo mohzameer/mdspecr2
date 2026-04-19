@@ -593,7 +593,7 @@ async function reconcileFolderMappings(
             clickup_mode: mode,
             skip_patterns: mapping.skip ?? [],
             ...(mapping.list_id !== undefined ? { clickup_list_id: parseId(mapping.list_id) } : {}),
-            ...(mapping.doc_id !== undefined ? { clickup_doc_id: parseId(mapping.doc_id) } : {}),
+            ...(mapping.parent_doc !== undefined ? { clickup_doc_id: parseId(mapping.parent_doc) } : {}),
             ...(mapping.space_id !== undefined ? { target_id: parseId(mapping.space_id) } : {}),
             ...(mapping.custom_task_ids !== undefined ? { clickup_use_custom_task_ids: mapping.custom_task_ids } : {}),
             ...(templateId !== undefined ? { template_id: templateId } : {}),

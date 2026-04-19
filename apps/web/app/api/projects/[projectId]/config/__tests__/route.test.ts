@@ -211,11 +211,11 @@ describe('2.4 GET /api/projects/:projectId/generate-mdspecmap', () => {
     // no per-mapping integration: since default covers it
     expect(text).not.toMatch(/^    integration:/m)
 
-    // src — has doc_id
+    // src — has parent_doc
     expect(text).toContain('folder: src')
-    expect(text).toContain('doc_id: id:2kzm3ftx-5278')
+    expect(text).toContain('parent_doc: id:2kzm3ftx-5278')
 
-    // src/hooks — minimal, just folder (no doc_id, no target)
+    // src/hooks — minimal, just folder (no parent_doc, no target)
     expect(text).toContain('folder: src/hooks')
 
     // src/utils — task_list with all fields
@@ -296,7 +296,7 @@ describe('2.4 GET /api/projects/:projectId/generate-mdspecmap', () => {
     expect(text).toContain('integration: notion')
   })
 
-  it('2.4.15 doc mapping without doc_id emits no doc_id field', async () => {
+  it('2.4.15 doc mapping without parent_doc emits no parent_doc field', async () => {
     const sb = makeMapClient([{
       folder_path: 'docs', integration_id: 'ck1', clickup_mode: 'doc',
       skip_patterns: [], target_id: null, clickup_list_id: null,
@@ -307,7 +307,7 @@ describe('2.4 GET /api/projects/:projectId/generate-mdspecmap', () => {
 
     const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
     const text = await res.text()
-    expect(text).not.toContain('doc_id:')
+    expect(text).not.toContain('parent_doc:')
   })
 
   it('2.4.16 agent template name is emitted only when set', async () => {
@@ -349,7 +349,7 @@ describe('2.4 GET /api/projects/:projectId/generate-mdspecmap', () => {
     expect(text).toContain('list_id: id:901812098656')
   })
 
-  it('2.4.7 doc mapping with parent doc emits doc_id with id: prefix', async () => {
+  it('2.4.7 doc mapping with parent doc emits parent_doc with id: prefix', async () => {
     const sb = makeMapClient([{
       folder_path: 'src', integration_id: 'int1', clickup_mode: 'doc',
       skip_patterns: [], target_id: null, clickup_list_id: null,
@@ -359,7 +359,7 @@ describe('2.4 GET /api/projects/:projectId/generate-mdspecmap', () => {
 
     const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
     const text = await res.text()
-    expect(text).toContain('doc_id: id:2kzm3ftx-5278')
+    expect(text).toContain('parent_doc: id:2kzm3ftx-5278')
   })
 
   it('2.4.8 mapping with space target emits space_id with id: prefix', async () => {

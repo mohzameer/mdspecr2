@@ -196,6 +196,11 @@ specs:
                 ['`target`', 'No', 'For ClickUp only: document (default) or task. task publishes specs as ClickUp tasks.'],
                 ['`depth`', 'No', 'Max subfolder depth. 1 = direct children only. Omit for unlimited depth.'],
                 ['`skip`', 'No', 'Glob patterns for files to exclude from this mapping.'],
+                ['`list_id`', 'No', 'ClickUp list ID for task_list mode. Use id:<listId> prefix. Required when target: task.'],
+                ['`parent_doc`', 'No', 'ClickUp doc that specs publish inside as pages. Use id:<docId> prefix. Doc mode only.'],
+                ['`space_id`', 'No', 'ClickUp space or folder ID. Use id:<spaceId> prefix. Omit for workspace root.'],
+                ['`custom_task_ids`', 'No', 'true to use ClickUp custom task IDs. task_list mode only.'],
+                ['`agent`', 'No', 'Agent template name to apply before publishing. Must match a template defined in Dashboard → Map → Templates.'],
               ]}
             />
             <CodeBlock>{`mappings:
@@ -205,16 +210,18 @@ specs:
     parent: alias:eng-docs     # alias: → dashboard alias name
     depth: 1
 
-  # src/ specs → ClickUp (raw ID)
+  # src/ specs → ClickUp docs inside a parent doc
   - folder: src
     integration: clickup
-    parent: id:90181844797     # id: → raw ClickUp space ID
+    parent_doc: id:2kzm3ftx-5278   # specs publish as pages inside this doc
 
   # src/utils/ specs → ClickUp tasks
   - folder: src/utils
     integration: clickup
-    parent: id:901812098656    # id: → raw ClickUp list ID
-    target: task`}</CodeBlock>
+    target: task
+    list_id: id:901812098656       # required for task_list mode
+    custom_task_ids: true
+    agent: Task Template`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
               In the example above, a file at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils/SPEC7.md</code> goes only to the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils</code> mapping — not to <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src</code> or <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/</code>.
             </p>

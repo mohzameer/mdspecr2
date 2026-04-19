@@ -79,9 +79,9 @@ export async function GET(
         if (m.clickup_use_custom_task_ids) lines.push(`    custom_task_ids: true`)
       }
 
-      // For doc mode: emit parent doc ID if configured
+      // For doc mode: emit parent doc ID if configured (specs publish as pages inside this doc)
       if (!isTaskList && m.clickup_doc_id) {
-        lines.push(`    doc_id: id:${m.clickup_doc_id}`)
+        lines.push(`    parent_doc: id:${m.clickup_doc_id}`)
       }
 
       // Emit space/folder target_id if configured (null = workspace root, no field needed)
