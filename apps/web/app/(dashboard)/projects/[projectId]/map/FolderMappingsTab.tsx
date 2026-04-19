@@ -39,11 +39,6 @@ interface ClickUpTarget {
   space_name?: string
 }
 
-interface ClickUpList {
-  id: string
-  name: string
-}
-
 interface Props {
   projectId: string
   discoveredFolders: string[]
@@ -75,18 +70,16 @@ export function FolderMappingsTab({
   const [newFolderPath, setNewFolderPath] = useState('')
   const [newFolderIntegrationId, setNewFolderIntegrationId] = useState('')
   const [newFolderMode, setNewFolderMode] = useState<'doc' | 'task_list'>('doc')
-  const [newFolderTargetId, setNewFolderTargetId] = useState<string>('')
   const [newFolderListId, setNewFolderListId] = useState<string>('')
   const [newFolderTemplateId, setNewFolderTemplateId] = useState<string>('')
   const [addingFolder, setAddingFolder] = useState(false)
   const [savingMappingId, setSavingMappingId] = useState<string | null>(null)
   const [deletingMappingId, setDeletingMappingId] = useState<string | null>(null)
-  const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
   const [addingDiscoveredFolder, setAddingDiscoveredFolder] = useState<string | null>(null)
-  // listsCache: integrationId:spaceId → ClickUpList[]
-  const [listsCache, setListsCache] = useState<Record<string, ClickUpList[]>>({})
+  const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
   // new row doc state
   const [newFolderDocId, setNewFolderDocId] = useState<string>('')
+  const [newFolderSpaceId, setNewFolderSpaceId] = useState<string>('')
   // existing mapping doc URL drafts: mappingId → raw URL input
   const [docUrlDraft, setDocUrlDraft] = useState<Record<string, string>>({})
   // existing mapping list URL drafts: mappingId → raw URL input
@@ -95,24 +88,31 @@ export function FolderMappingsTab({
   const [skipDraft, setSkipDraft] = useState<Record<string, string>>({})
   const [newFolderSkipPatterns, setNewFolderSkipPatterns] = useState<string>('')
 
-
-  // Pre-load ClickUp targets and task lists for all relevant mappings
+  // Load ClickUp targets for all existing ClickUp mappings
   useEffect(() => {
-    const clickupMappings = mappings.filter((m) => m.integrations?.type === 'clickup')
-
-    // Targets (spaces / folders)
-    const clickupIds = [...new Set(clickupMappings.map((m) => m.integration_id))]
-    for (const id of clickupIds) {
+    const ids = [...new Set(
+      mappings.filter((m) => m.integrations?.type === 'clickup').map((m) => m.integration_id)
+    )]
+    for (const id of ids) {
       if (targetsCache[id]) continue
       fetch(`/api/integrations/${id}/clickup-targets`)
         .then((r) => r.json())
-        .then((data) => {
-          if (Array.isArray(data)) setTargetsCache((prev) => ({ ...prev, [id]: data }))
-        })
+        .then((data) => { if (Array.isArray(data)) setTargetsCache((prev) => ({ ...prev, [id]: data })) })
         .catch(() => {})
     }
-
   }, [mappings])
+
+  // Load ClickUp targets when a new-row integration is selected
+  useEffect(() => {
+    if (!newFolderIntegrationId) return
+    const integration = availableIntegrations.find((i) => i.id === newFolderIntegrationId)
+    if (integration?.type !== 'clickup') return
+    if (targetsCache[newFolderIntegrationId]) return
+    fetch(`/api/integrations/${newFolderIntegrationId}/clickup-targets`)
+      .then((r) => r.json())
+      .then((data) => { if (Array.isArray(data)) setTargetsCache((prev) => ({ ...prev, [newFolderIntegrationId]: data })) })
+      .catch(() => {})
+  }, [newFolderIntegrationId])
 
   // Only show folders that have active mappings. Discovered folders are shown
   // as suggestions below for quickly adding new ones.
@@ -263,20 +263,7 @@ async function applyToAll() {
     return trimmed
   }
 
-  function loadLists(integrationId: string, spaceId: string) {
-    const cacheKey = `${integrationId}:${spaceId}`
-    if (listsCache[cacheKey]) return
-    fetch(`/api/integrations/${integrationId}/clickup-lists?space_id=${spaceId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data.lists)) {
-          setListsCache((prev) => ({ ...prev, [cacheKey]: data.lists }))
-        }
-      })
-      .catch(() => {})
-  }
-
-  function prefillFromSuggestion(folderPath: string) {
+function prefillFromSuggestion(folderPath: string) {
     const display = folderPath === '' ? '/' : folderPath
     setNewFolderPath(display)
     document.getElementById('new-folder-path-input')?.focus()
@@ -326,7 +313,7 @@ async function applyToAll() {
         folder_path: path || '/',
         integration_id: integrationId,
         clickup_mode: mode,
-        target_id: newFolderTargetId || null,
+        target_id: newFolderSpaceId || null,
         clickup_list_id: newFolderListId || null,
         clickup_doc_id: newFolderDocId || null,
         skip_patterns: newFolderSkipPatterns.split('\n').map((l) => l.trim()).filter(Boolean),
@@ -345,6 +332,7 @@ async function applyToAll() {
       setNewFolderListId('')
       setNewFolderTemplateId('')
       setNewFolderDocId('')
+      setNewFolderSpaceId('')
       setNewFolderSkipPatterns('')
     }
     setAddingFolder(false)
@@ -491,19 +479,27 @@ async function applyToAll() {
                         const targetsLoaded = !!targetsCache[mapping.integration_id]
                         const isSaving = savingMappingId === mapping.id
                         const mode = mapping.clickup_mode ?? 'doc'
-
-                        const selectedSpaceId = mapping.target_id?.startsWith('space:')
-                          ? mapping.target_id.slice(6)
-                          : null
-
-                        const listsCacheKey = selectedSpaceId
-                          ? `${mapping.integration_id}:${selectedSpaceId}`
-                          : null
-                        const lists: ClickUpList[] = listsCacheKey ? (listsCache[listsCacheKey] ?? []) : []
-                        const listsLoaded = listsCacheKey ? !!listsCache[listsCacheKey] : false
-
                         return (
                           <div className="flex flex-col gap-1.5 w-fit">
+                            {/* Space dropdown — shown before mode selection, applies to both modes */}
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs text-zinc-500">Space <span className="text-zinc-400">(optional — leave empty for workspace root)</span></span>
+                              <select
+                                disabled={!canEdit || !targetsLoaded || isSaving}
+                                value={mapping.target_id ?? ''}
+                                onChange={(e) => updateClickupConfig(mapping.id, { target_id: e.target.value || null })}
+                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                              >
+                                <option value="">{targetsLoaded ? 'Workspace root' : 'Loading…'}</option>
+                                {targets.filter((t) => t.kind === 'space').map((t) => (
+                                  <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                                {targets.filter((t) => t.kind === 'folder').map((t) => (
+                                  <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
+                                ))}
+                              </select>
+                            </div>
+
                             {/* Mode toggle */}
                             {canEdit && (
                               <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs">
@@ -521,29 +517,6 @@ async function applyToAll() {
                                 >
                                   Task list
                                 </button>
-                              </div>
-                            )}
-
-                            {mode === 'doc' && (
-                              <div className="inline-flex items-center gap-1.5 flex-wrap">
-                                <select
-                                  disabled={!canEdit || !targetsLoaded || isSaving}
-                                  value={mapping.target_id ?? ''}
-                                  onChange={(e) => {
-                                    const newTargetId = e.target.value || null
-                                    updateClickupConfig(mapping.id, { target_id: newTargetId, clickup_list_id: null })
-                                  }}
-                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-                                >
-                                  <option value="">{targetsLoaded ? 'Workspace root' : 'Loading…'}</option>
-                                  {targets.filter((t) => t.kind === 'space').map((t) => (
-                                    <option key={t.id} value={t.id}>{t.name} (space)</option>
-                                  ))}
-                                  {targets.filter((t) => t.kind === 'folder').map((t) => (
-                                    <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
-                                  ))}
-                                </select>
-                                {isSaving && spinner}
                               </div>
                             )}
 
@@ -628,20 +601,6 @@ async function applyToAll() {
               {canEdit && (() => {
                 const newIntegration = availableIntegrations.find((i) => i.id === newFolderIntegrationId)
                 const isClickUp = newIntegration?.type === 'clickup'
-                const newTargets = newFolderIntegrationId ? (targetsCache[newFolderIntegrationId] ?? []) : []
-                const newTargetsLoaded = !!targetsCache[newFolderIntegrationId]
-                const newSelectedSpaceId = newFolderTargetId.startsWith('space:') ? newFolderTargetId.slice(6) : null
-                const newListsCacheKey = newSelectedSpaceId ? `${newFolderIntegrationId}:${newSelectedSpaceId}` : null
-                const newLists = newListsCacheKey ? (listsCache[newListsCacheKey] ?? []) : []
-                const newListsLoaded = newListsCacheKey ? !!listsCache[newListsCacheKey] : false
-
-                // Load targets when integration changes
-                if (isClickUp && newFolderIntegrationId && !targetsCache[newFolderIntegrationId]) {
-                  fetch(`/api/integrations/${newFolderIntegrationId}/clickup-targets`)
-                    .then((r) => r.json())
-                    .then((data) => { if (Array.isArray(data)) setTargetsCache((prev) => ({ ...prev, [newFolderIntegrationId]: data })) })
-                    .catch(() => {})
-                }
 
                 return (
                   <tr className="border-t-2 border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/20">
@@ -662,7 +621,7 @@ async function applyToAll() {
                     <td className="px-4 py-3 align-top">
                       <select
                         value={newFolderIntegrationId}
-                        onChange={(e) => { setNewFolderIntegrationId(e.target.value); setNewFolderMode('doc'); setNewFolderTargetId(''); setNewFolderListId('') }}
+                        onChange={(e) => { setNewFolderIntegrationId(e.target.value); setNewFolderMode('doc'); setNewFolderListId('') }}
                         className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                       >
                         <option value="">Integration…</option>
@@ -688,29 +647,34 @@ async function applyToAll() {
 
                     {/* Destination */}
                     <td className="px-4 py-3 align-top">
-                      {isClickUp ? (
+                      {isClickUp ? (() => {
+                        const newTargets = targetsCache[newFolderIntegrationId] ?? []
+                        const newTargetsLoaded = !!targetsCache[newFolderIntegrationId]
+                        return (
                         <div className="flex flex-col gap-1.5">
-                          {/* Mode toggle sits here, above the space/list selectors */}
-                          <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs w-fit">
-                            <button type="button" onClick={() => setNewFolderMode('doc')} className={`px-2 py-1 transition-colors ${newFolderMode === 'doc' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Doc</button>
-                            <button type="button" onClick={() => setNewFolderMode('task_list')} className={`px-2 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors ${newFolderMode === 'task_list' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Task list</button>
-                          </div>
-                          {newFolderMode === 'doc' && (
+                          {/* Space dropdown — applies to both modes, shown before mode selection */}
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs text-zinc-500">Space <span className="text-zinc-400">(optional)</span></span>
                             <select
-                              value={newFolderTargetId}
-                              onChange={(e) => setNewFolderTargetId(e.target.value)}
                               disabled={!newTargetsLoaded}
+                              value={newFolderSpaceId}
+                              onChange={(e) => setNewFolderSpaceId(e.target.value)}
                               className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                             >
                               <option value="">{newTargetsLoaded ? 'Workspace root' : 'Loading…'}</option>
                               {newTargets.filter((t) => t.kind === 'space').map((t) => (
-                                <option key={t.id} value={t.id}>{t.name} (space)</option>
+                                <option key={t.id} value={t.id}>{t.name}</option>
                               ))}
                               {newTargets.filter((t) => t.kind === 'folder').map((t) => (
                                 <option key={t.id} value={t.id}>{t.space_name} / {t.name}</option>
                               ))}
                             </select>
-                          )}
+                          </div>
+                          {/* Mode toggle */}
+                          <div className="inline-flex rounded border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs w-fit">
+                            <button type="button" onClick={() => setNewFolderMode('doc')} className={`px-2 py-1 transition-colors ${newFolderMode === 'doc' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Doc</button>
+                            <button type="button" onClick={() => setNewFolderMode('task_list')} className={`px-2 py-1 border-l border-zinc-300 dark:border-zinc-700 transition-colors ${newFolderMode === 'task_list' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>Task list</button>
+                          </div>
                           {newFolderMode === 'task_list' && (
                             <div className="flex flex-col gap-1">
                               <span className="text-xs text-zinc-500">List URL or ID</span>
@@ -738,7 +702,8 @@ async function applyToAll() {
                             </div>
                           )}
                         </div>
-                      ) : (
+                        )
+                      })() : (
                         <span className="text-xs text-zinc-400">—</span>
                       )}
                     </td>
