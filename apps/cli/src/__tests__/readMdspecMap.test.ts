@@ -198,3 +198,22 @@ it('default: invalid integration type errors', async () => {
   await expect(readMdspecMap()).rejects.toThrow('exit:1')
   expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('default.integration'))
 })
+
+// parseParent unit tests
+import { parseParent } from '../commands/publish.js'
+
+it('parseParent: alias: prefix', () => {
+  expect(parseParent('alias:eng-docs')).toEqual({ type: 'alias', value: 'eng-docs' })
+})
+
+it('parseParent: id: prefix', () => {
+  expect(parseParent('id:90181844797')).toEqual({ type: 'id', value: '90181844797' })
+})
+
+it('parseParent: bare value', () => {
+  expect(parseParent('eng-docs')).toEqual({ type: 'bare', value: 'eng-docs' })
+})
+
+it('parseParent: bare numeric ID', () => {
+  expect(parseParent('90181844797')).toEqual({ type: 'bare', value: '90181844797' })
+})

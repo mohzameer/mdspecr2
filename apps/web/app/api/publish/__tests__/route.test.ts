@@ -396,6 +396,58 @@ describe('2.1 Alias resolution', () => {
     const body = await res.json()
     expect(body.error).toBe('unresolved_aliases')
   })
+
+  it('id: prefix uses native ID directly without alias lookup — returns 202', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    // integrations — notion connected
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [{ id: 'int1', type: 'notion' }], error: null })
+    )
+    // no alias lookup should happen — but mock returns empty just in case
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [], error: null })
+    )
+    setupSpecUpsert(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'id:page_abc123' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+    const body = await res.json()
+    expect(body.accepted).toBe(true)
+  })
+
+  it('bare value falls back to raw ID when no alias matches — returns 202', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    // integrations
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [{ id: 'int1', type: 'notion' }], error: null })
+    )
+    // alias lookup returns nothing — bare value falls back to raw ID
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [], error: null })
+    )
+    setupSpecUpsert(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion', parent: 'raw-native-id' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+    const body = await res.json()
+    expect(body.accepted).toBe(true)
+  })
 })
 
 // ---------------------------------------------------------------------------
