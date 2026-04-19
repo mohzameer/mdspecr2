@@ -569,6 +569,7 @@ async function reconcileFolderMappings(
     for (const rawMapping of config.mappings) {
       const mapping = resolveMapping(rawMapping, config)
       if (!mapping.integration) continue
+      if (normalizeFolder(mapping.folder) === '') continue
 
       let integrationId: string | undefined
       if (mapping.parent && resolvedAliases.has(mapping.parent)) {

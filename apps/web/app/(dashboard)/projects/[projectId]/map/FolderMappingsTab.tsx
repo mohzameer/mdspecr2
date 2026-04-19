@@ -328,7 +328,6 @@ function prefillFromSuggestion(folderPath: string) {
       setNewFolderPath('')
       setNewFolderIntegrationId('')
       setNewFolderMode('doc')
-      setNewFolderTargetId('')
       setNewFolderListId('')
       setNewFolderTemplateId('')
       setNewFolderDocId('')
