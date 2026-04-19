@@ -77,7 +77,25 @@ export function MapPageClient({
   const [activeTab, setActiveTab] = useState<Tab>('folder-mappings')
   const [mappings, setMappings] = useState(initialMappings)
   const [templates, setTemplates] = useState(initialTemplates)
+  const [downloading, setDownloading] = useState(false)
   const discoveredFolders = initialDiscoveredFolders ?? []
+
+  async function downloadMdspecmap() {
+    setDownloading(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/generate-mdspecmap`)
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = '.mdspecmap'
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return (
     <div className="p-8 max-w-5xl">
@@ -86,20 +104,21 @@ export function MapPageClient({
           Map — {projectName}
         </h1>
         <button
-          onClick={async () => {
-            const res = await fetch(`/api/projects/${projectId}/generate-mdspecmap`)
-            if (!res.ok) return
-            const blob = await res.blob()
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = '.mdspecmap'
-            a.click()
-            URL.revokeObjectURL(url)
-          }}
-          className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+          onClick={downloadMdspecmap}
+          disabled={downloading}
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
         >
-          Download .mdspecmap
+          {downloading ? (
+            <>
+              <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              Generating…
+            </>
+          ) : (
+            'Download .mdspecmap'
+          )}
         </button>
       </div>
 
