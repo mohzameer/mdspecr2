@@ -21,7 +21,7 @@ export async function GET(
   // Fetch folder mappings with integration type and all ClickUp config
   const { data: mappings } = await supabase
     .from('folder_mappings')
-    .select('folder_path, integration_id, clickup_mode, skip_patterns, target_id, clickup_list_id, clickup_doc_id, integrations(type)')
+    .select('folder_path, integration_id, clickup_mode, skip_patterns, target_id, clickup_list_id, clickup_doc_id, clickup_use_custom_task_ids, template_id, templates(name), integrations(type)')
     .eq('project_id', projectId)
     .order('folder_path', { ascending: true })
 
@@ -92,9 +92,9 @@ export async function GET(
 
       if (isTaskList) {
         lines.push(`    target: task`)
-        // Emit list ID if configured
         if (m.clickup_list_id) lines.push(`    list_id: id:${m.clickup_list_id}`)
         else lines.push(`    # list_id: id:<clickup-list-id>`)
+        if (m.clickup_use_custom_task_ids) lines.push(`    custom_task_ids: true`)
       }
 
       // For doc mode: emit parent doc ID if configured
@@ -102,10 +102,14 @@ export async function GET(
         lines.push(`    doc_id: id:${m.clickup_doc_id}`)
       }
 
-      // Emit space/folder target_id if configured (for both modes)
+      // Emit space/folder target_id if configured (null = workspace root, no field needed)
       if (m.target_id) {
         lines.push(`    space_id: id:${m.target_id}`)
       }
+
+      // Agent template
+      const templateName = (m.templates as unknown as { name: string } | null)?.name
+      if (templateName) lines.push(`    agent: ${templateName}`)
 
       if (m.skip_patterns && m.skip_patterns.length > 0) {
         lines.push('    skip:')

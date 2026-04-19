@@ -555,6 +555,17 @@ async function reconcileFolderMappings(
   integrationByType: Map<string, string>
 ): Promise<void> {
   try {
+    // Fetch project templates once for agent name → id resolution
+    const { data: projectTemplates } = await supabase
+      .from('templates')
+      .select('id, name')
+      .eq('project_id', projectId)
+
+    const templateByName = new Map<string, string>()
+    for (const t of projectTemplates ?? []) templateByName.set(t.name, t.id)
+
+    const parseId = (val?: string) => val?.startsWith('id:') ? val.slice(3) : (val ?? null)
+
     for (const rawMapping of config.mappings) {
       const mapping = resolveMapping(rawMapping, config)
       if (!mapping.integration) continue
@@ -570,9 +581,7 @@ async function reconcileFolderMappings(
 
       const normalizedFolder = normalizeFolder(mapping.folder)
       const mode = mapping.integration === 'clickup' && mapping.target === 'task' ? 'task_list' : 'doc'
-
-      // Parse id: prefix from list_id, doc_id, space_id fields
-      const parseId = (val?: string) => val?.startsWith('id:') ? val.slice(3) : (val ?? null)
+      const templateId = mapping.agent ? (templateByName.get(mapping.agent) ?? null) : undefined
 
       await supabase
         .from('folder_mappings')
@@ -586,6 +595,8 @@ async function reconcileFolderMappings(
             ...(mapping.list_id !== undefined ? { clickup_list_id: parseId(mapping.list_id) } : {}),
             ...(mapping.doc_id !== undefined ? { clickup_doc_id: parseId(mapping.doc_id) } : {}),
             ...(mapping.space_id !== undefined ? { target_id: parseId(mapping.space_id) } : {}),
+            ...(mapping.custom_task_ids !== undefined ? { clickup_use_custom_task_ids: mapping.custom_task_ids } : {}),
+            ...(templateId !== undefined ? { template_id: templateId } : {}),
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'project_id,folder_path,integration_id,clickup_mode' }
