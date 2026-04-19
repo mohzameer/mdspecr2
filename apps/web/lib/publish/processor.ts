@@ -2,7 +2,7 @@ import { createSupabaseServiceClient } from '@/lib/db-server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { publishToNotion } from './adapters/notion'
 import { publishToConfluence } from './adapters/confluence'
-import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, resolveToNativeTaskId } from './adapters/clickup'
+import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, clickUpPageExists, resolveToNativeTaskId } from './adapters/clickup'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
@@ -246,6 +246,21 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
     )
     if (!remoteExists) {
       console.log(`[publish] clickup doc ${existingPageId} missing — recreating spec ${spec_id}`)
+      existingPageId = null
+      await supabase
+        .from('spec_publish_targets')
+        .update({ external_page_id: null, external_url: null })
+        .eq('id', spec_publish_target_id)
+    }
+  }
+
+  // In multi-mode, the stored page ID may be a stale flat-mode doc ID — verify it
+  // actually exists as a page inside the current parent doc before allowing a skip.
+  if (ctx.isMultiMode && existingPageId && ctx.sharedSubDocId) {
+    const clickupCreds = { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string }
+    const pageExists = await clickUpPageExists(clickupCreds, ctx.sharedSubDocId, existingPageId)
+    if (!pageExists) {
+      console.log(`[publish] page ${existingPageId} not found in doc ${ctx.sharedSubDocId} — will republish spec ${spec_id}`)
       existingPageId = null
       await supabase
         .from('spec_publish_targets')

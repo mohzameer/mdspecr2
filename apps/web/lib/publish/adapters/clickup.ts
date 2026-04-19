@@ -73,6 +73,20 @@ export async function clickUpDocExists(credentials: ClickUpCredentials, docId: s
   }
 }
 
+export async function clickUpPageExists(credentials: ClickUpCredentials, docId: string, pageId: string): Promise<boolean> {
+  try {
+    await axios.get(
+      `${CLICKUP_API_V3}/workspaces/${credentials.workspace_id}/docs/${docId}/pages/${pageId}`,
+      { headers: authHeaders(credentials.api_token) }
+    )
+    return true
+  } catch (err) {
+    const status = (err as { response?: { status?: number } }).response?.status
+    if (status === 404) return false
+    throw err
+  }
+}
+
 async function createDoc(
   credentials: ClickUpCredentials,
   name: string,
