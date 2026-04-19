@@ -25,24 +25,11 @@ export async function GET(
     .eq('project_id', projectId)
     .order('folder_path', { ascending: true })
 
-  // Fetch aliases for this org
-  const { data: aliases } = await supabase
-    .from('aliases')
-    .select('name, integration_id')
-    .eq('org_id', project.org_id)
-
-  // Build alias lookup: integration_id → alias name
-  const aliasLookup = new Map<string, string>()
-  for (const a of aliases ?? []) {
-    aliasLookup.set(a.integration_id, a.name)
-  }
-
   // Determine if all mappings share the same integration — if so, emit default:
   const allMappings = mappings ?? []
   const uniqueIntegrations = [...new Set(allMappings.map((m) => m.integration_id).filter(Boolean))]
   const useDefault = uniqueIntegrations.length === 1
   const defaultIntType = useDefault ? (allMappings[0].integrations as unknown as { type: string })?.type : null
-  const defaultAliasName = useDefault ? aliasLookup.get(uniqueIntegrations[0]) : null
 
   // Generate YAML content
   const lines: string[] = [
@@ -65,8 +52,7 @@ export async function GET(
     lines.push('# Default integration applied to all mappings unless overridden')
     lines.push('default:')
     lines.push(`  integration: ${defaultIntType}`)
-    if (defaultAliasName) lines.push(`  parent: alias:${defaultAliasName}`)
-    else lines.push(`  # parent: alias:<alias-name>  or  id:<nativeId>`)
+    lines.push(`  # parent: alias:<alias-name>  or  id:<nativeId>`)
     lines.push('')
   }
 
@@ -76,18 +62,14 @@ export async function GET(
     for (const m of allMappings) {
       const intType = (m.integrations as unknown as { type: string })?.type
       const folderDisplay = m.folder_path === '' ? '/' : m.folder_path
-      const aliasName = aliasLookup.get(m.integration_id)
       const isTaskList = m.clickup_mode === 'task_list'
 
       lines.push(`  - folder: ${folderDisplay}`)
 
-      // Only emit integration/parent per-mapping if they differ from default
+      // Only emit integration per-mapping if not covered by default
       if (!useDefault) {
         if (intType) lines.push(`    integration: ${intType}`)
-        if (aliasName) lines.push(`    parent: alias:${aliasName}`)
-        else if (m.integration_id) lines.push(`    # parent: alias:<alias-name>  or  id:<nativeId>`)
-      } else if (aliasName && aliasName !== defaultAliasName) {
-        lines.push(`    parent: alias:${aliasName}`)
+        lines.push(`    # parent: alias:<alias-name>  or  id:<nativeId>`)
       }
 
       if (isTaskList) {

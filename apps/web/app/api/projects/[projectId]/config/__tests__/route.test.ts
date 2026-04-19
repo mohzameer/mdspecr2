@@ -157,6 +157,184 @@ describe('2.4 GET /api/projects/:projectId/generate-mdspecmap', () => {
     return sb
   }
 
+  // ---------------------------------------------------------------------------
+  // Helper to build a mock supabase client for the generator with specific mappings
+  // ---------------------------------------------------------------------------
+
+  // Real-world scenario: 4 folders, all ClickUp, mix of doc/task_list
+  it('2.4.10 real-world scenario: 4 folders, all ClickUp, default: emitted, per-mapping fields correct', async () => {
+    const sb = makeMapClient([
+      // / (root) — doc, workspace root, no parent doc, no skip
+      {
+        folder_path: '', integration_id: 'ck1', clickup_mode: 'doc',
+        skip_patterns: [], target_id: null, clickup_list_id: null,
+        clickup_doc_id: null, clickup_use_custom_task_ids: false,
+        template_id: null, templates: null, integrations: { type: 'clickup' },
+      },
+      // src — doc, workspace root, has parent doc
+      {
+        folder_path: 'src', integration_id: 'ck1', clickup_mode: 'doc',
+        skip_patterns: [], target_id: null, clickup_list_id: null,
+        clickup_doc_id: '2kzm3ftx-5278', clickup_use_custom_task_ids: false,
+        template_id: null, templates: null, integrations: { type: 'clickup' },
+      },
+      // src/hooks — doc, workspace root, no parent doc
+      {
+        folder_path: 'src/hooks', integration_id: 'ck1', clickup_mode: 'doc',
+        skip_patterns: [], target_id: null, clickup_list_id: null,
+        clickup_doc_id: null, clickup_use_custom_task_ids: false,
+        template_id: null, templates: null, integrations: { type: 'clickup' },
+      },
+      // src/utils — task_list, with list ID, custom task IDs, agent template, skip
+      {
+        folder_path: 'src/utils', integration_id: 'ck1', clickup_mode: 'task_list',
+        skip_patterns: ['archive/*'], target_id: 'space:90187244544',
+        clickup_list_id: '901812098656', clickup_doc_id: null,
+        clickup_use_custom_task_ids: true,
+        template_id: 'tpl1', templates: { name: 'Task Template' },
+        integrations: { type: 'clickup' },
+      },
+    ], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+
+    // default: block since all are clickup
+    expect(text).toContain('default:')
+    expect(text).toContain('integration: clickup')
+    // parent is always a comment in default — never auto-populated
+    expect(text).not.toMatch(/^  parent:/m)
+
+    // / (root) — minimal, just folder
+    expect(text).toContain('- folder: /')
+    // no per-mapping integration: since default covers it
+    expect(text).not.toMatch(/^    integration:/m)
+
+    // src — has doc_id
+    expect(text).toContain('folder: src')
+    expect(text).toContain('doc_id: id:2kzm3ftx-5278')
+
+    // src/hooks — minimal, just folder (no doc_id, no target)
+    expect(text).toContain('folder: src/hooks')
+
+    // src/utils — task_list with all fields
+    expect(text).toContain('folder: src/utils')
+    expect(text).toContain('target: task')
+    expect(text).toContain('list_id: id:901812098656')
+    expect(text).toContain('space_id: id:space:90187244544')
+    expect(text).toContain('custom_task_ids: true')
+    expect(text).toContain('agent: Task Template')
+    expect(text).toContain('- "archive/*"')
+  })
+
+  it('2.4.11 workspace root (target_id null) emits no space_id', async () => {
+    const sb = makeMapClient([{
+      folder_path: 'docs', integration_id: 'ck1', clickup_mode: 'doc',
+      skip_patterns: [], target_id: null, clickup_list_id: null,
+      clickup_doc_id: null, clickup_use_custom_task_ids: false,
+      template_id: null, templates: null, integrations: { type: 'clickup' },
+    }], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    expect(text).not.toContain('space_id:')
+  })
+
+  it('2.4.12 task_list with no list_id emits commented placeholder', async () => {
+    const sb = makeMapClient([{
+      folder_path: 'src/utils', integration_id: 'ck1', clickup_mode: 'task_list',
+      skip_patterns: [], target_id: null, clickup_list_id: null,
+      clickup_doc_id: null, clickup_use_custom_task_ids: false,
+      template_id: null, templates: null, integrations: { type: 'clickup' },
+    }], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    expect(text).toContain('# list_id: id:<clickup-list-id>')
+  })
+
+  it('2.4.13 custom_task_ids false does not emit custom_task_ids field', async () => {
+    const sb = makeMapClient([{
+      folder_path: 'src/utils', integration_id: 'ck1', clickup_mode: 'task_list',
+      skip_patterns: [], target_id: null, clickup_list_id: '901812098656',
+      clickup_doc_id: null, clickup_use_custom_task_ids: false,
+      template_id: null, templates: null, integrations: { type: 'clickup' },
+    }], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    expect(text).not.toContain('custom_task_ids:')
+  })
+
+  it('2.4.14 mixed integrations emit per-mapping integration: and no default:', async () => {
+    const sb = makeMapClient([
+      {
+        folder_path: 'docs', integration_id: 'ck1', clickup_mode: 'doc',
+        skip_patterns: [], target_id: null, clickup_list_id: null,
+        clickup_doc_id: null, clickup_use_custom_task_ids: false,
+        template_id: null, templates: null, integrations: { type: 'clickup' },
+      },
+      {
+        folder_path: 'specs', integration_id: 'no1', clickup_mode: 'doc',
+        skip_patterns: [], target_id: null, clickup_list_id: null,
+        clickup_doc_id: null, clickup_use_custom_task_ids: false,
+        template_id: null, templates: null, integrations: { type: 'notion' },
+      },
+    ], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    // no default: block (the word appears in a comment about sync_all_on_first_run but not as a YAML key)
+    expect(text).not.toMatch(/^default:/m)
+    // per-mapping integrations
+    expect(text).toContain('integration: clickup')
+    expect(text).toContain('integration: notion')
+  })
+
+  it('2.4.15 doc mapping without doc_id emits no doc_id field', async () => {
+    const sb = makeMapClient([{
+      folder_path: 'docs', integration_id: 'ck1', clickup_mode: 'doc',
+      skip_patterns: [], target_id: null, clickup_list_id: null,
+      clickup_doc_id: null, clickup_use_custom_task_ids: false,
+      template_id: null, templates: null, integrations: { type: 'clickup' },
+    }], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    expect(text).not.toContain('doc_id:')
+  })
+
+  it('2.4.16 agent template name is emitted only when set', async () => {
+    const sb = makeMapClient([
+      {
+        folder_path: 'src/utils', integration_id: 'ck1', clickup_mode: 'task_list',
+        skip_patterns: [], target_id: null, clickup_list_id: '901812098656',
+        clickup_doc_id: null, clickup_use_custom_task_ids: false,
+        template_id: 'tpl1', templates: { name: 'Release Notes' },
+        integrations: { type: 'clickup' },
+      },
+      {
+        folder_path: 'docs', integration_id: 'ck1', clickup_mode: 'doc',
+        skip_patterns: [], target_id: null, clickup_list_id: null,
+        clickup_doc_id: null, clickup_use_custom_task_ids: false,
+        template_id: null, templates: null, integrations: { type: 'clickup' },
+      },
+    ], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    expect(text).toContain('agent: Release Notes')
+    // only one agent line — the docs mapping has no agent
+    expect(text.match(/^    agent:/gm)?.length).toBe(1)
+  })
+
   it('2.4.6 task_list mapping emits list_id with id: prefix', async () => {
     const sb = makeMapClient([{
       folder_path: 'src/utils', integration_id: 'int1', clickup_mode: 'task_list',
@@ -197,17 +375,19 @@ describe('2.4 GET /api/projects/:projectId/generate-mdspecmap', () => {
     expect(text).toContain('space_id: id:space:90181844797')
   })
 
-  it('2.4.9 alias name emits parent with alias: prefix', async () => {
+  it('2.4.9 generator does not emit parent — user must set it manually', async () => {
     const sb = makeMapClient([{
       folder_path: 'docs/specs', integration_id: 'int1', clickup_mode: 'doc',
       skip_patterns: [], target_id: null, clickup_list_id: null,
       clickup_doc_id: null, integrations: { type: 'clickup' },
-    }], [{ name: 'eng-docs', integration_id: 'int1' }])
+    }], [])
     vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
 
     const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
     const text = await res.text()
-    expect(text).toContain('parent: alias:eng-docs')
+    // parent is always emitted as a comment — never auto-populated
+    expect(text).not.toMatch(/^  parent:/m)
+    expect(text).toContain('# parent:')
   })
 
   it('2.4.2 no folder mappings generates YAML with commented example from spec_dirs', async () => {
