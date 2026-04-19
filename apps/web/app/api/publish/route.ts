@@ -571,6 +571,9 @@ async function reconcileFolderMappings(
       const normalizedFolder = normalizeFolder(mapping.folder)
       const mode = mapping.integration === 'clickup' && mapping.target === 'task' ? 'task_list' : 'doc'
 
+      // Parse id: prefix from list_id, doc_id, space_id fields
+      const parseId = (val?: string) => val?.startsWith('id:') ? val.slice(3) : (val ?? null)
+
       await supabase
         .from('folder_mappings')
         .upsert(
@@ -580,6 +583,9 @@ async function reconcileFolderMappings(
             integration_id: integrationId,
             clickup_mode: mode,
             skip_patterns: mapping.skip ?? [],
+            ...(mapping.list_id !== undefined ? { clickup_list_id: parseId(mapping.list_id) } : {}),
+            ...(mapping.doc_id !== undefined ? { clickup_doc_id: parseId(mapping.doc_id) } : {}),
+            ...(mapping.space_id !== undefined ? { target_id: parseId(mapping.space_id) } : {}),
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'project_id,folder_path,integration_id,clickup_mode' }

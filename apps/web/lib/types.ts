@@ -17,9 +17,12 @@ export interface MdspecMapMapping {
   folder: string
   integration?: string
   target?: 'document' | 'task'
-  parent?: string                    // alias name (resolved server-side)
+  parent?: string                    // alias:<name> | id:<nativeId> | bare
   skip?: string[]
   depth?: number                     // max folder depth to sync (1 = direct children only)
+  list_id?: string                   // id:<clickupListId> — task_list mode
+  doc_id?: string                    // id:<clickupDocId> — doc mode parent doc
+  space_id?: string                  // id:<clickupSpaceOrFolderId> — target space/folder
 }
 
 export interface MdspecMapSpecEntry {

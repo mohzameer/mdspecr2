@@ -18,10 +18,10 @@ export async function GET(
     .single()
   if (!project) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-  // Fetch folder mappings with integration type
+  // Fetch folder mappings with integration type and all ClickUp config
   const { data: mappings } = await supabase
     .from('folder_mappings')
-    .select('folder_path, integration_id, clickup_mode, skip_patterns, integrations(type)')
+    .select('folder_path, integration_id, clickup_mode, skip_patterns, target_id, clickup_list_id, clickup_doc_id, integrations(type)')
     .eq('project_id', projectId)
     .order('folder_path', { ascending: true })
 
@@ -77,7 +77,7 @@ export async function GET(
       const intType = (m.integrations as unknown as { type: string })?.type
       const folderDisplay = m.folder_path === '' ? '/' : m.folder_path
       const aliasName = aliasLookup.get(m.integration_id)
-      const target = m.clickup_mode === 'task_list' ? 'task' : 'document'
+      const isTaskList = m.clickup_mode === 'task_list'
 
       lines.push(`  - folder: ${folderDisplay}`)
 
@@ -90,7 +90,22 @@ export async function GET(
         lines.push(`    parent: alias:${aliasName}`)
       }
 
-      if (target !== 'document') lines.push(`    target: ${target}`)
+      if (isTaskList) {
+        lines.push(`    target: task`)
+        // Emit list ID if configured
+        if (m.clickup_list_id) lines.push(`    list_id: id:${m.clickup_list_id}`)
+        else lines.push(`    # list_id: id:<clickup-list-id>`)
+      }
+
+      // For doc mode: emit parent doc ID if configured
+      if (!isTaskList && m.clickup_doc_id) {
+        lines.push(`    doc_id: id:${m.clickup_doc_id}`)
+      }
+
+      // Emit space/folder target_id if configured (for both modes)
+      if (m.target_id) {
+        lines.push(`    space_id: id:${m.target_id}`)
+      }
 
       if (m.skip_patterns && m.skip_patterns.length > 0) {
         lines.push('    skip:')

@@ -14,9 +14,12 @@ export interface MdspecMapMapping {
   folder: string
   integration?: string
   target?: 'document' | 'task'
-  parent?: string
+  parent?: string                    // alias:<name> | id:<nativeId> | bare
   skip?: string[]
   depth?: number
+  list_id?: string                   // id:<clickupListId> — task_list mode
+  doc_id?: string                    // id:<clickupDocId> — doc mode parent doc
+  space_id?: string                  // id:<clickupSpaceOrFolderId>
 }
 
 export interface MdspecMapSpecEntry {

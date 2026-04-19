@@ -144,6 +144,72 @@ describe('2.4 GET /api/projects/:projectId/generate-mdspecmap', () => {
     expect(text).toContain('docs/specs')
   })
 
+  function makeMapClient(folderMappings: unknown[], aliases: unknown[]) {
+    const sb = {
+      from: vi.fn((table: string) => {
+        if (table === 'projects') return makeChain({ data: { id: PROJECT_ID, org_id: ORG_ID, spec_dirs: ['docs'], name: 'Test' }, error: null })
+        if (table === 'folder_mappings') return makeChain({ data: folderMappings, error: null })
+        if (table === 'aliases') return makeChain({ data: aliases, error: null })
+        return makeChain({ data: null, error: null })
+      }),
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: USER }, error: null }) },
+    }
+    return sb
+  }
+
+  it('2.4.6 task_list mapping emits list_id with id: prefix', async () => {
+    const sb = makeMapClient([{
+      folder_path: 'src/utils', integration_id: 'int1', clickup_mode: 'task_list',
+      skip_patterns: [], target_id: null, clickup_list_id: '901812098656',
+      clickup_doc_id: null, integrations: { type: 'clickup' },
+    }], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    expect(text).toContain('target: task')
+    expect(text).toContain('list_id: id:901812098656')
+  })
+
+  it('2.4.7 doc mapping with parent doc emits doc_id with id: prefix', async () => {
+    const sb = makeMapClient([{
+      folder_path: 'src', integration_id: 'int1', clickup_mode: 'doc',
+      skip_patterns: [], target_id: null, clickup_list_id: null,
+      clickup_doc_id: '2kzm3ftx-5278', integrations: { type: 'clickup' },
+    }], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    expect(text).toContain('doc_id: id:2kzm3ftx-5278')
+  })
+
+  it('2.4.8 mapping with space target emits space_id with id: prefix', async () => {
+    const sb = makeMapClient([{
+      folder_path: '/', integration_id: 'int1', clickup_mode: 'doc',
+      skip_patterns: [], target_id: 'space:90181844797', clickup_list_id: null,
+      clickup_doc_id: null, integrations: { type: 'clickup' },
+    }], [])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    expect(text).toContain('space_id: id:space:90181844797')
+  })
+
+  it('2.4.9 alias name emits parent with alias: prefix', async () => {
+    const sb = makeMapClient([{
+      folder_path: 'docs/specs', integration_id: 'int1', clickup_mode: 'doc',
+      skip_patterns: [], target_id: null, clickup_list_id: null,
+      clickup_doc_id: null, integrations: { type: 'clickup' },
+    }], [{ name: 'eng-docs', integration_id: 'int1' }])
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+
+    const res = await generateMap(new Request(`http://localhost/api/projects/${PROJECT_ID}/generate-mdspecmap`), { params: mapParams })
+    const text = await res.text()
+    expect(text).toContain('parent: alias:eng-docs')
+  })
+
   it('2.4.2 no folder mappings generates YAML with commented example from spec_dirs', async () => {
     const sb = makeServerClient(USER)
     vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
