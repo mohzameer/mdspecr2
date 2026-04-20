@@ -23,7 +23,7 @@ const mockErr = vi.spyOn(console, 'error').mockImplementation(() => {})
 vi.spyOn(console, 'log').mockImplementation(() => {})
 vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-const validMapYaml = 'version: 1\nmappings:\n  - folder: /\n    integration: notion\n    parent: eng\n'
+const validMapYaml = 'version: 1\nmappings:\n  - integration: notion\n    parent: eng\n'
 
 function setupMocks(fetchResponse: { status: number; body: unknown; ok?: boolean }) {
   vi.clearAllMocks()

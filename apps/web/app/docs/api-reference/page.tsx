@@ -144,7 +144,7 @@ export default function DocsPage() {
               ]}
             />
             <p className="text-sm text-muted-foreground">A full example:</p>
-            <CodeBlock>{`# .mdspecmap
+            <CodeBlock>{`# docs/specs/.mdspecmap
 version: 1
 
 sync_all_on_first_run: false
@@ -155,18 +155,10 @@ default:
   parent: alias:eng-docs        # alias: prefix → dashboard alias
 
 mappings:
-  - folder: docs/specs          # inherits default
-    skip:
+  - skip:                       # inherits default integration + parent
       - DRAFT_*.md
 
-  - folder: docs/tasks          # overrides default parent
-    parent: alias:dev-tasks     # alias: prefix
-    target: task
-
-  - folder: docs/archive
-    parent: id:90181844797      # id: prefix → raw ClickUp space ID directly
-
-# Optional — per-spec config keyed by file path
+# Optional — per-spec config keyed by repo-relative file path
 specs:
   docs/specs/auth/sso-setup.md:
     title: SSO Setup Guide
@@ -222,22 +214,18 @@ mappings:
                 ['`false`', 'Direct children only — equivalent to depth: 1'],
               ]}
             />
-            <h3 className="text-sm font-semibold">No folder: key needed</h3>
+            <h3 className="text-sm font-semibold">No folder: key</h3>
             <p className="text-sm text-muted-foreground">
-              Because the file&apos;s location is its scope, you don&apos;t need to write <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">folder:</code> in your mappings.
-              It defaults to the folder containing the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> file.
-              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">folder:</code> only to route a subfolder differently from the rest.
+              Mappings have no <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">folder:</code> field.
+              The file&apos;s location is its scope — place the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> inside the folder you want to sync.
+              To route a subfolder differently, put a separate <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> inside that subfolder.
             </p>
             <CodeBlock>{`# docs/api/.mdspecmap
 version: 1
 
 mappings:
   - integration: notion
-    parent: alias:api-docs          # applies to docs/api/ and all subfolders
-
-  - folder: internal                # relative to this file → docs/api/internal/
-    integration: notion
-    parent: alias:api-internal`}</CodeBlock>
+    parent: alias:api-docs`}</CodeBlock>
           </section>
 
           <Separator />
@@ -251,7 +239,6 @@ mappings:
             <Table
               headers={['Field', 'Required', 'What it does']}
               rows={[
-                ['`folder`', 'No', 'Subfolder path relative to this .mdspecmap file\'s location. Omit to apply to the file\'s own folder.'],
                 ['`integration`', 'No', 'Target: notion, confluence, or clickup.'],
                 ['`parent`', 'No', 'Target container. Three forms: alias:<name> (dashboard alias), id:<nativeId> (raw ID directly), or bare value (tries alias first, falls back to raw ID).'],
                 ['`target`', 'No', 'For ClickUp only: document (default) or task. task publishes specs as ClickUp tasks.'],
@@ -264,27 +251,22 @@ mappings:
                 ['`agent`', 'No', 'Agent template name to apply before publishing. Must match a template defined in Dashboard → Map → Templates.'],
               ]}
             />
-            <CodeBlock>{`mappings:
-  # Root-level specs → ClickUp (alias)
-  - folder: /
-    integration: clickup
-    parent: alias:eng-docs     # alias: → dashboard alias name
-    depth: 1
-
-  # src/ specs → ClickUp docs inside a parent doc
-  - folder: src
-    integration: clickup
+            <CodeBlock>{`# src/.mdspecmap — governs src/ and all subfolders
+mappings:
+  - integration: clickup
     parent_doc: id:2kzm3ftx-5278   # specs publish as pages inside this doc
 
-  # src/utils/ specs → ClickUp tasks
-  - folder: src/utils
-    integration: clickup
+---
+
+# src/utils/.mdspecmap — governs src/utils/ (nearest ancestor wins)
+mappings:
+  - integration: clickup
     target: task
-    list_id: id:901812098656       # required for task_list mode
+    list_id: id:901812098656
     custom_task_ids: true
     agent: Task Template`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
-              In the example above, a file at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils/SPEC7.md</code> goes only to the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils</code> mapping — not to <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src</code> or <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/</code>.
+              A file at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils/SPEC7.md</code> is governed by <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils/.mdspecmap</code>, not <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/.mdspecmap</code> — nearest ancestor wins.
             </p>
           </section>
 

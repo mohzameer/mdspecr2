@@ -69,25 +69,6 @@ mappings:
 
 No `folder:` key is needed at the top level — the file's own location is the folder.
 
-### 3.1 Subfolder Override
-
-To route a subfolder to a different integration or parent, add a `folder:` entry using a path **relative to this file's location**:
-
-```yaml
-# docs/api/.mdspecmap
-version: 1
-
-mappings:
-  - integration: notion
-    parent: api-docs
-
-  - folder: internal
-    integration: notion
-    parent: api-internal-docs
-```
-
-Files in `docs/api/internal/` go to `api-internal-docs`. Everything else in `docs/api/` goes to `api-docs`.
-
 ---
 
 ## 4. Controlling Subfolder Syncing

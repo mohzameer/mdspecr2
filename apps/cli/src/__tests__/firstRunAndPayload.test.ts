@@ -66,7 +66,7 @@ afterEach(() => {
   delete process.env.GITHUB_EVENT_BEFORE
 })
 
-const validMapYaml = 'version: 1\nmappings:\n  - folder: /\n    integration: notion\n    parent: eng-docs\n'
+const validMapYaml = 'version: 1\nmappings:\n  - integration: notion\n    parent: eng-docs\n'
 const specContent = '# Auth\nSome content.'
 
 function setupPublishMocks(fetchResponse: unknown) {

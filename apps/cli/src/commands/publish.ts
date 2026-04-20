@@ -382,6 +382,9 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
   } else {
     for (let i = 0; i < config.mappings.length; i++) {
       const m = config.mappings[i] as Record<string, unknown>
+      if (m.folder !== undefined) {
+        errors.push(`mappings[${i}].folder: not supported — place .mdspecmap inside the folder you want to sync`)
+      }
       if (m.integration && !['notion', 'confluence', 'clickup'].includes(m.integration as string)) {
         const val = m.integration as string
         const suggestions: Record<string, string> = { notiom: 'notion', noton: 'notion', conflunce: 'confluence', clikup: 'clickup' }
@@ -438,13 +441,10 @@ export async function readMdspecMap(): Promise<MdspecMapConfig> {
  */
 export function resolveConfigPaths(config: MdspecMapConfig, scopeDir: string): MdspecMapConfig {
   const mappings = config.mappings.map((m) => {
-    const resolvedFolder = m.folder
-      ? joinScopedPath(scopeDir, m.folder)
-      : scopeDir
     const depth = config.sub_folders === false && m.depth === undefined ? 1 : m.depth
     return {
       ...m,
-      folder: resolvedFolder,
+      folder: scopeDir,
       ...(depth !== undefined ? { depth } : {}),
     }
   })
@@ -453,12 +453,6 @@ export function resolveConfigPaths(config: MdspecMapConfig, scopeDir: string): M
   return { ...rest, mappings }
 }
 
-function joinScopedPath(base: string, rel: string): string {
-  const normalized = normalizeFolder(rel)
-  if (!base) return normalized
-  if (!normalized) return base
-  return `${base}/${normalized}`
-}
 
 /**
  * Merges multiple resolved configs into a single config for the publish payload.

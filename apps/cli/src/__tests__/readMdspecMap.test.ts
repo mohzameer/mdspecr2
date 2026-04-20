@@ -26,12 +26,12 @@ beforeEach(() => {
 // 1.1.1
 it('1.1.1 parses valid minimal config', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
-  vi.mocked(fs.readFile).mockResolvedValue('version: 1\nmappings:\n  - folder: /\n' as never)
+  vi.mocked(fs.readFile).mockResolvedValue('version: 1\nmappings:\n  - integration: notion\n' as never)
 
   const cfg = await readMdspecMap()
   expect(cfg.version).toBe(1)
   expect(cfg.mappings).toHaveLength(1)
-  expect(cfg.mappings[0].folder).toBe('/')
+  expect(cfg.mappings[0].folder).toBeUndefined()
 })
 
 // 1.1.2
@@ -40,8 +40,7 @@ it('1.1.2 parses valid full config with all fields', async () => {
     'version: 1',
     'sync_all_on_first_run: true',
     'mappings:',
-    '  - folder: docs/specs',
-    '    integration: notion',
+    '  - integration: notion',
     '    parent: eng-docs',
     '    target: document',
     '    skip:',
@@ -77,7 +76,7 @@ it('1.1.4 exits on invalid YAML', async () => {
 // 1.1.5
 it('1.1.5 exits on wrong version', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
-  vi.mocked(fs.readFile).mockResolvedValue('version: 2\nmappings:\n  - folder: /\n' as never)
+  vi.mocked(fs.readFile).mockResolvedValue('version: 2\nmappings:\n  - integration: notion\n' as never)
 
   await expect(readMdspecMap()).rejects.toThrow('exit:1')
   expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('version: must be 1'))
@@ -109,7 +108,7 @@ it('1.1.7 accepts mapping without folder (implicit scope root)', async () => {
 it('1.1.8 exits on invalid integration type with suggestion', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
   vi.mocked(fs.readFile).mockResolvedValue(
-    'version: 1\nmappings:\n  - folder: /\n    integration: notiom\n' as never
+    'version: 1\nmappings:\n  - integration: notiom\n' as never
   )
 
   await expect(readMdspecMap()).rejects.toThrow('exit:1')
@@ -120,7 +119,7 @@ it('1.1.8 exits on invalid integration type with suggestion', async () => {
 it('1.1.9 exits on invalid target value', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
   vi.mocked(fs.readFile).mockResolvedValue(
-    "version: 1\nmappings:\n  - folder: /\n    integration: notion\n    target: page\n" as never
+    "version: 1\nmappings:\n  - integration: notion\n    target: page\n" as never
   )
 
   await expect(readMdspecMap()).rejects.toThrow('exit:1')
@@ -133,7 +132,7 @@ it('1.1.9 exits on invalid target value', async () => {
 it('depth: valid positive integer is accepted', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
   vi.mocked(fs.readFile).mockResolvedValue(
-    'version: 1\nmappings:\n  - folder: docs\n    integration: notion\n    depth: 2\n' as never
+    'version: 1\nmappings:\n  - integration: notion\n    depth: 2\n' as never
   )
   const cfg = await readMdspecMap()
   expect(cfg.mappings[0].depth).toBe(2)
@@ -143,7 +142,7 @@ it('depth: valid positive integer is accepted', async () => {
 it('depth: zero is invalid', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
   vi.mocked(fs.readFile).mockResolvedValue(
-    'version: 1\nmappings:\n  - folder: docs\n    integration: notion\n    depth: 0\n' as never
+    'version: 1\nmappings:\n  - integration: notion\n    depth: 0\n' as never
   )
   await expect(readMdspecMap()).rejects.toThrow('exit:1')
   expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('depth: must be a positive integer'))
@@ -152,17 +151,26 @@ it('depth: zero is invalid', async () => {
 it('depth: negative value is invalid', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
   vi.mocked(fs.readFile).mockResolvedValue(
-    'version: 1\nmappings:\n  - folder: docs\n    integration: notion\n    depth: -1\n' as never
+    'version: 1\nmappings:\n  - integration: notion\n    depth: -1\n' as never
   )
   await expect(readMdspecMap()).rejects.toThrow('exit:1')
   expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('depth: must be a positive integer'))
+})
+
+it('folder: key in mapping causes validation error', async () => {
+  vi.mocked(fs.access).mockResolvedValue(undefined)
+  vi.mocked(fs.readFile).mockResolvedValue(
+    'version: 1\nmappings:\n  - folder: src\n    integration: notion\n' as never
+  )
+  await expect(readMdspecMap()).rejects.toThrow('exit:1')
+  expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('mappings[0].folder: not supported'))
 })
 
 // 1.1.10
 it('1.1.10 allows skip-only mapping with no integration', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
   vi.mocked(fs.readFile).mockResolvedValue(
-    'version: 1\nmappings:\n  - folder: /\n    skip:\n      - README.md\n' as never
+    'version: 1\nmappings:\n  - skip:\n      - README.md\n' as never
   )
 
   const cfg = await readMdspecMap()
@@ -178,9 +186,8 @@ it('default: valid block is parsed', async () => {
     '  integration: clickup',
     '  parent: eng-docs',
     'mappings:',
-    '  - folder: docs/specs',
-    '  - folder: docs/tasks',
-    '    target: task',
+    '  - {}',
+    '  - target: task',
   ].join('\n')
   vi.mocked(fs.access).mockResolvedValue(undefined)
   vi.mocked(fs.readFile).mockResolvedValue(yaml as never)
@@ -195,7 +202,7 @@ it('default: valid block is parsed', async () => {
 it('default: invalid integration type errors', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
   vi.mocked(fs.readFile).mockResolvedValue(
-    'version: 1\ndefault:\n  integration: slack\nmappings:\n  - folder: /\n' as never
+    'version: 1\ndefault:\n  integration: slack\nmappings:\n  - {}\n' as never
   )
   await expect(readMdspecMap()).rejects.toThrow('exit:1')
   expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('default.integration'))
@@ -256,7 +263,7 @@ describe('readMdspecMapAt', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveConfigPaths', () => {
-  it('mapping without folder defaults to scopeDir', () => {
+  it('sets folder to scopeDir on every mapping', () => {
     const cfg = resolveConfigPaths(
       { version: 1, mappings: [{ integration: 'notion', parent: 'docs' }] },
       'docs/api'
@@ -264,20 +271,21 @@ describe('resolveConfigPaths', () => {
     expect(cfg.mappings[0].folder).toBe('docs/api')
   })
 
-  it('mapping with relative folder is resolved against scopeDir', () => {
-    const cfg = resolveConfigPaths(
-      { version: 1, mappings: [{ folder: 'internal', integration: 'notion', parent: 'p' }] },
-      'docs/api'
-    )
-    expect(cfg.mappings[0].folder).toBe('docs/api/internal')
-  })
-
-  it('root scopeDir with no folder yields empty string', () => {
+  it('root scopeDir yields empty string folder', () => {
     const cfg = resolveConfigPaths(
       { version: 1, mappings: [{ integration: 'notion', parent: 'p' }] },
       ''
     )
     expect(cfg.mappings[0].folder).toBe('')
+  })
+
+  it('multiple mappings all get the same scopeDir as folder', () => {
+    const cfg = resolveConfigPaths(
+      { version: 1, mappings: [{ integration: 'notion' }, { integration: 'confluence' }] },
+      'docs/api'
+    )
+    expect(cfg.mappings[0].folder).toBe('docs/api')
+    expect(cfg.mappings[1].folder).toBe('docs/api')
   })
 
   it('sub_folders: false sets depth: 1 on mappings without depth', () => {
@@ -323,8 +331,8 @@ describe('mergeConfigs', () => {
     const b = { version: 1 as const, mappings: [{ folder: 'docs/tasks', integration: 'clickup', parent: 'b' }] }
     const merged = mergeConfigs([a, b])
     expect(merged.mappings).toHaveLength(2)
-    expect(merged.mappings[0].folder).toBe('docs/api')
-    expect(merged.mappings[1].folder).toBe('docs/tasks')
+    expect(merged.mappings[0].integration).toBe('notion')
+    expect(merged.mappings[1].integration).toBe('clickup')
   })
 
   it('sync_all_on_first_run is true if any config has it true', () => {

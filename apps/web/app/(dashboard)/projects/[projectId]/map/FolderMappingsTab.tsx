@@ -337,6 +337,52 @@ function prefillFromSuggestion(folderPath: string) {
     setAddingFolder(false)
   }
 
+  function generateFolderMdspecMap(mapping: FolderMapping): string {
+    const lines: string[] = ['version: 1', '', 'mappings:']
+    const intType = mapping.integrations?.type
+
+    if (intType) {
+      lines.push(`  - integration: ${intType}`)
+    } else {
+      lines.push('  -')
+    }
+
+    if (intType === 'clickup') {
+      const mode = mapping.clickup_mode ?? 'doc'
+      if (mode === 'task_list') {
+        lines.push('    target: task')
+        if (mapping.clickup_list_id) lines.push(`    list_id: id:${mapping.clickup_list_id}`)
+      } else {
+        if (mapping.clickup_doc_id) lines.push(`    parent_doc: id:${mapping.clickup_doc_id}`)
+      }
+      if (mapping.target_id) lines.push(`    space_id: id:${mapping.target_id}`)
+      if (mapping.clickup_use_custom_task_ids) lines.push('    custom_task_ids: true')
+    } else if (intType) {
+      if (mapping.target_id) lines.push(`    parent: id:${mapping.target_id}`)
+    }
+
+    const templateName = templates.find((t) => t.id === mapping.template_id)?.name
+    if (templateName) lines.push(`    agent: ${templateName}`)
+
+    if (mapping.skip_patterns && mapping.skip_patterns.length > 0) {
+      lines.push('    skip:')
+      for (const p of mapping.skip_patterns) lines.push(`      - ${p}`)
+    }
+
+    return lines.join('\n') + '\n'
+  }
+
+  function downloadFolderMdspecMap(mapping: FolderMapping) {
+    const content = generateFolderMdspecMap(mapping)
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '.mdspecmap'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function removeAllMappings() {
     if (!window.confirm(`Remove all ${mappings.length} folder mapping(s)? This cannot be undone.`)) return
     setRemovingAll(true)
@@ -408,7 +454,7 @@ function prefillFromSuggestion(folderPath: string) {
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Destination</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Skip files</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide"></th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Download</th>
               </tr>
             </thead>
             <tbody>
@@ -592,7 +638,17 @@ function prefillFromSuggestion(folderPath: string) {
                       />
                     </td>
 
-                    <td className="px-4 py-3 align-middle"></td>
+                    <td className="px-4 py-3 align-middle">
+                      <button
+                        onClick={() => downloadFolderMdspecMap(mapping)}
+                        title="Download .mdspecmap for this folder"
+                        className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                        </svg>
+                      </button>
+                    </td>
                   </tr>
                 )
               })}
