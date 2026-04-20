@@ -240,7 +240,7 @@ export async function POST(request: Request) {
         const found = aliasMap.get(parsed.value)
         if (!found) {
           const suggestion = findClosestMatch(parsed.value, [...aliasMap.keys()])
-          unresolvedAliases.push({ alias: m.parent!, folder: m.folder, suggestion })
+          unresolvedAliases.push({ alias: m.parent!, folder: m.folder ?? '', suggestion })
         } else {
           resolvedAliases.set(m.parent!, found)
         }
