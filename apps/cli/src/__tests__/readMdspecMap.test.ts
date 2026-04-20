@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { readMdspecMap } from '../commands/publish.js'
+import { readMdspecMap, readMdspecMapAt, resolveConfigPaths, mergeConfigs } from '../commands/publish.js'
 
 vi.mock('fs/promises', () => ({
   access: vi.fn(),
@@ -93,14 +93,16 @@ it('1.1.6 exits when mappings missing', async () => {
 })
 
 // 1.1.7
-it('1.1.7 exits when folder missing in mapping', async () => {
+it('1.1.7 accepts mapping without folder (implicit scope root)', async () => {
   vi.mocked(fs.access).mockResolvedValue(undefined)
   vi.mocked(fs.readFile).mockResolvedValue(
-    'version: 1\nmappings:\n  - integration: notion\n' as never
+    'version: 1\nmappings:\n  - integration: notion\n    parent: eng-docs\n' as never
   )
 
-  await expect(readMdspecMap()).rejects.toThrow('exit:1')
-  expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('mappings[0].folder: required'))
+  const cfg = await readMdspecMap()
+  expect(cfg.mappings[0].folder).toBeUndefined()
+  expect(cfg.mappings[0].integration).toBe('notion')
+  expect(mockExit).not.toHaveBeenCalled()
 })
 
 // 1.1.8
@@ -216,4 +218,138 @@ it('parseParent: bare value', () => {
 
 it('parseParent: bare numeric ID', () => {
   expect(parseParent('90181844797')).toEqual({ type: 'bare', value: '90181844797' })
+})
+
+// ---------------------------------------------------------------------------
+// readMdspecMapAt
+// ---------------------------------------------------------------------------
+
+describe('readMdspecMapAt', () => {
+  it('reads and validates config at arbitrary path', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(
+      'version: 1\nmappings:\n  - integration: notion\n    parent: api-docs\n' as never
+    )
+    const cfg = await readMdspecMapAt('/repo/docs/api/.mdspecmap')
+    expect(cfg.version).toBe(1)
+    expect(cfg.mappings[0].folder).toBeUndefined()
+    expect(mockExit).not.toHaveBeenCalled()
+  })
+
+  it('exits on YAML error with file path in message', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue('version: 1\nmappings: {broken' as never)
+    await expect(readMdspecMapAt('/repo/docs/.mdspecmap')).rejects.toThrow('exit:1')
+    expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('not valid YAML'))
+  })
+
+  it('accepts sub_folders: false without error', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(
+      'version: 1\nsub_folders: false\nmappings:\n  - integration: notion\n    parent: docs\n' as never
+    )
+    const cfg = await readMdspecMapAt('/repo/docs/.mdspecmap')
+    expect(cfg.sub_folders).toBe(false)
+    expect(mockExit).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveConfigPaths
+// ---------------------------------------------------------------------------
+
+describe('resolveConfigPaths', () => {
+  it('mapping without folder defaults to scopeDir', () => {
+    const cfg = resolveConfigPaths(
+      { version: 1, mappings: [{ integration: 'notion', parent: 'docs' }] },
+      'docs/api'
+    )
+    expect(cfg.mappings[0].folder).toBe('docs/api')
+  })
+
+  it('mapping with relative folder is resolved against scopeDir', () => {
+    const cfg = resolveConfigPaths(
+      { version: 1, mappings: [{ folder: 'internal', integration: 'notion', parent: 'p' }] },
+      'docs/api'
+    )
+    expect(cfg.mappings[0].folder).toBe('docs/api/internal')
+  })
+
+  it('root scopeDir with no folder yields empty string', () => {
+    const cfg = resolveConfigPaths(
+      { version: 1, mappings: [{ integration: 'notion', parent: 'p' }] },
+      ''
+    )
+    expect(cfg.mappings[0].folder).toBe('')
+  })
+
+  it('sub_folders: false sets depth: 1 on mappings without depth', () => {
+    const cfg = resolveConfigPaths(
+      { version: 1, sub_folders: false, mappings: [{ integration: 'notion', parent: 'p' }] },
+      'docs'
+    )
+    expect(cfg.mappings[0].depth).toBe(1)
+  })
+
+  it('sub_folders: false does not override existing depth', () => {
+    const cfg = resolveConfigPaths(
+      { version: 1, sub_folders: false, mappings: [{ integration: 'notion', parent: 'p', depth: 2 }] },
+      'docs'
+    )
+    expect(cfg.mappings[0].depth).toBe(2)
+  })
+
+  it('sub_folders: true (default) does not add depth', () => {
+    const cfg = resolveConfigPaths(
+      { version: 1, mappings: [{ integration: 'notion', parent: 'p' }] },
+      'docs'
+    )
+    expect(cfg.mappings[0].depth).toBeUndefined()
+  })
+
+  it('strips sub_folders from resolved config', () => {
+    const cfg = resolveConfigPaths(
+      { version: 1, sub_folders: false, mappings: [{ integration: 'notion', parent: 'p' }] },
+      'docs'
+    )
+    expect((cfg as unknown as Record<string, unknown>).sub_folders).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// mergeConfigs
+// ---------------------------------------------------------------------------
+
+describe('mergeConfigs', () => {
+  it('merges mappings from all configs', () => {
+    const a = { version: 1 as const, mappings: [{ folder: 'docs/api', integration: 'notion', parent: 'a' }] }
+    const b = { version: 1 as const, mappings: [{ folder: 'docs/tasks', integration: 'clickup', parent: 'b' }] }
+    const merged = mergeConfigs([a, b])
+    expect(merged.mappings).toHaveLength(2)
+    expect(merged.mappings[0].folder).toBe('docs/api')
+    expect(merged.mappings[1].folder).toBe('docs/tasks')
+  })
+
+  it('sync_all_on_first_run is true if any config has it true', () => {
+    const a = { version: 1 as const, mappings: [] }
+    const b = { version: 1 as const, sync_all_on_first_run: true, mappings: [] }
+    expect(mergeConfigs([a, b]).sync_all_on_first_run).toBe(true)
+  })
+
+  it('sync_all_on_first_run is absent when none set it', () => {
+    const a = { version: 1 as const, mappings: [] }
+    const b = { version: 1 as const, mappings: [] }
+    expect(mergeConfigs([a, b]).sync_all_on_first_run).toBeUndefined()
+  })
+
+  it('merges specs sections', () => {
+    const a = { version: 1 as const, mappings: [], specs: { 'docs/a.md': { title: 'A' } } }
+    const b = { version: 1 as const, mappings: [], specs: { 'docs/b.md': { title: 'B' } } }
+    const merged = mergeConfigs([a, b])
+    expect(merged.specs?.['docs/a.md']?.title).toBe('A')
+    expect(merged.specs?.['docs/b.md']?.title).toBe('B')
+  })
+
+  it('later config wins on duplicate spec key', () => {
+    const a = { version: 1 as const, mappings: [], specs: { 'docs/a.md': { title: 'Old' } } }
+    const b = { version: 1 as const, mappings: [], specs: { 'docs/a.md': { title: 'New' } } }
+    expect(mergeConfigs([a, b]).specs?.['docs/a.md']?.title).toBe('New')
+  })
 })

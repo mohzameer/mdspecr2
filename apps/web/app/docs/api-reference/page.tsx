@@ -65,6 +65,7 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
 
 const NAV = [
   { label: 'The .mdspecmap file', href: '#mdspecmap' },
+  { label: 'Distributed maps', href: '#distributed' },
   { label: 'mappings:', href: '#mappings' },
   { label: 'default:', href: '#default' },
   { label: 'specs:', href: '#specs' },
@@ -129,9 +130,9 @@ export default function DocsPage() {
               <code className="font-mono text-base bg-muted px-1.5 py-0.5 rounded">.mdspecmap</code> file
             </h2>
             <p className="text-sm text-muted-foreground">
-              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> file lives at the root of your repo.
-              It is the single source of configuration for mdspec — all routing, IDs, titles, and task wiring live here.
-              Spec files are plain markdown with no special syntax.
+              A <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> file can be placed in any folder in your repo.
+              Its location defines its scope — the folder it lives in and all subfolders will be synced according to the mappings declared inside it.
+              All routing, IDs, titles, and task wiring live in these files. Spec files are plain markdown with no special syntax.
             </p>
             <p className="text-sm text-muted-foreground">The file has three top-level sections:</p>
             <Table
@@ -181,6 +182,66 @@ specs:
 
           <Separator />
 
+          {/* Distributed maps */}
+          <section id="distributed" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">Distributed maps</h2>
+            <p className="text-sm text-muted-foreground">
+              Place a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> in any folder — you are not limited to one at the root.
+              Each file owns the subtree it sits in. Teams in a monorepo can manage their own map files independently without touching each other&apos;s config.
+            </p>
+            <CodeBlock>{`repo/
+├── docs/
+│   ├── api/
+│   │   ├── .mdspecmap    ← syncs docs/api/ and subfolders
+│   │   └── auth.md
+│   └── tasks/
+│       ├── .mdspecmap    ← syncs docs/tasks/ and subfolders
+│       └── sprint-24.md
+└── .mdspecmap            ← syncs root (same rules as any other)`}</CodeBlock>
+            <p className="text-sm text-muted-foreground">
+              The <strong>nearest ancestor</strong> wins. A file in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">docs/api/</code> is governed by the map file there, not by any file higher up in the tree.
+            </p>
+            <h3 className="text-sm font-semibold">sub_folders</h3>
+            <p className="text-sm text-muted-foreground">
+              By default, a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> syncs its folder and all subfolders recursively.
+              Set <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">sub_folders: false</code> to restrict it to direct children only.
+            </p>
+            <CodeBlock>{`# docs/tasks/.mdspecmap
+version: 1
+
+sub_folders: false   # only files directly in docs/tasks/ — no deeper
+
+mappings:
+  - integration: clickup
+    parent: alias:sprint-tasks
+    target: task`}</CodeBlock>
+            <Table
+              headers={['`sub_folders`', 'What syncs']}
+              rows={[
+                ['omitted or `true`', 'This folder and all subfolders recursively'],
+                ['`false`', 'Direct children only — equivalent to depth: 1'],
+              ]}
+            />
+            <h3 className="text-sm font-semibold">No folder: key needed</h3>
+            <p className="text-sm text-muted-foreground">
+              Because the file&apos;s location is its scope, you don&apos;t need to write <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">folder:</code> in your mappings.
+              It defaults to the folder containing the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> file.
+              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">folder:</code> only to route a subfolder differently from the rest.
+            </p>
+            <CodeBlock>{`# docs/api/.mdspecmap
+version: 1
+
+mappings:
+  - integration: notion
+    parent: alias:api-docs          # applies to docs/api/ and all subfolders
+
+  - folder: internal                # relative to this file → docs/api/internal/
+    integration: notion
+    parent: alias:api-internal`}</CodeBlock>
+          </section>
+
+          <Separator />
+
           {/* mappings */}
           <section id="mappings" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">mappings:</h2>
@@ -190,12 +251,12 @@ specs:
             <Table
               headers={['Field', 'Required', 'What it does']}
               rows={[
-                ['`folder`', 'Yes', 'Folder path relative to repo root. Use / or leave blank for repo root.'],
-                ['`integration`', 'No', 'Target: notion, confluence, clickup, or s3.'],
+                ['`folder`', 'No', 'Subfolder path relative to this .mdspecmap file\'s location. Omit to apply to the file\'s own folder.'],
+                ['`integration`', 'No', 'Target: notion, confluence, or clickup.'],
                 ['`parent`', 'No', 'Target container. Three forms: alias:<name> (dashboard alias), id:<nativeId> (raw ID directly), or bare value (tries alias first, falls back to raw ID).'],
                 ['`target`', 'No', 'For ClickUp only: document (default) or task. task publishes specs as ClickUp tasks.'],
                 ['`depth`', 'No', 'Max subfolder depth. 1 = direct children only. Omit for unlimited depth.'],
-                ['`skip`', 'No', 'Glob patterns for files to exclude from this mapping.'],
+                ['`skip`', 'No', 'Glob patterns for files to exclude. Matched against filename and path relative to this file\'s location.'],
                 ['`list_id`', 'No', 'ClickUp list ID for task_list mode. Use id:<listId> prefix. Required when target: task.'],
                 ['`parent_doc`', 'No', 'ClickUp doc that specs publish inside as pages. Use id:<docId> prefix. Doc mode only.'],
                 ['`space_id`', 'No', 'ClickUp space or folder ID. Use id:<spaceId> prefix. Omit for workspace root.'],
@@ -432,22 +493,23 @@ On transient failures, the checkout service retries up to 3 times...`}</CodeBloc
             <p className="text-sm text-muted-foreground">
               Exclude files with glob patterns in the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">skip:</code> field of any mapping:
             </p>
-            <CodeBlock>{`mappings:
-  - folder: docs/specs
-    integration: clickup
+            <CodeBlock>{`# docs/api/.mdspecmap
+mappings:
+  - integration: clickup
     parent: alias:eng-docs
     skip:
-      - DRAFT_*.md        # skip drafts
+      - DRAFT_*.md        # skip drafts by filename
       - _*.md             # skip private files
-      - "**/scratch/**"   # skip scratch directories
+      - "**/scratch/**"   # skip scratch subdirectory (path relative to this file)
 
-  # Project-wide skips — no integration, just exclusions
-  - folder: /
+  # Subfolder override with its own skip list
+  - folder: internal
+    integration: notion
+    parent: alias:api-internal
     skip:
-      - CHANGELOG.md
       - README.md`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
-              Patterns are matched against both the filename and the full relative path.
+              Patterns are matched against both the filename and the path <em>relative to the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> file&apos;s location</em>, not from the repo root.
             </p>
           </section>
 
@@ -513,11 +575,13 @@ On transient failures, the checkout service retries up to 3 times...`}</CodeBloc
 Rules for working with spec files:
 
 1. Spec files are plain markdown — no YAML frontmatter, no special syntax.
-   Any .md file in a mapped folder is automatically picked up by mdspec on the next CI run.
+   Any .md file in a folder with a .mdspecmap file (or a .mdspecmap in any parent folder)
+   is automatically picked up by mdspec on the next CI run.
 
-2. The .mdspecmap file at the repo root controls all per-spec configuration.
-   It has two sections:
-   - mappings: — maps folders to integrations (do not edit unless changing routing)
+2. .mdspecmap files can live anywhere in the repo. A file governs the folder it lives in
+   and all subfolders. The nearest .mdspecmap ancestor wins for any given spec file.
+   Each .mdspecmap has two sections:
+   - mappings: — maps this folder (and optionally subfolders) to integrations
    - specs:    — optional per-spec config, keyed by file path
 
    The parent: field in mappings supports three forms:

@@ -2,7 +2,7 @@ import yaml from 'js-yaml'
 import { execSync } from 'child_process'
 import { createHash } from 'crypto'
 import { readFile, access } from 'fs/promises'
-import { join, relative, extname } from 'path'
+import { join, relative, extname, dirname } from 'path'
 import { readdir } from 'fs/promises'
 import micromatch from 'micromatch'
 
@@ -11,7 +11,7 @@ import micromatch from 'micromatch'
 // ---------------------------------------------------------------------------
 
 export interface MdspecMapMapping {
-  folder: string
+  folder?: string                    // repo-relative path; absent = scope root of the owning .mdspecmap file
   integration?: string
   target?: 'document' | 'task'
   parent?: string                    // alias:<name> | id:<nativeId> | bare
@@ -40,6 +40,7 @@ export interface MdspecMapDefault {
 export interface MdspecMapConfig {
   version: 1
   sync_all_on_first_run?: boolean
+  sub_folders?: boolean              // default true — false restricts scope to immediate folder only
   default?: MdspecMapDefault
   mappings: MdspecMapMapping[]
   specs?: Record<string, MdspecMapSpecEntry>   // keyed by file path
@@ -85,13 +86,30 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // 1. Read and validate .mdspecmap
+  // 1. Discover all .mdspecmap files and build merged config
   // -------------------------------------------------------------------------
-  const config = await readMdspecMap()
+  const cwd = process.cwd()
+  const mapFiles = await discoverMdspecMapFiles(cwd)
 
-  // Extract spec dirs from mappings (unique folder paths)
+  if (mapFiles.length === 0) {
+    console.error('✗ Error   No .mdspecmap files found in the repository.')
+    console.error('          Place a .mdspecmap file in any folder you want to sync.')
+    console.error('          Run `npx mdspeci init` to generate a starter file.')
+    process.exit(1)
+  }
+
+  const resolvedConfigs: MdspecMapConfig[] = []
+  for (const { filePath, scopeDir } of mapFiles) {
+    const raw = await readMdspecMapAt(filePath)
+    resolvedConfigs.push(resolveConfigPaths(raw, scopeDir))
+  }
+
+  const config = mergeConfigs(resolvedConfigs)
+
+  // Extract spec dirs from merged mappings (unique folder paths)
   const specDirs = extractSpecDirs(config)
   const scanDirsDisplay = specDirs.map((d) => d === '' ? '/ (root)' : d)
+  console.log(`— Found ${mapFiles.length} .mdspecmap file(s)`)
   console.log(`— Scanning folders: ${scanDirsDisplay.join(', ')}`)
 
   // -------------------------------------------------------------------------
@@ -102,7 +120,7 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
 
   for (const mapping of config.mappings) {
     if (!mapping.skip || mapping.skip.length === 0) continue
-    const normalizedFolder = normalizeFolder(mapping.folder)
+    const normalizedFolder = normalizeFolder(mapping.folder ?? '')
     if (normalizedFolder === '') {
       globalSkips.push(...mapping.skip)
     } else {
@@ -289,41 +307,66 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// .mdspecmap reader
+// .mdspecmap discovery, reading, and config resolution
 // ---------------------------------------------------------------------------
 
-export async function readMdspecMap(): Promise<MdspecMapConfig> {
-  const filePath = join(process.cwd(), '.mdspecmap')
+export interface MdspecMapFileRef {
+  filePath: string   // absolute path to .mdspecmap file
+  scopeDir: string   // repo-relative folder containing the file ('' = root)
+}
 
+export async function discoverMdspecMapFiles(repoRoot: string): Promise<MdspecMapFileRef[]> {
+  const results: MdspecMapFileRef[] = []
+  await collectMdspecMapFiles(repoRoot, repoRoot, results)
+  return results
+}
+
+async function collectMdspecMapFiles(
+  dir: string,
+  repoRoot: string,
+  results: MdspecMapFileRef[]
+): Promise<void> {
+  let entries
   try {
-    await access(filePath)
+    entries = await readdir(dir, { withFileTypes: true })
   } catch {
-    console.error('✗ Error   .mdspecmap not found at repo root')
-    console.error('          Run `npx mdspeci init` to generate one, or visit your project')
-    console.error('          in the mdspec Dashboard to download a starter file.')
+    return
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
+      await collectMdspecMapFiles(join(dir, entry.name), repoRoot, results)
+    } else if (entry.isFile() && entry.name === '.mdspecmap') {
+      const scopeDir = normalizeFolder(relative(repoRoot, dir))
+      results.push({ filePath: join(dir, entry.name), scopeDir })
+    }
+  }
+}
+
+export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig> {
+  let raw: string
+  try {
+    raw = await readFile(filePath, 'utf8')
+  } catch {
+    console.error(`✗ Error   .mdspecmap not found: ${filePath}`)
     process.exit(1)
   }
 
-  const raw = await readFile(filePath, 'utf8')
   let parsed: unknown
-
   try {
-    parsed = yaml.load(raw)
+    parsed = yaml.load(raw!)
   } catch (err) {
-    console.error(`✗ Error   .mdspecmap is not valid YAML: ${err instanceof Error ? err.message : String(err)}`)
+    console.error(`✗ Error   ${filePath} is not valid YAML: ${err instanceof Error ? err.message : String(err)}`)
     process.exit(1)
   }
 
   const config = parsed as Record<string, unknown>
-
-  // Validate required fields
   const errors: string[] = []
 
   if (config.version !== 1) {
     errors.push('version: must be 1')
   }
 
-  // Validate optional default: block
   if (config.default !== undefined) {
     const d = config.default as Record<string, unknown>
     if (d.integration && !['notion', 'confluence', 'clickup'].includes(d.integration as string)) {
@@ -339,9 +382,6 @@ export async function readMdspecMap(): Promise<MdspecMapConfig> {
   } else {
     for (let i = 0; i < config.mappings.length; i++) {
       const m = config.mappings[i] as Record<string, unknown>
-      if (!m.folder || typeof m.folder !== 'string') {
-        errors.push(`mappings[${i}].folder: required field missing`)
-      }
       if (m.integration && !['notion', 'confluence', 'clickup'].includes(m.integration as string)) {
         const val = m.integration as string
         const suggestions: Record<string, string> = { notiom: 'notion', noton: 'notion', conflunce: 'confluence', clikup: 'clickup' }
@@ -367,7 +407,7 @@ export async function readMdspecMap(): Promise<MdspecMapConfig> {
   }
 
   if (errors.length > 0) {
-    console.error('✗ Error   .mdspecmap validation failed:')
+    console.error(`✗ Error   ${filePath} validation failed:`)
     for (const e of errors) {
       console.error(`          - ${e}`)
     }
@@ -375,6 +415,69 @@ export async function readMdspecMap(): Promise<MdspecMapConfig> {
   }
 
   return config as unknown as MdspecMapConfig
+}
+
+// Kept for backwards-compat use in init command and legacy callers.
+export async function readMdspecMap(): Promise<MdspecMapConfig> {
+  const filePath = join(process.cwd(), '.mdspecmap')
+  try {
+    await access(filePath)
+  } catch {
+    console.error('✗ Error   .mdspecmap not found at repo root')
+    console.error('          Run `npx mdspeci init` to generate one, or visit your project')
+    console.error('          in the mdspec Dashboard to download a starter file.')
+    process.exit(1)
+  }
+  return readMdspecMapAt(filePath)
+}
+
+/**
+ * Resolves all folder paths in a config to repo-relative paths.
+ * Mappings without a folder default to scopeDir.
+ * sub_folders: false is converted to depth: 1 on all mappings that don't already have depth set.
+ */
+export function resolveConfigPaths(config: MdspecMapConfig, scopeDir: string): MdspecMapConfig {
+  const mappings = config.mappings.map((m) => {
+    const resolvedFolder = m.folder
+      ? joinScopedPath(scopeDir, m.folder)
+      : scopeDir
+    const depth = config.sub_folders === false && m.depth === undefined ? 1 : m.depth
+    return {
+      ...m,
+      folder: resolvedFolder,
+      ...(depth !== undefined ? { depth } : {}),
+    }
+  })
+
+  const { sub_folders: _dropped, ...rest } = config
+  return { ...rest, mappings }
+}
+
+function joinScopedPath(base: string, rel: string): string {
+  const normalized = normalizeFolder(rel)
+  if (!base) return normalized
+  if (!normalized) return base
+  return `${base}/${normalized}`
+}
+
+/**
+ * Merges multiple resolved configs into a single config for the publish payload.
+ * All folder paths must already be repo-relative (call resolveConfigPaths first).
+ */
+export function mergeConfigs(configs: MdspecMapConfig[]): MdspecMapConfig {
+  const mappings = configs.flatMap((c) => c.mappings)
+  const specs = configs.reduce<Record<string, MdspecMapSpecEntry>>(
+    (acc, c) => ({ ...acc, ...(c.specs ?? {}) }),
+    {}
+  )
+  const syncAll = configs.some((c) => c.sync_all_on_first_run === true)
+
+  return {
+    version: 1,
+    ...(syncAll ? { sync_all_on_first_run: true } : {}),
+    mappings,
+    ...(Object.keys(specs).length > 0 ? { specs } : {}),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -404,7 +507,7 @@ export function applyDepthFilter(files: string[], config: MdspecMapConfig): stri
 
   return files.filter((filePath) => {
     for (const mapping of config.mappings) {
-      const normalizedFolder = normalizeFolder(mapping.folder)
+      const normalizedFolder = normalizeFolder(mapping.folder ?? '')
       const inFolder = normalizedFolder === '' ||
         filePath.startsWith(normalizedFolder + '/') ||
         filePath === normalizedFolder
@@ -468,7 +571,7 @@ export function normalizeFolder(folder: string): string {
 export function extractSpecDirs(config: MdspecMapConfig): string[] {
   const dirs = new Set<string>()
   for (const m of config.mappings) {
-    dirs.add(normalizeFolder(m.folder))
+    dirs.add(normalizeFolder(m.folder ?? ''))
   }
   // If root is included, that covers everything
   if (dirs.has('')) return ['']

@@ -39,6 +39,7 @@ function setupMocks(fetchResponse: { status: number; body: unknown; ok?: boolean
     return Promise.resolve('# Spec content' as never)
   })
   vi.mocked(fs.readdir).mockResolvedValue([
+    { name: '.mdspecmap', isDirectory: () => false, isFile: () => true } as never,
     { name: 'spec.md', isDirectory: () => false, isFile: () => true } as never,
   ] as never)
   vi.mocked(execSync as unknown as (cmd: string) => string).mockImplementation((cmd) => {

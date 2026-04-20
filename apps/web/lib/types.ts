@@ -14,7 +14,7 @@ export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
 // ---------------------------------------------------------------------------
 
 export interface MdspecMapMapping {
-  folder: string
+  folder?: string                    // repo-relative path; absent = scope root of the owning .mdspecmap file
   integration?: string
   target?: 'document' | 'task'
   parent?: string                    // alias:<name> | id:<nativeId> | bare
@@ -43,6 +43,7 @@ export interface MdspecMapDefault {
 export interface MdspecMapConfig {
   version: 1
   sync_all_on_first_run?: boolean    // default false
+  sub_folders?: boolean              // default true — false restricts scope to immediate folder only
   default?: MdspecMapDefault         // fallback for mappings missing integration/parent
   mappings: MdspecMapMapping[]
   specs?: Record<string, MdspecMapSpecEntry>   // keyed by file path

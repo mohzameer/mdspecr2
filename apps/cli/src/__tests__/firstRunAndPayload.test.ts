@@ -76,6 +76,7 @@ function setupPublishMocks(fetchResponse: unknown) {
     return Promise.resolve(specContent as never)
   })
   vi.mocked(fs.readdir).mockResolvedValue([
+    { name: '.mdspecmap', isDirectory: () => false, isFile: () => true } as never,
     { name: 'auth.md', isDirectory: () => false, isFile: () => true } as never,
   ] as never)
   vi.mocked(execSync as unknown as (cmd: string) => string).mockImplementation((cmd) => {
@@ -119,6 +120,7 @@ it('1.6.3 renamed spec has previous_path in payload', async () => {
     return Promise.resolve(specContent as never)
   })
   vi.mocked(fs.readdir).mockResolvedValue([
+    { name: '.mdspecmap', isDirectory: () => false, isFile: () => true } as never,
     { name: 'new.md', isDirectory: () => false, isFile: () => true } as never,
   ] as never)
   vi.mocked(execSync as unknown as (cmd: string) => string).mockImplementation((cmd) => {
