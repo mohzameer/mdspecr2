@@ -319,6 +319,31 @@ describe('resolveConfigPaths', () => {
     )
     expect((cfg as unknown as Record<string, unknown>).sub_folders).toBeUndefined()
   })
+
+  it('rekeys specs entries to repo-relative paths', () => {
+    const cfg = resolveConfigPaths(
+      {
+        version: 1,
+        mappings: [{ integration: 'clickup' }],
+        specs: { 'INFO7.md': { id: '86exam62a', title: 'History' } },
+      },
+      'src/hooks'
+    )
+    expect(cfg.specs?.['src/hooks/INFO7.md']).toEqual({ id: '86exam62a', title: 'History' })
+    expect(cfg.specs?.['INFO7.md']).toBeUndefined()
+  })
+
+  it('specs keys at root scopeDir are unchanged', () => {
+    const cfg = resolveConfigPaths(
+      {
+        version: 1,
+        mappings: [{ integration: 'notion' }],
+        specs: { 'README.md': { title: 'Home' } },
+      },
+      ''
+    )
+    expect(cfg.specs?.['README.md']).toEqual({ title: 'Home' })
+  })
 })
 
 // ---------------------------------------------------------------------------

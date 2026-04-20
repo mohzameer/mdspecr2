@@ -449,8 +449,19 @@ export function resolveConfigPaths(config: MdspecMapConfig, scopeDir: string): M
     }
   })
 
+  // Rekey specs entries from scope-relative paths to repo-relative paths.
+  // e.g. "INFO7.md" in src/hooks/.mdspecmap → "src/hooks/INFO7.md"
+  const specs = config.specs
+    ? Object.fromEntries(
+        Object.entries(config.specs).map(([key, val]) => [
+          scopeDir ? `${scopeDir}/${key}` : key,
+          val,
+        ])
+      )
+    : undefined
+
   const { sub_folders: _dropped, ...rest } = config
-  return { ...rest, mappings }
+  return { ...rest, mappings, ...(specs ? { specs } : {}) }
 }
 
 
