@@ -340,7 +340,7 @@ export async function POST(request: Request) {
       let bestFolderLength = -1
 
       for (const mapping of integrationMappings) {
-        const normalizedMappingFolder = normalizeFolder(mapping.folder)
+        const normalizedMappingFolder = normalizeFolder(mapping.folder ?? '')
 
         const specInFolder = normalizedMappingFolder === '' ||
           spec.path.startsWith(normalizedMappingFolder + '/') ||
@@ -569,7 +569,7 @@ async function reconcileFolderMappings(
     for (const rawMapping of config.mappings) {
       const mapping = resolveMapping(rawMapping, config)
       if (!mapping.integration) continue
-      if (normalizeFolder(mapping.folder) === '') continue
+      if (normalizeFolder(mapping.folder ?? '') === '') continue
 
       let integrationId: string | undefined
       if (mapping.parent && resolvedAliases.has(mapping.parent)) {
@@ -580,7 +580,7 @@ async function reconcileFolderMappings(
 
       if (!integrationId) continue
 
-      const normalizedFolder = normalizeFolder(mapping.folder)
+      const normalizedFolder = normalizeFolder(mapping.folder ?? '')
       const mode = mapping.integration === 'clickup' && mapping.target === 'task' ? 'task_list' : 'doc'
       const templateId = mapping.agent ? (templateByName.get(mapping.agent) ?? null) : undefined
 
