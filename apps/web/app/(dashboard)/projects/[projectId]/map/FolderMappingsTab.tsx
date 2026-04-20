@@ -374,7 +374,7 @@ function prefillFromSuggestion(folderPath: string) {
 
   function downloadFolderMdspecMap(mapping: FolderMapping) {
     const content = generateFolderMdspecMap(mapping)
-    const blob = new Blob([content], { type: 'text/plain' })
+    const blob = new Blob([content], { type: 'application/octet-stream' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
