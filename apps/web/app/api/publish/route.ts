@@ -366,7 +366,7 @@ export async function POST(request: Request) {
 
       if (bestMapping) {
         const intType = bestMapping.integration!
-        const normalizedMappingFolder = normalizeFolder(bestMapping.folder)
+        const normalizedMappingFolder = normalizeFolder(bestMapping.folder ?? '')
 
         // Resolve integration_id — prefer alias resolution, fall back to type lookup
         let integrationId: string | undefined
