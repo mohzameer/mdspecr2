@@ -290,17 +290,30 @@ mappings:
             <p className="text-sm text-muted-foreground">
               Per-mapping fields always win over the default. Set any field on a specific mapping to override only that field — the rest still inherit from <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">default:</code>.
             </p>
-            <CodeBlock>{`default:
+            <CodeBlock>{`# docs/specs/.mdspecmap
+default:
   integration: clickup
-  parent: alias:eng-docs        # alias: prefix — references a dashboard alias
+  parent: alias:eng-docs        # alias: — references a dashboard alias
 
 mappings:
-  - folder: docs/specs          # uses clickup + eng-docs alias
-  - folder: docs/tasks
-    parent: alias:dev-tasks     # overrides default parent with another alias
+  - {}                          # uses clickup + eng-docs from default
+
+---
+
+# docs/tasks/.mdspecmap
+default:
+  integration: clickup
+
+mappings:
+  - parent: alias:dev-tasks     # overrides default parent
     target: task
-  - folder: docs/archive
-    parent: id:90181844797      # id: prefix — raw ClickUp space ID, no alias needed`}</CodeBlock>
+
+---
+
+# docs/archive/.mdspecmap
+mappings:
+  - integration: clickup
+    parent: id:90181844797      # id: — raw ClickUp space ID, no alias needed`}</CodeBlock>
           </section>
 
           <Separator />
@@ -382,7 +395,7 @@ mappings:
                   <p className="text-sm font-medium">From the CLI</p>
                   <CodeBlock>{`MDSPEC_TOKEN=mds_xxx npx mdspeci init --project <project-id>`}</CodeBlock>
                   <p className="text-sm text-muted-foreground">
-                    Fetches your project config and aliases, then writes a starter <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> to your repo root.
+                    Fetches your project config and aliases, then writes a starter <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> to the current directory.
                   </p>
                 </CardContent>
               </Card>

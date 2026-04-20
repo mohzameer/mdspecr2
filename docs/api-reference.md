@@ -83,9 +83,9 @@ The primary endpoint. Receives specs and `.mdspecmap` config from the CLI, resol
 | `specs[].hash` | string | Yes | `sha256:<hex>` content hash |
 | `specs[].frontmatter` | object | Yes | Parsed YAML frontmatter |
 | `specs[].content` | string | Yes | Markdown content (without frontmatter) |
-| `config` | MdspecMapConfig | Yes | Merged config from all discovered `.mdspecmap` files. All `folder` paths are repo-relative. |
-| `config.mappings[].folder` | string | No | Repo-relative folder path. Omitted when a `.mdspecmap` file's implicit scope root (the file's own folder) is used. |
-| `config.sub_folders` | boolean | No | Not present in merged payload — resolved to `depth: 1` by CLI before sending. |
+| `config` | MdspecMapConfig | Yes | Merged config from all discovered `.mdspecmap` files. Always set by CLI — never written directly by users. |
+| `config.mappings[].folder` | string | Yes | Repo-relative scope dir of the `.mdspecmap` file that owns this mapping. Always present in the payload — CLI sets it to the file's location. Users do not write `folder:` in `.mdspecmap` files. |
+| `config.sub_folders` | boolean | No | Not present in payload — CLI converts `sub_folders: false` to `depth: 1` before sending. |
 
 **Responses:**
 
