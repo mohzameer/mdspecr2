@@ -168,11 +168,11 @@ function LoginForm() {
       {/* OAuth Buttons */}
       <div className="space-y-2">
         <Button variant="outline" className="w-full gap-2" onClick={() => handleOAuth('github')} disabled={loading}>
-          <GitHubIcon />
+          {loading ? <Spinner /> : <GitHubIcon />}
           Continue with GitHub
         </Button>
         <Button variant="outline" className="w-full gap-2" onClick={() => handleOAuth('google')} disabled={loading}>
-          <GoogleIcon />
+          {loading ? <Spinner /> : <GoogleIcon />}
           Continue with Google
         </Button>
       </div>
@@ -227,8 +227,9 @@ function LoginForm() {
               placeholder="••••••••"
             />
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Loading...' : mode === 'signup' ? 'Create account' : 'Sign in'}
+          <Button type="submit" className="w-full gap-2" disabled={loading}>
+            {loading && <Spinner />}
+            {loading ? (mode === 'signup' ? 'Creating account…' : 'Signing in…') : mode === 'signup' ? 'Create account' : 'Sign in'}
           </Button>
         </form>
       )}
@@ -248,12 +249,22 @@ function LoginForm() {
               placeholder="you@company.com"
             />
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Sending...' : 'Send magic link'}
+          <Button type="submit" className="w-full gap-2" disabled={loading}>
+            {loading && <Spinner />}
+            {loading ? 'Sending…' : 'Send magic link'}
           </Button>
         </form>
       )}
     </div>
+  )
+}
+
+function Spinner() {
+  return (
+    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
   )
 }
 
