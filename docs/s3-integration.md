@@ -7,7 +7,7 @@
 
 This document covers the full S3 integration in mdspec — from `.mdspecmap` configuration to key structure, alias resolution, shared parent directories, and publish behaviour.
 
-When a folder mapping points to an S3 integration, specs are published as static markdown (or rendered HTML) files stored in an S3 bucket. The repo's folder hierarchy is mirrored as an S3 key prefix hierarchy. In S3 terms, the **parent directory** is the analogue of the **parent doc** used in ClickUp or the **parent page** used in Notion — it is the root container under which all specs from a mapping land.
+When a folder mapping points to an S3 integration, specs are published as static markdown (or rendered HTML) files stored in an S3 bucket. Each mapping is defined in a `.mdspecmap` file dropped alongside the specs it covers — the alias set as `parent` resolves to an S3 key prefix that acts as the root container for those specs. In S3 terms, the **parent directory** is the analogue of the **parent doc** used in ClickUp or the **parent page** used in Notion.
 
 **Primary use cases:**
 

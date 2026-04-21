@@ -568,7 +568,7 @@ mappings:
           <section id="s3" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">S3 integration</h2>
             <p className="text-sm text-muted-foreground">
-              When a mapping targets S3, specs are uploaded as static files to an S3 bucket. The repo&apos;s folder structure is mirrored as an S3 key prefix hierarchy — no special config needed to preserve nesting.
+              When a mapping targets S3, specs are uploaded as static files to an S3 bucket. Each mapping in a <code>.mdspecmap</code> file declares a <code>parent</code> alias that resolves to an S3 key prefix — that prefix is the root container for all specs covered by that mapping.
             </p>
 
             <h3 className="text-sm font-semibold">Connect an S3 integration</h3>
