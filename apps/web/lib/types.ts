@@ -4,7 +4,7 @@
 
 export type OrgRole = 'owner' | 'admin' | 'member'
 export type ProjectRole = 'admin' | 'member' | 'viewer'
-export type IntegrationType = 'notion' | 'confluence' | 'clickup'
+export type IntegrationType = 'notion' | 'confluence' | 'clickup' | 's3'
 export type IntegrationStatus = 'connected' | 'unhealthy' | 'disconnected'
 export type PublishStatus = 'queued' | 'published' | 'failed'
 export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
@@ -25,6 +25,7 @@ export interface MdspecMapMapping {
   space_id?: string                  // id:<clickupSpaceOrFolderId> — target space/folder (omit for workspace root)
   custom_task_ids?: boolean          // use ClickUp custom task IDs
   agent?: string                     // agent template name
+  format?: 'md' | 'html'            // s3 only: output format
 }
 
 export interface MdspecMapSpecEntry {

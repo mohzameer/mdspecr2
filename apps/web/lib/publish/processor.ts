@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { publishToNotion } from './adapters/notion'
 import { publishToConfluence } from './adapters/confluence'
 import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, clickUpPageExists, resolveToNativeTaskId } from './adapters/clickup'
+import { publishToS3, buildS3Key } from './adapters/s3'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
@@ -36,6 +37,9 @@ interface GroupContext {
   clickupListId: string | null
   clickupUseCustomTaskIds: boolean
   clickupFrontmatterMap: Record<string, string> | null
+  // S3-only
+  s3Format: 'md' | 'html'
+  s3RootPrefix: string | null
 }
 
 export async function runPublishGroup(data: PublishGroupJobData): Promise<void> {
@@ -88,10 +92,14 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     clickupListId: null,
     clickupUseCustomTaskIds: false,
     clickupFrontmatterMap: null,
+    s3Format: 'md',
+    s3RootPrefix: null,
   }
 
   if (target_type === 'clickup') {
     await setupClickupGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'), data.clickup_mode ?? 'doc')
+  } else if (target_type === 's3') {
+    await setupS3GroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
   }
 
   // -- Iterate specs sequentially --------------------------------------------
@@ -208,6 +216,31 @@ async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string
 }
 
 // ---------------------------------------------------------------------------
+// S3 group context: resolve folder mapping for s3_format and root prefix
+// ---------------------------------------------------------------------------
+async function setupS3GroupContext(ctx: GroupContext, matchedFolder: string): Promise<void> {
+  const { supabase, project_id, integration_id } = ctx
+  if (!matchedFolder) return
+
+  const { data: mapping } = await supabase
+    .from('folder_mappings')
+    .select('id, target_id, s3_format')
+    .eq('project_id', project_id)
+    .eq('integration_id', integration_id)
+    .eq('folder_path', matchedFolder)
+    .maybeSingle()
+
+  if (mapping) {
+    ctx.folderMappingId = mapping.id
+    ctx.folderMappingPath = matchedFolder
+    ctx.s3RootPrefix = mapping.target_id ?? null   // alias native_id stored here at publish time
+    ctx.s3Format = (mapping.s3_format as 'md' | 'html' | null) ?? 'md'
+  }
+
+  console.log(`[publish:s3] folder=${matchedFolder} prefix=${ctx.s3RootPrefix ?? '(none)'} format=${ctx.s3Format}`)
+}
+
+// ---------------------------------------------------------------------------
 // Per-spec processing inside an already-resolved group context
 // ---------------------------------------------------------------------------
 async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promise<void> {
@@ -238,8 +271,9 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
 
   let existingPageId = target?.external_page_id ?? null
 
-  // For ClickUp single mode: verify the stored doc still exists
-  if (target_type === 'clickup' && existingPageId && !ctx.isMultiMode) {
+  // For ClickUp doc mode (single/flat): verify the stored doc still exists.
+  // task_list mode stores a task ID, not a doc ID — skip this check for it.
+  if (target_type === 'clickup' && existingPageId && !ctx.isMultiMode && ctx.clickupMode !== 'task_list') {
     const remoteExists = await clickUpDocExists(
       { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string },
       existingPageId
@@ -396,6 +430,18 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
       } else {
         result = await publishSingleSpec(clickupCreds, specPayload, existingPageId, ctx.folderMappingTargetId)
       }
+      break
+    }
+
+    case 's3': {
+      const s3Creds = {
+        access_key_id: credentials.access_key_id as string,
+        secret_access_key: credentials.secret_access_key as string,
+        bucket: credentials.bucket as string,
+        region: credentials.region as string,
+      }
+      const objectKey = buildS3Key(path, ctx.s3RootPrefix, ctx.s3Format)
+      result = await publishToS3(s3Creds, specPayload, objectKey, ctx.s3Format)
       break
     }
 

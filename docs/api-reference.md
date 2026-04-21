@@ -64,6 +64,12 @@ The primary endpoint. Receives specs and `.mdspecmap` config from the CLI, resol
         "parent": "sprint-tasks",
         "target": "task",
         "depth": 1
+      },
+      {
+        "folder": "docs/specs",
+        "integration": "s3",
+        "parent": "eng-specs",
+        "format": "md"
       }
     ]
   }
@@ -85,6 +91,7 @@ The primary endpoint. Receives specs and `.mdspecmap` config from the CLI, resol
 | `specs[].content` | string | Yes | Markdown content (without frontmatter) |
 | `config` | MdspecMapConfig | Yes | Merged config from all discovered `.mdspecmap` files. Always set by CLI — never written directly by users. |
 | `config.mappings[].folder` | string | Yes | Repo-relative scope dir of the `.mdspecmap` file that owns this mapping. Always present in the payload — CLI sets it to the file's location. Users do not write `folder:` in `.mdspecmap` files. |
+| `config.mappings[].format` | string | No | S3 only. `"md"` (default) or `"html"`. Controls file extension and `Content-Type` of uploaded objects. |
 | `config.sub_folders` | boolean | No | Not present in payload — CLI converts `sub_folders: false` to `depth: 1` before sending. |
 
 **Responses:**
@@ -370,9 +377,17 @@ Lists all integrations for the current org.
     "type": "notion",
     "status": "connected",
     "config": { "root_page_id": "..." }
+  },
+  {
+    "id": "uuid",
+    "type": "s3",
+    "status": "connected",
+    "config": null
   }
 ]
 ```
+
+Valid `type` values: `notion`, `confluence`, `clickup`, `s3`.
 
 ### `POST /api/integrations/connect`
 
@@ -389,6 +404,57 @@ Connects an integration. Upserts by `(org_id, type)`.
   "config": { "root_page_id": "..." }
 }
 ```
+
+For S3, pass credentials as a JSON string:
+
+```json
+{
+  "type": "s3",
+  "credentials": "{\"access_key_id\":\"AKIA...\",\"secret_access_key\":\"...\",\"bucket\":\"acme-specs\",\"region\":\"us-east-1\"}"
+}
+```
+
+| S3 credential field | Required | Description |
+|---|---|---|
+| `access_key_id` | Yes | AWS Access Key ID |
+| `secret_access_key` | Yes | AWS Secret Access Key |
+| `bucket` | Yes | S3 bucket name (must already exist) |
+| `region` | Yes | AWS region, e.g. `us-east-1` |
+
+Call `POST /api/integrations/s3/validate` first to verify credentials before saving.
+
+### `POST /api/integrations/s3/validate`
+
+**Auth:** Session
+
+Validates S3 credentials by putting and immediately deleting a sentinel object (`__mdspec_healthcheck__`) in the bucket. Call this before `POST /api/integrations/connect` to surface credential errors early.
+
+**Request body:**
+
+```json
+{
+  "access_key_id": "AKIA...",
+  "secret_access_key": "...",
+  "bucket": "acme-specs",
+  "region": "us-east-1"
+}
+```
+
+**Responses:**
+
+| Status | Body | Meaning |
+|---|---|---|
+| `200` | `{ "ok": true }` | Credentials valid — bucket is reachable and writable |
+| `400` | `{ "ok": false, "error": "..." }` | Credentials invalid or bucket unreachable |
+| `401` | `{ "error": "unauthorized" }` | Not authenticated |
+
+**Error messages on 400:**
+
+| Cause | Error message |
+|---|---|
+| IAM key lacks `s3:PutObject` / `s3:DeleteObject` | `Access denied. Ensure the key has s3:PutObject and s3:DeleteObject on the bucket.` |
+| Bucket does not exist in the given region | `Bucket "acme-specs" not found in region us-east-1.` |
+| Invalid access key ID or secret | `Invalid credentials. Check your Access Key ID and Secret Access Key.` |
 
 ### `POST /api/integrations/disconnect`
 

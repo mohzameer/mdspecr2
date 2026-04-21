@@ -76,6 +76,7 @@ const NAV = [
   { label: 'Skip patterns', href: '#skip' },
   { label: 'Depth limiting', href: '#depth' },
   { label: 'Multiple integrations', href: '#multi' },
+  { label: 'S3 integration', href: '#s3' },
   { label: 'Tell your agent', href: '#agent-prompt' },
 ]
 
@@ -239,9 +240,10 @@ mappings:
             <Table
               headers={['Field', 'Required', 'What it does']}
               rows={[
-                ['`integration`', 'No', 'Target: notion, confluence, or clickup.'],
-                ['`parent`', 'No', 'Target container. Three forms: alias:<name> (dashboard alias), id:<nativeId> (raw ID directly), or bare value (tries alias first, falls back to raw ID).'],
+                ['`integration`', 'No', 'Target: notion, confluence, clickup, or s3.'],
+                ['`parent`', 'No', 'Target container. Three forms: alias:<name> (dashboard alias), id:<nativeId> (raw ID directly), or bare value (tries alias first, falls back to raw ID). For S3, the alias resolves to a key prefix (the "parent directory").'],
                 ['`target`', 'No', 'For ClickUp only: document (default) or task. task publishes specs as ClickUp tasks.'],
+                ['`format`', 'No', 'S3 only: md (default) or html. md uploads raw markdown; html converts and wraps in a minimal HTML shell. Controls the file extension and Content-Type of the uploaded object.'],
                 ['`depth`', 'No', 'Max subfolder depth. 1 = direct children only. Omit for unlimited depth.'],
                 ['`skip`', 'No', 'Glob patterns for files to exclude. Matched against filename and path relative to this file\'s location.'],
                 ['`list_id`', 'No', 'ClickUp list ID for task_list mode. Use id:<listId> prefix. Required when target: task.'],
@@ -281,7 +283,7 @@ mappings:
             <Table
               headers={['Field', 'What it does']}
               rows={[
-                ['`integration`', 'Fallback integration type: clickup, notion, or confluence.'],
+                ['`integration`', 'Fallback integration type: clickup, notion, confluence, or s3.'],
                 ['`parent`', 'Fallback alias name used as the parent container.'],
                 ['`target`', 'Fallback target mode: document (default) or task.'],
                 ['`agent`', 'Fallback agent template applied to all mappings that don\'t specify one.'],
@@ -546,13 +548,156 @@ mappings:
 
   - folder: docs/architecture
     integration: confluence
-    parent: id:12345678`}</CodeBlock>
+    parent: id:12345678
+
+  - folder: docs/architecture
+    integration: s3
+    parent: alias:eng-specs
+    format: md`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
-              Each spec is published independently to both. Failure on one does not block the other.
+              Each spec is published independently to all three. Failure on one does not block the others.
             </p>
             <p className="text-sm text-muted-foreground">
               Note: the most-specific-folder rule applies per integration independently. A spec can match different mappings for different integrations simultaneously.
             </p>
+          </section>
+
+          <Separator />
+
+          {/* S3 integration */}
+          <section id="s3" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">S3 integration</h2>
+            <p className="text-sm text-muted-foreground">
+              When a mapping targets S3, specs are uploaded as static files to an S3 bucket. The repo&apos;s folder structure is mirrored as an S3 key prefix hierarchy — no special config needed to preserve nesting.
+            </p>
+
+            <h3 className="text-sm font-semibold">Connect an S3 integration</h3>
+            <p className="text-sm text-muted-foreground">
+              Go to Dashboard → Integrations → Connect → S3. You need four fields:
+            </p>
+            <Table
+              headers={['Field', 'Description']}
+              rows={[
+                ['AWS Access Key ID', 'IAM access key ID'],
+                ['AWS Secret Access Key', 'IAM secret access key'],
+                ['Bucket name', 'Must already exist — mdspec does not create buckets'],
+                ['Region', 'e.g. us-east-1'],
+              ]}
+            />
+            <p className="text-sm text-muted-foreground">
+              The IAM user needs <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:PutObject</code>, <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:GetObject</code>, and <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:DeleteObject</code> on the bucket. mdspec validates credentials on connect by putting and deleting a sentinel object.
+            </p>
+
+            <h3 className="text-sm font-semibold">Parent directory — the alias</h3>
+            <p className="text-sm text-muted-foreground">
+              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">parent</code> alias for S3 resolves to a <strong>root key prefix</strong> — the S3 equivalent of a parent page or parent doc. Define it in Dashboard → Integrations → [S3 integration] → Aliases, giving it a prefix path like <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs/</code>. Leave blank to publish at the bucket root.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Multiple folder mappings can share the same alias — their specs all land under the same S3 root, preserving their full paths beneath it. This is the S3 equivalent of multiple ClickUp mappings sharing a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">parent_doc</code>.
+            </p>
+
+            <h3 className="text-sm font-semibold">Key structure</h3>
+            <p className="text-sm text-muted-foreground">
+              The S3 object key is <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">{'{alias_prefix}/{spec_path_from_repo_root}.{ext}'}</code>:
+            </p>
+            <CodeBlock>{`# Alias eng-specs → prefix: content/
+# Spec: docs/specs/payments/checkout-retry.md
+# Format: md
+
+→ S3 key: content/docs/specs/payments/checkout-retry.md
+→ URL:    https://acme-specs.s3.us-east-1.amazonaws.com/content/docs/specs/payments/checkout-retry.md`}</CodeBlock>
+
+            <h3 className="text-sm font-semibold">Example .mdspecmap</h3>
+            <CodeBlock>{`# docs/specs/.mdspecmap
+mappings:
+  - integration: s3
+    parent: alias:eng-specs   # resolves to prefix: content/
+    format: md                # md (default) or html
+
+  - integration: s3
+    parent: alias:eng-specs   # same alias — co-located under content/
+    format: html              # second copy as rendered HTML`}</CodeBlock>
+
+            <h3 className="text-sm font-semibold">Publish behaviour</h3>
+            <Table
+              headers={['Behaviour', 'Detail']}
+              rows={[
+                ['Always overwrites', 'S3 PutObject is idempotent — every publish replaces the object at that key. No create vs update distinction.'],
+                ['Content-unchanged skip', 'If the spec\'s content hash is unchanged and the object key is already stored in the ledger, the upload is skipped.'],
+                ['No deletion', 'Deleting a spec file from the repo does not delete the S3 object. The object is orphaned. V1 constraint.'],
+                ['No bucket provisioning', 'The bucket must already exist. mdspec does not create or configure buckets.'],
+                ['external_url', 'Stored as the direct S3 URL: https://{bucket}.s3.{region}.amazonaws.com/{key}'],
+              ]}
+            />
+
+            <h3 className="text-sm font-semibold">AWS setup walkthrough</h3>
+            <p className="text-sm text-muted-foreground">
+              If you don&apos;t have a bucket and IAM user yet, follow these steps. Takes about five minutes in the AWS Console.
+            </p>
+
+            <p className="text-sm font-medium mt-2">Step 1 — Create the bucket</p>
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground pl-1">
+              <li>Open the <strong>S3 console</strong> → <strong>Create bucket</strong>.</li>
+              <li>Enter a bucket name (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">acme-specs</code>). Names must be globally unique.</li>
+              <li>Choose the AWS region closest to your team (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">us-east-1</code>). Use the same region when connecting in mdspec.</li>
+              <li>Leave <strong>Block all public access</strong> enabled (default). mdspec accesses the bucket via IAM credentials — the bucket does not need to be public.</li>
+              <li>Leave versioning, encryption, and all other settings at their defaults. Click <strong>Create bucket</strong>.</li>
+            </ol>
+
+            <p className="text-sm font-medium mt-2">Step 2 — Create an IAM policy</p>
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground pl-1">
+              <li>Open the <strong>IAM console</strong> → <strong>Policies</strong> → <strong>Create policy</strong>.</li>
+              <li>Switch to the <strong>JSON</strong> editor and paste the policy below. Replace <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">acme-specs</code> with your bucket name.</li>
+            </ol>
+            <CodeBlock>{`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::acme-specs/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::acme-specs"
+    }
+  ]
+}`}</CodeBlock>
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground pl-1" start={3}>
+              <li>Click <strong>Next</strong>, name the policy (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mdspec-s3-acme-specs</code>), and click <strong>Create policy</strong>.</li>
+            </ol>
+            <p className="text-sm text-muted-foreground">
+              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:ListBucket</code> permission on the bucket resource (not the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/*</code> path) is needed for the connection health check. The three object-level permissions cover publishing.
+            </p>
+
+            <p className="text-sm font-medium mt-2">Step 3 — Create an IAM user and attach the policy</p>
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground pl-1">
+              <li>In the IAM console → <strong>Users</strong> → <strong>Create user</strong>.</li>
+              <li>Enter a name (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mdspec-publisher</code>). No console access needed — leave that unchecked.</li>
+              <li>On the permissions screen, choose <strong>Attach policies directly</strong> and select the policy you just created.</li>
+              <li>Complete the wizard and click <strong>Create user</strong>.</li>
+            </ol>
+
+            <p className="text-sm font-medium mt-2">Step 4 — Generate access keys</p>
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground pl-1">
+              <li>Open the user you just created → <strong>Security credentials</strong> tab → <strong>Create access key</strong>.</li>
+              <li>Select <strong>Application running outside AWS</strong> as the use case.</li>
+              <li>Click through and copy both the <strong>Access Key ID</strong> and <strong>Secret Access Key</strong>. The secret is shown only once.</li>
+            </ol>
+
+            <p className="text-sm font-medium mt-2">Step 5 — Connect in mdspec</p>
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground pl-1">
+              <li>Go to <strong>Dashboard → Integrations → Connect → S3</strong>.</li>
+              <li>Paste in your Access Key ID, Secret Access Key, bucket name, and region.</li>
+              <li>Click <strong>Connect S3</strong>. mdspec runs a health check and saves the credentials if it succeeds.</li>
+              <li>Go to the integration&apos;s <strong>Aliases</strong> tab and create an alias with a key prefix (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs/</code>) or leave it blank to publish at the bucket root.</li>
+              <li>Reference the alias in your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> as <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">parent: alias:&lt;name&gt;</code>.</li>
+            </ol>
           </section>
 
           <Separator />
@@ -565,7 +710,7 @@ mappings:
               It tells the agent to keep your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> in sync as it writes and moves spec files.
             </p>
             <p className="text-sm text-muted-foreground">This is a suggestion — adapt it to your project structure.</p>
-            <CodeBlock>{`This project uses mdspec to publish markdown spec files to external tools (Notion, ClickUp, etc.).
+            <CodeBlock>{`This project uses mdspec to publish markdown spec files to external tools (Notion, ClickUp, S3, etc.).
 
 Rules for working with spec files:
 
@@ -583,6 +728,9 @@ Rules for working with spec files:
      parent: alias:<name>      # dashboard alias
      parent: id:<nativeId>     # raw native ID (ClickUp space/list/doc ID, Notion page ID, etc.)
      parent: <bare>            # tries alias first, falls back to raw ID
+
+   For S3 integrations, the parent alias resolves to an S3 key prefix (the "parent directory").
+   The format: field controls the file extension: md (default) or html.
 
 3. When you CREATE a new spec file:
    - If it needs a custom title (different from the H1 heading or filename), add an entry:
