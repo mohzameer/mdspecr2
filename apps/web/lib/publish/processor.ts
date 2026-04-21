@@ -270,11 +270,12 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   // -- Fetch current publish target state ------------------------------------
   const { data: target } = await supabase
     .from('spec_publish_targets')
-    .select('external_page_id, retry_count')
+    .select('external_page_id, retry_count, content_hash')
     .eq('id', spec_publish_target_id)
     .single()
 
   let existingPageId = target?.external_page_id ?? null
+  const lastPublishedHash = (target as { content_hash?: string | null } | null)?.content_hash ?? null
 
   // For ClickUp doc mode (single/flat): verify the stored doc still exists.
   // task_list mode stores a task ID, not a doc ID — skip this check for it.
@@ -328,12 +329,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   // if content is the same (e.g. transitioning from single-mode to multi-mode).
   const canSkip = existingPageId && (!ctx.isMultiMode || ctx.sharedSubDocId)
   if (canSkip) {
-    const { data: currentSpec } = await supabase
-      .from('specs')
-      .select('content_hash')
-      .eq('id', spec_id)
-      .single()
-    if (content_hash && currentSpec?.content_hash === content_hash) {
+    if (content_hash && lastPublishedHash === content_hash) {
       console.log(`[publish] skipping spec ${spec_id} — remote exists and content unchanged`)
       await supabase
         .from('spec_publish_targets')
@@ -476,20 +472,15 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   const externalId = result.page_id ?? result.doc_id ?? null
   const externalUrl = result.page_url ?? result.doc_url ?? null
 
-  await Promise.all([
-    supabase
-      .from('spec_publish_targets')
-      .update({
-        status: 'published',
-        external_page_id: externalId,
-        external_url: externalUrl,
-        published_at: new Date().toISOString(),
-        last_error: null,
-      })
-      .eq('id', spec_publish_target_id),
-    supabase
-      .from('specs')
-      .update({ content_hash: content_hash ?? null })
-      .eq('id', spec_id),
-  ])
+  await supabase
+    .from('spec_publish_targets')
+    .update({
+      status: 'published',
+      external_page_id: externalId,
+      external_url: externalUrl,
+      content_hash: content_hash ?? null,
+      published_at: new Date().toISOString(),
+      last_error: null,
+    })
+    .eq('id', spec_publish_target_id)
 }

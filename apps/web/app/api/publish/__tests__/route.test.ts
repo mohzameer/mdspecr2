@@ -585,36 +585,6 @@ describe('2.1 Depth filtering', () => {
     expect(body.queued).toBe(1)
   })
 
-  it('specs upsert does NOT include content_hash — worker writes it after publish', async () => {
-    const supabase = createServiceMock()
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    setupAuthSuccess(supabase)
-    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
-    setupAliasResolution(supabase)
-
-    // Capture the specs chain so we can inspect the upsert call
-    let specsChain: ReturnType<typeof makeChain> | null = null
-    supabase.from.mockImplementationOnce(() => {
-      specsChain = makeChain({ data: { id: 'spec1' }, error: null })
-      return specsChain
-    })
-    // spec_publish_targets maybySingle
-    supabase.from.mockImplementationOnce(() => makeChain({ data: null, error: null }))
-    // spec_publish_targets insert
-    supabase.from.mockImplementationOnce(() =>
-      makeChain({ data: { id: 'tgt1', external_page_id: null }, error: null })
-    )
-    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
-
-    await POST(makeRequest(BASE_PAYLOAD))
-
-    expect(specsChain).not.toBeNull()
-    expect((specsChain as ReturnType<typeof makeChain>).upsert).toHaveBeenCalledWith(
-      expect.not.objectContaining({ content_hash: expect.anything() }),
-      expect.anything()
-    )
-  })
-
   it('no depth: all nesting levels are queued', async () => {
     const supabase = createServiceMock()
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)

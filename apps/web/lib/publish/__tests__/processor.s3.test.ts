@@ -126,6 +126,7 @@ function makeSupabase({
   credentials = S3_CREDENTIALS,
   folderMapping = { id: 'fm-1', target_id: null, s3_maintain_hierarchy: false } as FolderMappingRow | null,
   existingPageId = null as string | null,
+  // last-published hash stored on spec_publish_targets (not specs)
   storedHash = 'different-hash',
 } = {}) {
   const calls: string[] = []
@@ -141,10 +142,7 @@ function makeSupabase({
       return chain(folderMapping)
     }
     if (table === 'spec_publish_targets' && calls.filter(c => c === 'spec_publish_targets').length === 1) {
-      return chain({ external_page_id: existingPageId, retry_count: 0 })
-    }
-    if (table === 'specs') {
-      return chain({ content_hash: storedHash })
+      return chain({ external_page_id: existingPageId, retry_count: 0, content_hash: storedHash })
     }
     if (table === 'spec_publish_targets') {
       return chain(null)
@@ -499,15 +497,14 @@ describe('content-unchanged skip', () => {
 // (The route no longer writes content_hash on upsert.)
 // ---------------------------------------------------------------------------
 describe('post-publish content_hash write', () => {
-  it('updates specs.content_hash after successful publish', async () => {
-    const specsChains: ReturnType<typeof chain>[] = []
+  it('writes content_hash to spec_publish_targets after successful publish', async () => {
+    const sptChains: ReturnType<typeof chain>[] = []
     const fromMock = vi.fn((table: string) => {
       if (table === 'integrations') return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' })
       if (table === 'folder_mappings') return chain({ id: 'fm-1', target_id: null, s3_maintain_hierarchy: false })
-      if (table === 'spec_publish_targets') return chain({ external_page_id: null, retry_count: 0 })
-      if (table === 'specs') {
-        const c = chain({ content_hash: 'old-hash' })
-        specsChains.push(c)
+      if (table === 'spec_publish_targets') {
+        const c = chain({ external_page_id: null, retry_count: 0, content_hash: null })
+        sptChains.push(c)
         return c
       }
       return chain(null)
@@ -517,8 +514,8 @@ describe('post-publish content_hash write', () => {
 
     await runPublishGroup(makeJobData())
 
-    // At least one specs.update({ content_hash }) call must have been made
-    const updateCalls = specsChains.flatMap((c) =>
+    // spec_publish_targets.update must include content_hash after publish
+    const updateCalls = sptChains.flatMap((c) =>
       (c.update as ReturnType<typeof vi.fn>).mock.calls
     )
     expect(updateCalls.some((args) => (args[0] as Record<string, unknown>).content_hash === 'hash-abc')).toBe(true)

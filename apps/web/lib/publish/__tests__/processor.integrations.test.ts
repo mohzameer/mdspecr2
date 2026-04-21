@@ -107,7 +107,7 @@ function chain(data: unknown, error: unknown = null) {
 
 /**
  * Minimal supabase mock for a non-ClickUp integration (Notion, Confluence, S3).
- * Call order: integrations → spec_publish_targets (fetch) → specs (hash) → spec_publish_targets (update)
+ * storedHash is the last-published hash stored on spec_publish_targets.content_hash.
  */
 function makeSimpleSupabase(credentials: Record<string, unknown>, existingPageId: string | null = null, storedHash = 'different') {
   let integrationDone = false
@@ -120,10 +120,9 @@ function makeSimpleSupabase(credentials: Record<string, unknown>, existingPageId
     }
     if (table === 'spec_publish_targets') {
       sptCount++
-      if (sptCount % 2 === 1) return chain({ external_page_id: existingPageId, retry_count: 0 })
+      if (sptCount % 2 === 1) return chain({ external_page_id: existingPageId, retry_count: 0, content_hash: storedHash })
       return chain(null)
     }
-    if (table === 'specs') return chain({ content_hash: storedHash })
     return chain(null)
   })
 
@@ -154,10 +153,9 @@ function makeClickUpSupabase(
     }
     if (table === 'spec_publish_targets') {
       sptCount++
-      if (sptCount % 2 === 1) return chain({ external_page_id: existingPageId, retry_count: 0 })
+      if (sptCount % 2 === 1) return chain({ external_page_id: existingPageId, retry_count: 0, content_hash: storedHash })
       return chain(null)
     }
-    if (table === 'specs') return chain({ content_hash: storedHash })
     if (table === 'folder_mappings') return chain(null)
     return chain(null)
   })
