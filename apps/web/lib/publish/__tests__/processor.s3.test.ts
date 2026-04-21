@@ -93,6 +93,7 @@ function makeSpec(overrides: Partial<{
 function makeJobData(overrides: Partial<{
   specs: ReturnType<typeof makeSpec>[]
   matched_folder: string
+  s3_root_prefix: string | null
 }> = {}) {
   return {
     project_id: PROJECT_ID,
@@ -100,6 +101,7 @@ function makeJobData(overrides: Partial<{
     target_type: 's3' as const,
     specs: [makeSpec()],
     matched_folder: 'docs/specs',
+    s3_root_prefix: null,
     ...overrides,
   }
 }
@@ -293,14 +295,14 @@ describe('S3 key composition — flat mode', () => {
     expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'archive/retry.md')
   })
 
-  it('root-level spec (matched_folder empty) → bare filename, no prefix applied', async () => {
+  it('root-level spec (matched_folder empty, no prefix) → bare filename', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'archive', s3_maintain_hierarchy: false } }) as never
+      makeSupabase({ folderMapping: null }) as never
     )
     vi.mocked(publishToS3).mockResolvedValue({ page_id: 'README.md', page_url: '' })
 
     const rootSpec = makeSpec({ path: 'README.md' })
-    await runPublishGroup(makeJobData({ specs: [rootSpec], matched_folder: '' }))
+    await runPublishGroup(makeJobData({ specs: [rootSpec], matched_folder: '', s3_root_prefix: null }))
 
     expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'README.md')
   })

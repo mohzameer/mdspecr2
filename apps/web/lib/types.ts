@@ -101,6 +101,7 @@ export interface PublishGroupJobData {
   specs: PublishGroupSpec[]
   clickup_mode?: 'doc' | 'task_list'
   matched_folder?: string  // the folder path that was matched for this group (longest-prefix)
+  s3_root_prefix?: string | null  // S3 bucket key prefix from mapping's parent field
 }
 
 // ---------------------------------------------------------------------------

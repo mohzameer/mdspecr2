@@ -101,6 +101,8 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
   if (target_type === 'clickup') {
     await setupClickupGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'), data.clickup_mode ?? 'doc')
   } else if (target_type === 's3') {
+    // Seed prefix from job data; folder_mappings lookup may override it for folder-scoped mappings
+    ctx.s3RootPrefix = data.s3_root_prefix ?? null
     await setupS3GroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
   }
 
@@ -222,7 +224,6 @@ async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string
 // ---------------------------------------------------------------------------
 async function setupS3GroupContext(ctx: GroupContext, matchedFolder: string): Promise<void> {
   const { supabase, project_id, integration_id } = ctx
-  if (!matchedFolder) return
 
   const { data: mapping } = await supabase
     .from('folder_mappings')
@@ -235,7 +236,8 @@ async function setupS3GroupContext(ctx: GroupContext, matchedFolder: string): Pr
   if (mapping) {
     ctx.folderMappingId = mapping.id
     ctx.folderMappingPath = matchedFolder
-    ctx.s3RootPrefix = mapping.target_id ?? null
+    // folder_mappings.target_id overrides the job-level prefix for folder-scoped mappings
+    if (mapping.target_id !== null) ctx.s3RootPrefix = mapping.target_id
     ctx.s3MaintainHierarchy = (mapping.s3_maintain_hierarchy as boolean | null) ?? false
     ctx.s3MatchedFolder = matchedFolder
   }
