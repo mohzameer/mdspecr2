@@ -281,6 +281,7 @@ export async function POST(request: Request) {
       target_type: IntegrationType
       clickup_mode: string
       matched_folder: string
+      s3_root_prefix?: string | null
       specs: PublishGroupSpec[]
     }>()
     let savedCount = 0
