@@ -777,7 +777,8 @@ interface ResolvedSpecConfig {
 }
 
 export function resolveSpecConfig(filePath: string, config: MdspecMapConfig): ResolvedSpecConfig {
-  const entry = config.specs?.[filePath]   // O(1) path lookup
+  const basename = filePath.split('/').pop() ?? filePath
+  const entry = config.specs?.[filePath] ?? config.specs?.[basename]
 
   return {
     title: entry?.title ?? deriveTitle(filePath),
