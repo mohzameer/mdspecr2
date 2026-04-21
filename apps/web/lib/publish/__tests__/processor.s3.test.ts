@@ -493,6 +493,63 @@ describe('content-unchanged skip', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 5b. Post-publish content_hash write
+// The worker must write specs.content_hash after a successful publish so that
+// the next run can correctly compare the last-published hash with the new hash.
+// (The route no longer writes content_hash on upsert.)
+// ---------------------------------------------------------------------------
+describe('post-publish content_hash write', () => {
+  it('updates specs.content_hash after successful publish', async () => {
+    const specsChains: ReturnType<typeof chain>[] = []
+    const fromMock = vi.fn((table: string) => {
+      if (table === 'integrations') return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' })
+      if (table === 'folder_mappings') return chain({ id: 'fm-1', target_id: null, s3_maintain_hierarchy: false })
+      if (table === 'spec_publish_targets') return chain({ external_page_id: null, retry_count: 0 })
+      if (table === 'specs') {
+        const c = chain({ content_hash: 'old-hash' })
+        specsChains.push(c)
+        return c
+      }
+      return chain(null)
+    })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
+
+    await runPublishGroup(makeJobData())
+
+    // At least one specs.update({ content_hash }) call must have been made
+    const updateCalls = specsChains.flatMap((c) =>
+      (c.update as ReturnType<typeof vi.fn>).mock.calls
+    )
+    expect(updateCalls.some((args) => (args[0] as Record<string, unknown>).content_hash === 'hash-abc')).toBe(true)
+  })
+
+  it('does NOT skip when DB hash is stale (last-published differs from new content)', async () => {
+    // storedHash = 'old-hash', job content_hash = 'hash-abc' (changed) → must publish
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({ existingPageId: 'auth.md', storedHash: 'old-hash' }) as never
+    )
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
+
+    await runPublishGroup(makeJobData())
+
+    expect(publishToS3).toHaveBeenCalledOnce()
+  })
+
+  it('skips when DB hash matches (content identical to last published)', async () => {
+    // storedHash = 'hash-abc', job content_hash = 'hash-abc' → skip
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({ existingPageId: 'auth.md', storedHash: 'hash-abc' }) as never
+    )
+    vi.mocked(s3ObjectExists).mockResolvedValue(true)
+
+    await runPublishGroup(makeJobData())
+
+    expect(publishToS3).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 6. Multiple specs in one group
 // ---------------------------------------------------------------------------
 describe('multiple specs in one group', () => {

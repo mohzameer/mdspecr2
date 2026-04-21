@@ -476,14 +476,20 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   const externalId = result.page_id ?? result.doc_id ?? null
   const externalUrl = result.page_url ?? result.doc_url ?? null
 
-  await supabase
-    .from('spec_publish_targets')
-    .update({
-      status: 'published',
-      external_page_id: externalId,
-      external_url: externalUrl,
-      published_at: new Date().toISOString(),
-      last_error: null,
-    })
-    .eq('id', spec_publish_target_id)
+  await Promise.all([
+    supabase
+      .from('spec_publish_targets')
+      .update({
+        status: 'published',
+        external_page_id: externalId,
+        external_url: externalUrl,
+        published_at: new Date().toISOString(),
+        last_error: null,
+      })
+      .eq('id', spec_publish_target_id),
+    supabase
+      .from('specs')
+      .update({ content_hash: content_hash ?? null })
+      .eq('id', spec_id),
+  ])
 }

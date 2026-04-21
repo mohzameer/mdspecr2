@@ -316,7 +316,8 @@ export async function POST(request: Request) {
             path: spec.path,
             mdspec_id: null,
             commit_sha,
-            content_hash: spec.hash,
+            // content_hash intentionally omitted — worker writes it after successful publish
+            // so the DB always holds the last-published hash for skip detection
             title: spec.title,
             frontmatter: null,
             updated_at: new Date().toISOString(),
