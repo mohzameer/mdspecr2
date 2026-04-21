@@ -419,13 +419,10 @@ export async function POST(request: Request) {
             // Accumulate into group
             const groupKey = `${integrationId}::${normalizedMappingFolder}::${mode}`
             if (!groups.has(groupKey)) {
-              // For S3: resolve the root prefix from the mapping's parent field
-              let s3RootPrefix: string | null = null
-              if (intType === 's3' && bestMapping.parent !== undefined) {
-                const resolved = resolvedAliases.get(bestMapping.parent)
-                const raw = parseParent(bestMapping.parent).value
-                s3RootPrefix = (resolved ? resolved.native_id : raw) || null
-              }
+              // For S3: root prefix comes from parent_dir (raw string, no alias resolution needed)
+              const s3RootPrefix = intType === 's3'
+                ? (bestMapping.parent_dir?.trim() || null)
+                : null
               groups.set(groupKey, {
                 integration_id: integrationId,
                 target_type: intType as IntegrationType,
@@ -606,9 +603,9 @@ async function reconcileFolderMappings(
             ...(mapping.list_id !== undefined ? { clickup_list_id: parseId(mapping.list_id) } : {}),
             ...(mapping.parent_doc !== undefined ? { clickup_doc_id: parseId(mapping.parent_doc) } : {}),
             ...(mapping.space_id !== undefined ? { target_id: parseId(mapping.space_id) } : {}),
-            // For S3: parent is the bucket prefix (target_id); resolve via alias map or use bare value
-            ...(mapping.integration === 's3' && mapping.parent !== undefined ? {
-              target_id: resolvedAliases.get(mapping.parent)?.native_id ?? (parseParent(mapping.parent).value || null),
+            // For S3: parent_dir is the bucket key prefix stored as target_id
+            ...(mapping.integration === 's3' && mapping.parent_dir !== undefined ? {
+              target_id: mapping.parent_dir.trim() || null,
             } : {}),
             ...(mapping.custom_task_ids !== undefined ? { clickup_use_custom_task_ids: mapping.custom_task_ids } : {}),
             ...(templateId !== undefined ? { template_id: templateId } : {}),

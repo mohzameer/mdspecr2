@@ -22,7 +22,8 @@ export interface MdspecMapMapping {
   space_id?: string                  // id:<clickupSpaceOrFolderId> — omit for workspace root
   custom_task_ids?: boolean          // use ClickUp custom task IDs
   agent?: string                     // agent template name
-  maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths (default false = flat)
+  parent_dir?: string                // s3 only: bucket key prefix (e.g. "docs/eng-specs")
+  maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths under parent_dir (default false = flat)
 }
 
 export interface MdspecMapSpecEntry {
@@ -400,6 +401,9 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
       }
       if (m.maintain_hierarchy !== undefined && typeof m.maintain_hierarchy !== 'boolean') {
         errors.push(`mappings[${i}].maintain_hierarchy: must be true or false`)
+      }
+      if (m.parent_dir !== undefined && typeof m.parent_dir !== 'string') {
+        errors.push(`mappings[${i}].parent_dir: must be a string`)
       }
       if (m.parent && typeof m.parent === 'string') {
         const parsed = parseParent(m.parent as string)

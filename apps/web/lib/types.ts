@@ -25,7 +25,8 @@ export interface MdspecMapMapping {
   space_id?: string                  // id:<clickupSpaceOrFolderId> — target space/folder (omit for workspace root)
   custom_task_ids?: boolean          // use ClickUp custom task IDs
   agent?: string                     // agent template name
-  maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths under parent prefix (default false = flat)
+  parent_dir?: string                // s3 only: bucket key prefix (e.g. "docs/eng-specs")
+  maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths under parent_dir (default false = flat)
 }
 
 export interface MdspecMapSpecEntry {
@@ -101,7 +102,7 @@ export interface PublishGroupJobData {
   specs: PublishGroupSpec[]
   clickup_mode?: 'doc' | 'task_list'
   matched_folder?: string  // the folder path that was matched for this group (longest-prefix)
-  s3_root_prefix?: string | null  // S3 bucket key prefix from mapping's parent field
+  s3_root_prefix?: string | null  // S3 bucket key prefix from mapping's parent_dir field
 }
 
 // ---------------------------------------------------------------------------

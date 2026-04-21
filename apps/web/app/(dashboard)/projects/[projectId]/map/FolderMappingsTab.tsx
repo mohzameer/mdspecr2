@@ -357,6 +357,8 @@ function prefillFromSuggestion(folderPath: string) {
       }
       if (mapping.target_id) lines.push(`    space_id: id:${mapping.target_id}`)
       if (mapping.clickup_use_custom_task_ids) lines.push('    custom_task_ids: true')
+    } else if (intType === 's3') {
+      if (mapping.target_id) lines.push(`    parent_dir: ${mapping.target_id}`)
     } else if (intType) {
       if (mapping.target_id) lines.push(`    parent: id:${mapping.target_id}`)
     }
