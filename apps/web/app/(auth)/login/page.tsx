@@ -77,6 +77,7 @@ function LoginForm() {
         } else {
           router.push(next)
           router.refresh()
+          return // keep spinner showing during navigation
         }
       } catch {
         setError('Could not reach the server. Check your connection and try again.')
