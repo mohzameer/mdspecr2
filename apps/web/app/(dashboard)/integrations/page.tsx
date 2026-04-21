@@ -27,7 +27,7 @@ const integrationMeta: Record<IntegrationType, { label: string; description: str
   notion: { label: 'Notion', description: 'Publish specs as nested sub-pages in a Notion workspace.', icon: 'N' },
   confluence: { label: 'Confluence', description: 'Publish specs as a page tree in a Confluence space.', icon: 'C' },
   clickup: { label: 'ClickUp', description: 'Publish specs as ClickUp Docs in your workspace.', icon: '✓' },
-  s3: { label: 'Amazon S3', description: 'Publish specs as static markdown or HTML files in an S3 bucket.', icon: 'S3' },
+  s3: { label: 'Amazon S3', description: 'Publish specs as static markdown files in an S3 bucket.', icon: 'S3' },
 }
 
 const statusColors: Record<string, string> = {
