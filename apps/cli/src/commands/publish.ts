@@ -22,6 +22,7 @@ export interface MdspecMapMapping {
   space_id?: string                  // id:<clickupSpaceOrFolderId> — omit for workspace root
   custom_task_ids?: boolean          // use ClickUp custom task IDs
   agent?: string                     // agent template name
+  maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths (default false = flat)
 }
 
 export interface MdspecMapSpecEntry {
@@ -369,7 +370,7 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
 
   if (config.default !== undefined) {
     const d = config.default as Record<string, unknown>
-    if (d.integration && !['notion', 'confluence', 'clickup'].includes(d.integration as string)) {
+    if (d.integration && !['notion', 'confluence', 'clickup', 's3'].includes(d.integration as string)) {
       errors.push(`default.integration: unknown value '${d.integration}'`)
     }
     if (d.target && !['document', 'task'].includes(d.target as string)) {
@@ -385,9 +386,9 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
       if (m.folder !== undefined) {
         errors.push(`mappings[${i}].folder: not supported — place .mdspecmap inside the folder you want to sync`)
       }
-      if (m.integration && !['notion', 'confluence', 'clickup'].includes(m.integration as string)) {
+      if (m.integration && !['notion', 'confluence', 'clickup', 's3'].includes(m.integration as string)) {
         const val = m.integration as string
-        const suggestions: Record<string, string> = { notiom: 'notion', noton: 'notion', conflunce: 'confluence', clikup: 'clickup' }
+        const suggestions: Record<string, string> = { notiom: 'notion', noton: 'notion', conflunce: 'confluence', clikup: 'clickup', S3: 's3', 'amazon-s3': 's3' }
         const hint = suggestions[val] ? ` (did you mean '${suggestions[val]}'?)` : ''
         errors.push(`mappings[${i}].integration: unknown value '${val}'${hint}`)
       }
@@ -396,6 +397,9 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
       }
       if (m.depth !== undefined && (!Number.isInteger(m.depth) || (m.depth as number) < 1)) {
         errors.push(`mappings[${i}].depth: must be a positive integer`)
+      }
+      if (m.maintain_hierarchy !== undefined && typeof m.maintain_hierarchy !== 'boolean') {
+        errors.push(`mappings[${i}].maintain_hierarchy: must be true or false`)
       }
       if (m.parent && typeof m.parent === 'string') {
         const parsed = parseParent(m.parent as string)

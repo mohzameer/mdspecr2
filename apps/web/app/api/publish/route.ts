@@ -598,6 +598,7 @@ async function reconcileFolderMappings(
             ...(mapping.space_id !== undefined ? { target_id: parseId(mapping.space_id) } : {}),
             ...(mapping.custom_task_ids !== undefined ? { clickup_use_custom_task_ids: mapping.custom_task_ids } : {}),
             ...(templateId !== undefined ? { template_id: templateId } : {}),
+            ...(mapping.maintain_hierarchy !== undefined ? { s3_maintain_hierarchy: mapping.maintain_hierarchy } : {}),
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'project_id,folder_path,integration_id,clickup_mode' }

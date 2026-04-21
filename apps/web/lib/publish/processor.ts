@@ -38,8 +38,9 @@ interface GroupContext {
   clickupUseCustomTaskIds: boolean
   clickupFrontmatterMap: Record<string, string> | null
   // S3-only
-  s3Format: 'md' | 'html'
   s3RootPrefix: string | null
+  s3MaintainHierarchy: boolean
+  s3MatchedFolder: string        // needed to compute relative path when hierarchy=true
 }
 
 export async function runPublishGroup(data: PublishGroupJobData): Promise<void> {
@@ -92,8 +93,9 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     clickupListId: null,
     clickupUseCustomTaskIds: false,
     clickupFrontmatterMap: null,
-    s3Format: 'md',
     s3RootPrefix: null,
+    s3MaintainHierarchy: false,
+    s3MatchedFolder: '',
   }
 
   if (target_type === 'clickup') {
@@ -224,7 +226,7 @@ async function setupS3GroupContext(ctx: GroupContext, matchedFolder: string): Pr
 
   const { data: mapping } = await supabase
     .from('folder_mappings')
-    .select('id, target_id, s3_format')
+    .select('id, target_id, s3_maintain_hierarchy')
     .eq('project_id', project_id)
     .eq('integration_id', integration_id)
     .eq('folder_path', matchedFolder)
@@ -233,11 +235,12 @@ async function setupS3GroupContext(ctx: GroupContext, matchedFolder: string): Pr
   if (mapping) {
     ctx.folderMappingId = mapping.id
     ctx.folderMappingPath = matchedFolder
-    ctx.s3RootPrefix = mapping.target_id ?? null   // alias native_id stored here at publish time
-    ctx.s3Format = (mapping.s3_format as 'md' | 'html' | null) ?? 'md'
+    ctx.s3RootPrefix = mapping.target_id ?? null
+    ctx.s3MaintainHierarchy = (mapping.s3_maintain_hierarchy as boolean | null) ?? false
+    ctx.s3MatchedFolder = matchedFolder
   }
 
-  console.log(`[publish:s3] folder=${matchedFolder} prefix=${ctx.s3RootPrefix ?? '(none)'} format=${ctx.s3Format}`)
+  console.log(`[publish:s3] folder=${matchedFolder} prefix=${ctx.s3RootPrefix ?? '(none)'} hierarchy=${ctx.s3MaintainHierarchy}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -440,8 +443,11 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         bucket: credentials.bucket as string,
         region: credentials.region as string,
       }
-      const objectKey = buildS3Key(path, ctx.s3RootPrefix, ctx.s3Format)
-      result = await publishToS3(s3Creds, specPayload, objectKey, ctx.s3Format)
+      const objectKey = buildS3Key(path, ctx.s3RootPrefix, {
+        maintainHierarchy: ctx.s3MaintainHierarchy,
+        matchedFolder: ctx.s3MatchedFolder,
+      })
+      result = await publishToS3(s3Creds, specPayload, objectKey)
       break
     }
 

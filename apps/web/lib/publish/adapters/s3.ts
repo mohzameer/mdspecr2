@@ -10,55 +10,28 @@ export interface S3Credentials {
 export function buildS3Key(
   specPath: string,
   rootPrefix: string | null | undefined,
-  format: 'md' | 'html'
+  options: { maintainHierarchy?: boolean; matchedFolder?: string } = {}
 ): string {
   const prefix = rootPrefix?.replace(/\/$/, '') ?? ''
-  const normalized = format === 'html'
-    ? specPath.replace(/\.md$/, '.html')
-    : specPath
-  const path = normalized.replace(/^\//, '')
+
+  let relativePath: string
+  if (options.maintainHierarchy && options.matchedFolder) {
+    const folderPrefix = options.matchedFolder.replace(/\/$/, '') + '/'
+    relativePath = specPath.startsWith(folderPrefix)
+      ? specPath.slice(folderPrefix.length)
+      : specPath
+  } else {
+    relativePath = specPath.split('/').pop() ?? specPath
+  }
+
+  const path = relativePath.replace(/^\//, '')
   return prefix ? `${prefix}/${path}` : path
-}
-
-function mdToHtml(content: string, title: string): string {
-  let body = content
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    .replace(/\n\n/g, '</p><p>')
-
-  body = `<p>${body}</p>`
-  body = body.replace(/<p>(<h[1-3]>)/g, '$1').replace(/(<\/h[1-3]>)<\/p>/g, '$1')
-  body = body.replace(/<p>(<li>)/g, '<ul>$1').replace(/(<\/li>)<\/p>/g, '$1</ul>')
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
-</head>
-<body>
-${body}
-</body>
-</html>`
-}
-
-function resolveTitle(spec: { path: string; frontmatter: Record<string, unknown>; resolvedTitle?: string }): string {
-  if (spec.resolvedTitle) return spec.resolvedTitle
-  if (typeof spec.frontmatter.title === 'string') return spec.frontmatter.title
-  return spec.path.split('/').pop()?.replace(/\.md$/, '') ?? spec.path
 }
 
 export async function publishToS3(
   credentials: S3Credentials,
   spec: { path: string; content: string; frontmatter: Record<string, unknown>; resolvedTitle?: string },
-  objectKey: string,
-  format: 'md' | 'html'
+  objectKey: string
 ): Promise<{ page_id: string; page_url: string }> {
   const client = new S3Client({
     region: credentials.region,
@@ -68,15 +41,11 @@ export async function publishToS3(
     },
   })
 
-  const isHtml = format === 'html'
-  const body = isHtml ? mdToHtml(spec.content, resolveTitle(spec)) : spec.content
-  const contentType = isHtml ? 'text/html' : 'text/markdown'
-
   await client.send(new PutObjectCommand({
     Bucket: credentials.bucket,
     Key: objectKey,
-    Body: body,
-    ContentType: contentType,
+    Body: spec.content,
+    ContentType: 'text/markdown',
   }))
 
   const objectUrl = `https://${credentials.bucket}.s3.${credentials.region}.amazonaws.com/${objectKey}`

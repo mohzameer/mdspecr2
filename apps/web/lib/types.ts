@@ -25,7 +25,7 @@ export interface MdspecMapMapping {
   space_id?: string                  // id:<clickupSpaceOrFolderId> — target space/folder (omit for workspace root)
   custom_task_ids?: boolean          // use ClickUp custom task IDs
   agent?: string                     // agent template name
-  format?: 'md' | 'html'            // s3 only: output format
+  maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths under parent prefix (default false = flat)
 }
 
 export interface MdspecMapSpecEntry {

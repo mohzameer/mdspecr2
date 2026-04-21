@@ -2,16 +2,17 @@
  * S3 integration tests for runPublishGroup / processOneSpec
  *
  * Covers:
- *   - setupS3GroupContext: reads target_id (root prefix) and s3_format
- *   - Key composition: with prefix, no prefix, nested paths, html format
+ *   - setupS3GroupContext: reads target_id and s3_maintain_hierarchy
+ *   - Key composition — flat mode (default): only filename used
+ *   - Key composition — hierarchy mode: path relative to matched_folder
  *   - First publish (no existing page_id)
  *   - Content-unchanged skip
  *   - Content changed → republish
  *   - Multiple specs in one group
  *   - Per-spec failure recorded, group continues
  *   - Integration not found → UnrecoverableError
- *   - Distributed maps: two separate groups with same prefix produce co-located keys
- *   - Distributed maps: two separate groups with different prefixes produce isolated key spaces
+ *   - Distributed maps: same prefix flat vs hierarchy
+ *   - Distributed maps: different prefixes, isolated namespaces
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -60,6 +61,12 @@ const S3_CREDENTIALS = {
   region: 'us-east-1',
 }
 
+interface FolderMappingRow {
+  id: string
+  target_id: string | null
+  s3_maintain_hierarchy?: boolean
+}
+
 function makeSpec(overrides: Partial<{
   spec_id: string
   spec_publish_target_id: string
@@ -96,52 +103,29 @@ function makeJobData(overrides: Partial<{
   }
 }
 
-/**
- * Builds a minimal Supabase mock that returns predefined results for
- * each `from()` call in the order the processor invokes them.
- *
- * Call order for a normal S3 publish (no agent, no skip):
- *   1. integrations      — fetch credentials
- *   2. folder_mappings   — setupS3GroupContext
- *   3. folder_mappings   — resolveFolderMapping (agent check) — mocked at module level
- *   4. spec_publish_targets — fetch existing page_id
- *   5. specs             — fetch content_hash (skip check only when existingPageId set)
- *   6. spec_publish_targets — update success
- */
+function chain(data: unknown, error: unknown = null) {
+  const c: Record<string, unknown> = {}
+  for (const m of ['select', 'eq', 'in', 'neq', 'not', 'order', 'insert', 'update', 'upsert', 'delete', 'maybeSingle']) {
+    c[m] = vi.fn().mockReturnValue(c)
+  }
+  c.single = vi.fn().mockResolvedValue({ data, error })
+  c.maybeSingle = vi.fn().mockResolvedValue({ data, error })
+  ;(c as Record<string, unknown>).then = (
+    resolve: (v: unknown) => unknown,
+    reject?: (e: unknown) => unknown
+  ) => Promise.resolve({ data, error }).then(resolve, reject)
+  const updateR = { eq: vi.fn().mockResolvedValue({ error: null }) }
+  ;(c.update as ReturnType<typeof vi.fn>).mockReturnValue(updateR)
+  return c
+}
+
 function makeSupabase({
   credentials = S3_CREDENTIALS,
-  folderMapping = { id: 'fm-1', target_id: null, s3_format: 'md' },
+  folderMapping = { id: 'fm-1', target_id: null, s3_maintain_hierarchy: false } as FolderMappingRow | null,
   existingPageId = null as string | null,
   storedHash = 'different-hash',
-  updateResult = { error: null },
-}: {
-  credentials?: Record<string, unknown>
-  folderMapping?: { id: string; target_id: string | null; s3_format: string } | null
-  existingPageId?: string | null
-  storedHash?: string
-  updateResult?: { error: unknown }
 } = {}) {
-  // Each makeChain() is awaitable and chainable.
-  function chain(data: unknown, error: unknown = null) {
-    const c: Record<string, unknown> = {}
-    for (const m of ['select', 'eq', 'in', 'neq', 'not', 'order', 'insert', 'update', 'upsert', 'delete', 'maybeSingle']) {
-      c[m] = vi.fn().mockReturnValue(c)
-    }
-    c.single = vi.fn().mockResolvedValue({ data, error })
-    c.maybeSingle = vi.fn().mockResolvedValue({ data, error })
-    ;(c as Record<string, unknown>).then = (
-      resolve: (v: unknown) => unknown,
-      reject?: (e: unknown) => unknown
-    ) => Promise.resolve({ data, error }).then(resolve, reject)
-    return c
-  }
-
   const calls: string[] = []
-  const updateChain = chain(null)
-  // Make update(...).eq() return a chain that resolves
-  ;(updateChain.update as ReturnType<typeof vi.fn>).mockReturnValue({
-    eq: vi.fn().mockResolvedValue(updateResult),
-  })
 
   const fromMock = vi.fn((table: string) => {
     calls.push(table)
@@ -151,7 +135,7 @@ function makeSupabase({
       return chain({ credentials: JSON.stringify(credentials), status: 'connected' })
     }
     if (n === 2 && table === 'folder_mappings') {
-      return chain(folderMapping)   // setupS3GroupContext
+      return chain(folderMapping)
     }
     if (table === 'spec_publish_targets' && calls.filter(c => c === 'spec_publish_targets').length === 1) {
       return chain({ external_page_id: existingPageId, retry_count: 0 })
@@ -160,7 +144,7 @@ function makeSupabase({
       return chain({ content_hash: storedHash })
     }
     if (table === 'spec_publish_targets') {
-      return updateChain   // success update
+      return chain(null)
     }
     return chain(null)
   })
@@ -169,15 +153,24 @@ function makeSupabase({
 }
 
 // ---------------------------------------------------------------------------
-// Actual publishToS3 implementation for key-assertion tests
+// Real buildS3Key implementation for key-assertion tests.
+// Must stay in sync with the actual function in adapters/s3.ts.
 // ---------------------------------------------------------------------------
 function useBuildS3KeyReal() {
-  vi.mocked(buildS3Key).mockImplementation((specPath, rootPrefix, format) => {
+  vi.mocked(buildS3Key).mockImplementation((specPath, rootPrefix, options: { maintainHierarchy?: boolean; matchedFolder?: string } = {}) => {
     const prefix = rootPrefix?.replace(/\/$/, '') ?? ''
-    const normalized = format === 'html'
-      ? specPath.replace(/\.md$/, '.html')
-      : specPath
-    const p = normalized.replace(/^\//, '')
+
+    let relativePath: string
+    if (options.maintainHierarchy && options.matchedFolder) {
+      const folderPrefix = options.matchedFolder.replace(/\/$/, '') + '/'
+      relativePath = specPath.startsWith(folderPrefix)
+        ? specPath.slice(folderPrefix.length)
+        : specPath
+    } else {
+      relativePath = specPath.split('/').pop() ?? specPath
+    }
+
+    const p = relativePath.replace(/^\//, '')
     return prefix ? `${prefix}/${p}` : p
   })
 }
@@ -189,147 +182,221 @@ beforeEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// 1. setupS3GroupContext — reads prefix and format from folder_mappings
+// 1. setupS3GroupContext — reads prefix and hierarchy flag from folder_mappings
 // ---------------------------------------------------------------------------
 describe('setupS3GroupContext', () => {
   it('sets s3RootPrefix from folder_mappings.target_id', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'specs/', s3_format: 'md' } }) as never
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'specs', s3_maintain_hierarchy: false } }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'key.md', page_url: 'https://s3.example.com/key.md' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'specs/auth.md', page_url: '' })
 
     await runPublishGroup(makeJobData())
 
     expect(publishToS3).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      expect.stringContaining('specs/'),
-      'md'
+      expect.anything(), expect.anything(), expect.stringContaining('specs')
     )
   })
 
-  it('uses md format when s3_format is md', async () => {
+  it('s3RootPrefix is null when target_id not set', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ folderMapping: { id: 'fm-1', target_id: null, s3_format: 'md' } }) as never
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: null, s3_maintain_hierarchy: false } }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'key.md', page_url: 'https://s3.example.com/key.md' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
 
     await runPublishGroup(makeJobData())
 
-    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), 'md')
+    // key has no prefix when target_id is null
+    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'auth.md')
   })
 
-  it('uses html format when s3_format is html', async () => {
+  it('reads s3_maintain_hierarchy: true and passes it to buildS3Key', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ folderMapping: { id: 'fm-1', target_id: null, s3_format: 'html' } }) as never
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'eng', s3_maintain_hierarchy: true } }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'key.html', page_url: 'https://s3.example.com/key.html' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'eng/auth.md', page_url: '' })
 
     await runPublishGroup(makeJobData())
 
-    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), 'html')
+    expect(buildS3Key).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.objectContaining({ maintainHierarchy: true, matchedFolder: 'docs/specs' })
+    )
   })
 
-  it('defaults to md format when folder_mappings row not found', async () => {
+  it('reads s3_maintain_hierarchy: false and passes it to buildS3Key', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'eng', s3_maintain_hierarchy: false } }) as never
+    )
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'eng/auth.md', page_url: '' })
+
+    await runPublishGroup(makeJobData())
+
+    expect(buildS3Key).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.objectContaining({ maintainHierarchy: false })
+    )
+  })
+
+  it('proceeds with defaults when folder_mappings row not found', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
       makeSupabase({ folderMapping: null }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'key.md', page_url: 'https://s3.example.com/key.md' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
 
     await runPublishGroup(makeJobData())
 
-    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), 'md')
+    expect(publishToS3).toHaveBeenCalledOnce()
   })
 })
 
 // ---------------------------------------------------------------------------
-// 2. Key composition
+// 2. Key composition — flat mode (default, s3_maintain_hierarchy: false)
 // ---------------------------------------------------------------------------
-describe('S3 key composition', () => {
-  it('uses bare spec path as key when no root prefix', async () => {
+describe('S3 key composition — flat mode', () => {
+  it('key is just the filename when no root prefix', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ folderMapping: { id: 'fm-1', target_id: null, s3_format: 'md' } }) as never
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: null, s3_maintain_hierarchy: false } }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'docs/specs/auth.md', page_url: 'https://s3.example.com/docs/specs/auth.md' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
 
     await runPublishGroup(makeJobData())
 
-    expect(publishToS3).toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), 'docs/specs/auth.md', 'md'
-    )
+    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'auth.md')
   })
 
-  it('prepends root prefix to spec path', async () => {
+  it('key is prefix/filename with root prefix', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'content/', s3_format: 'md' } }) as never
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'eng-specs', s3_maintain_hierarchy: false } }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'content/docs/specs/auth.md', page_url: '' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'eng-specs/auth.md', page_url: '' })
 
     await runPublishGroup(makeJobData())
 
-    expect(publishToS3).toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), 'content/docs/specs/auth.md', 'md'
-    )
+    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'eng-specs/auth.md')
   })
 
-  it('preserves full nested path under the prefix', async () => {
+  it('deeply nested spec produces flat key — only filename used', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'site/', s3_format: 'md' } }) as never
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'archive', s3_maintain_hierarchy: false } }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'site/docs/specs/payments/checkout/retry.md', page_url: '' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'archive/retry.md', page_url: '' })
 
     const deepSpec = makeSpec({ path: 'docs/specs/payments/checkout/retry.md' })
-    await runPublishGroup(makeJobData({ specs: [deepSpec], matched_folder: 'docs/specs' }))
+    await runPublishGroup(makeJobData({ specs: [deepSpec] }))
 
-    expect(publishToS3).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ path: 'docs/specs/payments/checkout/retry.md' }),
-      'site/docs/specs/payments/checkout/retry.md',
-      'md'
-    )
+    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'archive/retry.md')
   })
 
-  it('replaces .md with .html in key for html format', async () => {
+  it('root-level spec (matched_folder empty) → bare filename, no prefix applied', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'site/', s3_format: 'html' } }) as never
-    )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'site/docs/specs/auth.html', page_url: '' })
-
-    await runPublishGroup(makeJobData())
-
-    expect(publishToS3).toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), 'site/docs/specs/auth.html', 'html'
-    )
-  })
-
-  it('handles spec at root (single-segment path) with no prefix → bare key', async () => {
-    // matched_folder '' causes setupS3GroupContext to return early (falsy guard),
-    // so no prefix is applied and the key is the raw spec path.
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'archive/', s3_format: 'md' } }) as never
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'archive', s3_maintain_hierarchy: false } }) as never
     )
     vi.mocked(publishToS3).mockResolvedValue({ page_id: 'README.md', page_url: '' })
 
     const rootSpec = makeSpec({ path: 'README.md' })
     await runPublishGroup(makeJobData({ specs: [rootSpec], matched_folder: '' }))
 
-    expect(publishToS3).toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), 'README.md', 'md'
-    )
+    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'README.md')
   })
 })
 
 // ---------------------------------------------------------------------------
-// 3. First publish (no existing page_id)
+// 3. Key composition — hierarchy mode (s3_maintain_hierarchy: true)
+// ---------------------------------------------------------------------------
+describe('S3 key composition — hierarchy mode', () => {
+  it('direct child of matched folder → prefix/filename', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'eng-specs', s3_maintain_hierarchy: true } }) as never
+    )
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'eng-specs/auth.md', page_url: '' })
+
+    await runPublishGroup(makeJobData())
+
+    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'eng-specs/auth.md')
+  })
+
+  it('spec in subfolder → prefix/subfolder/filename', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'eng-specs', s3_maintain_hierarchy: true } }) as never
+    )
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'eng-specs/payments/checkout.md', page_url: '' })
+
+    const nestedSpec = makeSpec({ path: 'docs/specs/payments/checkout.md' })
+    await runPublishGroup(makeJobData({ specs: [nestedSpec] }))
+
+    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'eng-specs/payments/checkout.md')
+  })
+
+  it('deeply nested spec preserves full relative path', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: 'archive', s3_maintain_hierarchy: true } }) as never
+    )
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'archive/payments/checkout/retry.md', page_url: '' })
+
+    const deepSpec = makeSpec({ path: 'docs/specs/payments/checkout/retry.md' })
+    await runPublishGroup(makeJobData({ specs: [deepSpec] }))
+
+    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'archive/payments/checkout/retry.md')
+  })
+
+  it('no root prefix with hierarchy → bare relative path', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({ folderMapping: { id: 'fm-1', target_id: null, s3_maintain_hierarchy: true } }) as never
+    )
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'payments/checkout.md', page_url: '' })
+
+    const nestedSpec = makeSpec({ path: 'docs/specs/payments/checkout.md' })
+    await runPublishGroup(makeJobData({ specs: [nestedSpec] }))
+
+    expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'payments/checkout.md')
+  })
+
+  it('multiple specs each get their own relative path', async () => {
+    let integrationDone = false; let mappingDone = false; let sptCount = 0
+    const fromMock = vi.fn((table: string) => {
+      if (table === 'integrations' && !integrationDone) {
+        integrationDone = true
+        return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' })
+      }
+      if (table === 'folder_mappings' && !mappingDone) {
+        mappingDone = true
+        return chain({ id: 'fm-1', target_id: 'content', s3_maintain_hierarchy: true })
+      }
+      if (table === 'spec_publish_targets') {
+        sptCount++
+        return sptCount % 2 === 1 ? chain({ external_page_id: null, retry_count: 0 }) : chain(null)
+      }
+      return chain(null)
+    })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
+    vi.mocked(publishToS3)
+      .mockResolvedValueOnce({ page_id: 'content/auth.md', page_url: '' })
+      .mockResolvedValueOnce({ page_id: 'content/payments/checkout.md', page_url: '' })
+
+    const specs = [
+      makeSpec({ spec_id: 's1', spec_publish_target_id: 'spt-1', path: 'docs/specs/auth.md', content_hash: 'h1' }),
+      makeSpec({ spec_id: 's2', spec_publish_target_id: 'spt-2', path: 'docs/specs/payments/checkout.md', content_hash: 'h2' }),
+    ]
+    await runPublishGroup(makeJobData({ specs, matched_folder: 'docs/specs' }))
+
+    const keys = vi.mocked(publishToS3).mock.calls.map(c => c[2])
+    expect(keys).toContain('content/auth.md')
+    expect(keys).toContain('content/payments/checkout.md')
+    expect(keys[0]).not.toBe(keys[1])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 4. First publish (no existing page_id)
 // ---------------------------------------------------------------------------
 describe('first publish — no existing page_id', () => {
   it('calls publishToS3 and stores object key + URL in spec_publish_targets', async () => {
     const supabase = makeSupabase({ existingPageId: null })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(publishToS3).mockResolvedValue({
-      page_id: 'docs/specs/auth.md',
-      page_url: 'https://acme-specs.s3.us-east-1.amazonaws.com/docs/specs/auth.md',
-    })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: 'https://acme-specs.s3.us-east-1.amazonaws.com/auth.md' })
 
     await runPublishGroup(makeJobData())
 
@@ -342,7 +409,7 @@ describe('first publish — no existing page_id', () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
       makeSupabase({ credentials: S3_CREDENTIALS, existingPageId: null }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'key', page_url: 'url' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
 
     await runPublishGroup(makeJobData())
 
@@ -354,22 +421,18 @@ describe('first publish — no existing page_id', () => {
         region: S3_CREDENTIALS.region,
       }),
       expect.anything(),
-      expect.anything(),
       expect.anything()
     )
   })
 })
 
 // ---------------------------------------------------------------------------
-// 4. Content-unchanged skip
+// 5. Content-unchanged skip
 // ---------------------------------------------------------------------------
 describe('content-unchanged skip', () => {
   it('skips publishToS3 when existing page_id and content hash matches', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({
-        existingPageId: 'docs/specs/auth.md',
-        storedHash: 'hash-abc',   // same as spec.content_hash in makeSpec()
-      }) as never
+      makeSupabase({ existingPageId: 'auth.md', storedHash: 'hash-abc' }) as never
     )
 
     await runPublishGroup(makeJobData())
@@ -379,12 +442,9 @@ describe('content-unchanged skip', () => {
 
   it('republishes when existing page_id but content hash changed', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({
-        existingPageId: 'docs/specs/auth.md',
-        storedHash: 'old-hash',   // different from spec.content_hash 'hash-abc'
-      }) as never
+      makeSupabase({ existingPageId: 'auth.md', storedHash: 'old-hash' }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'docs/specs/auth.md', page_url: 'https://s3.example.com' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
 
     await runPublishGroup(makeJobData())
 
@@ -393,12 +453,9 @@ describe('content-unchanged skip', () => {
 
   it('publishes even if content_hash is empty string (force republish)', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({
-        existingPageId: 'docs/specs/auth.md',
-        storedHash: '',
-      }) as never
+      makeSupabase({ existingPageId: 'auth.md', storedHash: '' }) as never
     )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'docs/specs/auth.md', page_url: '' })
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
 
     const spec = makeSpec({ content_hash: '' })
     await runPublishGroup(makeJobData({ specs: [spec] }))
@@ -408,229 +465,170 @@ describe('content-unchanged skip', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 5. Multiple specs in one group
+// 6. Multiple specs in one group
 // ---------------------------------------------------------------------------
 describe('multiple specs in one group', () => {
-  it('calls publishToS3 for each spec independently', async () => {
-    // Each spec has different path and different hash → both publish
-    const specs = [
-      makeSpec({ spec_id: 's1', spec_publish_target_id: 'spt-1', path: 'docs/specs/auth.md', content_hash: 'h1' }),
-      makeSpec({ spec_id: 's2', spec_publish_target_id: 'spt-2', path: 'docs/specs/payments.md', content_hash: 'h2' }),
-    ]
-
-    // Build a supabase mock that handles 2 specs
-    function chain(data: unknown, error: unknown = null) {
-      const c: Record<string, unknown> = {}
-      for (const m of ['select', 'eq', 'in', 'neq', 'not', 'order', 'insert', 'update', 'upsert', 'delete', 'maybeSingle']) {
-        c[m] = vi.fn().mockReturnValue(c)
-      }
-      c.single = vi.fn().mockResolvedValue({ data, error })
-      c.maybeSingle = vi.fn().mockResolvedValue({ data, error })
-      ;(c as Record<string, unknown>).then = (
-        resolve: (v: unknown) => unknown,
-        reject?: (e: unknown) => unknown
-      ) => Promise.resolve({ data, error }).then(resolve, reject)
-      const updateR = { eq: vi.fn().mockResolvedValue({ error: null }) }
-      ;(c.update as ReturnType<typeof vi.fn>).mockReturnValue(updateR)
-      return c
-    }
-
-    let integrationFetched = false
-    let mappingFetched = false
-    let sptCallCount = 0
-
+  function makeMultiSupabase(maintainHierarchy = false) {
+    let integrationDone = false; let mappingDone = false; let sptCount = 0
     const fromMock = vi.fn((table: string) => {
-      if (table === 'integrations' && !integrationFetched) {
-        integrationFetched = true
+      if (table === 'integrations' && !integrationDone) {
+        integrationDone = true
         return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' })
       }
-      if (table === 'folder_mappings' && !mappingFetched) {
-        mappingFetched = true
-        return chain({ id: 'fm-1', target_id: 'content/', s3_format: 'md' })
+      if (table === 'folder_mappings' && !mappingDone) {
+        mappingDone = true
+        return chain({ id: 'fm-1', target_id: 'content', s3_maintain_hierarchy: maintainHierarchy })
       }
       if (table === 'spec_publish_targets') {
-        sptCallCount++
-        if (sptCallCount % 2 === 1) {
-          return chain({ external_page_id: null, retry_count: 0 })
-        }
-        return chain(null)   // update
+        sptCount++
+        return sptCount % 2 === 1 ? chain({ external_page_id: null, retry_count: 0 }) : chain(null)
       }
       return chain(null)
     })
+    return { from: fromMock }
+  }
 
-    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
+  it('flat mode: specs in subfolders land flat — only filename used', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(makeMultiSupabase(false) as never)
     vi.mocked(publishToS3)
-      .mockResolvedValueOnce({ page_id: 'content/docs/specs/auth.md', page_url: '' })
-      .mockResolvedValueOnce({ page_id: 'content/docs/specs/payments.md', page_url: '' })
+      .mockResolvedValueOnce({ page_id: 'content/auth.md', page_url: '' })
+      .mockResolvedValueOnce({ page_id: 'content/payments.md', page_url: '' })
 
+    const specs = [
+      makeSpec({ spec_id: 's1', spec_publish_target_id: 'spt-1', path: 'docs/specs/auth.md', content_hash: 'h1' }),
+      makeSpec({ spec_id: 's2', spec_publish_target_id: 'spt-2', path: 'docs/specs/sub/payments.md', content_hash: 'h2' }),
+    ]
     await runPublishGroup(makeJobData({ specs }))
 
     expect(publishToS3).toHaveBeenCalledTimes(2)
-    expect(vi.mocked(publishToS3).mock.calls[0][2]).toBe('content/docs/specs/auth.md')
-    expect(vi.mocked(publishToS3).mock.calls[1][2]).toBe('content/docs/specs/payments.md')
+    const keys = vi.mocked(publishToS3).mock.calls.map(c => c[2])
+    expect(keys).toContain('content/auth.md')
+    expect(keys).toContain('content/payments.md')
   })
 
-  it('each spec in group gets its own S3 key preserving its full path', async () => {
-    const specs = [
-      makeSpec({ spec_id: 's1', spec_publish_target_id: 'spt-1', path: 'docs/specs/auth/sso.md', content_hash: 'h1' }),
-      makeSpec({ spec_id: 's2', spec_publish_target_id: 'spt-2', path: 'docs/specs/payments/retry.md', content_hash: 'h2' }),
-    ]
-
+  it('hierarchy mode: subfolders preserved relative to matched_folder', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(makeMultiSupabase(true) as never)
     vi.mocked(publishToS3)
-      .mockResolvedValueOnce({ page_id: 'docs/specs/auth/sso.md', page_url: '' })
-      .mockResolvedValueOnce({ page_id: 'docs/specs/payments/retry.md', page_url: '' })
+      .mockResolvedValueOnce({ page_id: 'content/auth.md', page_url: '' })
+      .mockResolvedValueOnce({ page_id: 'content/sub/payments.md', page_url: '' })
 
-    function chain(data: unknown, error: unknown = null) {
-      const c: Record<string, unknown> = {}
-      for (const m of ['select', 'eq', 'in', 'neq', 'not', 'order', 'insert', 'update', 'upsert', 'delete', 'maybeSingle']) {
-        c[m] = vi.fn().mockReturnValue(c)
-      }
-      c.single = vi.fn().mockResolvedValue({ data, error })
-      c.maybeSingle = vi.fn().mockResolvedValue({ data, error })
-      ;(c as Record<string, unknown>).then = (r: (v: unknown) => unknown) => Promise.resolve({ data, error }).then(r)
-      const ur = { eq: vi.fn().mockResolvedValue({ error: null }) }
-      ;(c.update as ReturnType<typeof vi.fn>).mockReturnValue(ur)
-      return c
-    }
-
-    let integrationDone = false
-    let mappingDone = false
-    let sptCount = 0
-
-    const fromMock = vi.fn((table: string) => {
-      if (table === 'integrations' && !integrationDone) { integrationDone = true; return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' }) }
-      if (table === 'folder_mappings' && !mappingDone) { mappingDone = true; return chain({ id: 'fm-1', target_id: null, s3_format: 'md' }) }
-      if (table === 'spec_publish_targets') { sptCount++; return sptCount % 2 === 1 ? chain({ external_page_id: null, retry_count: 0 }) : chain(null) }
-      return chain(null)
-    })
-
-    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
-
+    const specs = [
+      makeSpec({ spec_id: 's1', spec_publish_target_id: 'spt-1', path: 'docs/specs/auth.md', content_hash: 'h1' }),
+      makeSpec({ spec_id: 's2', spec_publish_target_id: 'spt-2', path: 'docs/specs/sub/payments.md', content_hash: 'h2' }),
+    ]
     await runPublishGroup(makeJobData({ specs, matched_folder: 'docs/specs' }))
 
+    expect(publishToS3).toHaveBeenCalledTimes(2)
     const keys = vi.mocked(publishToS3).mock.calls.map(c => c[2])
-    expect(keys).toContain('docs/specs/auth/sso.md')
-    expect(keys).toContain('docs/specs/payments/retry.md')
+    expect(keys).toContain('content/auth.md')
+    expect(keys).toContain('content/sub/payments.md')
   })
 })
 
 // ---------------------------------------------------------------------------
-// 6. Distributed maps — same prefix, different source folders
+// 7. Distributed maps — shared root prefix
 // ---------------------------------------------------------------------------
 describe('distributed maps — shared root prefix', () => {
-  it('two groups with same prefix produce co-located keys preserving their folder paths', async () => {
-    // Group 1: docs/specs → prefix "content/"
-    // Group 2: docs/rfc   → prefix "content/"
-    // Both land under content/ but paths are distinct
-
-    const key1 = buildS3Key('docs/specs/auth.md', 'content/', 'md')
-    const key2 = buildS3Key('docs/rfc/microservices.md', 'content/', 'md')
-
-    expect(key1).toBe('content/docs/specs/auth.md')
-    expect(key2).toBe('content/docs/rfc/microservices.md')
-    // Both under content/ — co-located
-    expect(key1.startsWith('content/')).toBe(true)
-    expect(key2.startsWith('content/')).toBe(true)
-    // But paths are distinct — no collision
-    expect(key1).not.toBe(key2)
+  it('flat mode: different filenames are collision-free', () => {
+    const k1 = buildS3Key('docs/specs/auth.md', 'content')
+    const k2 = buildS3Key('docs/rfc/microservices.md', 'content')
+    expect(k1).toBe('content/auth.md')
+    expect(k2).toBe('content/microservices.md')
+    expect(k1).not.toBe(k2)
   })
 
-  it('specs from sibling folders under same prefix never collide', async () => {
-    const paths = [
-      'docs/specs/auth.md',
-      'docs/specs/payments.md',
-      'docs/rfc/microservices.md',
-      'docs/rfc/event-streaming.md',
+  it('flat mode: same filename in sibling folders collides (known limitation)', () => {
+    const k1 = buildS3Key('docs/specs/overview.md', 'content')
+    const k2 = buildS3Key('docs/rfc/overview.md', 'content')
+    expect(k1).toBe('content/overview.md')
+    expect(k2).toBe('content/overview.md')
+    expect(k1).toBe(k2)  // use hierarchy or distinct prefixes to avoid
+  })
+
+  it('hierarchy mode: different prefixes isolate sibling mapping namespaces', () => {
+    const k1 = buildS3Key('docs/specs/auth.md', 'specs', { maintainHierarchy: true, matchedFolder: 'docs/specs' })
+    const k2 = buildS3Key('docs/rfc/auth.md', 'rfcs', { maintainHierarchy: true, matchedFolder: 'docs/rfc' })
+    expect(k1).toBe('specs/auth.md')
+    expect(k2).toBe('rfcs/auth.md')
+    expect(k1).not.toBe(k2)
+  })
+
+  it('hierarchy mode: subfolder specs across mappings with different prefixes never collide', () => {
+    const entries = [
+      { path: 'docs/specs/payments/checkout.md', folder: 'docs/specs', prefix: 'specs' },
+      { path: 'docs/rfc/payments/checkout.md',   folder: 'docs/rfc',   prefix: 'rfcs' },
     ]
-    const keys = paths.map(p => buildS3Key(p, 'site/', 'md'))
+    const [k1, k2] = entries.map(({ path, folder, prefix }) =>
+      buildS3Key(path, prefix, { maintainHierarchy: true, matchedFolder: folder })
+    )
+    expect(k1).toBe('specs/payments/checkout.md')
+    expect(k2).toBe('rfcs/payments/checkout.md')
+    expect(k1).not.toBe(k2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 8. Distributed maps — different prefixes, isolated namespaces
+// ---------------------------------------------------------------------------
+describe('distributed maps — isolated prefixes', () => {
+  it('different prefixes produce keys in separate S3 namespaces', () => {
+    const k1 = buildS3Key('docs/specs/auth.md', 'specs')
+    const k2 = buildS3Key('docs/rfc/microservices.md', 'rfcs')
+    expect(k1.startsWith('specs/')).toBe(true)
+    expect(k2.startsWith('rfcs/')).toBe(true)
+    expect(k1).not.toBe(k2)
+  })
+
+  it('same filename with different prefixes produces unique keys', () => {
+    const k1 = buildS3Key('docs/specs/README.md', 'specs')
+    const k2 = buildS3Key('docs/rfc/README.md', 'rfcs')
+    expect(k1).toBe('specs/README.md')
+    expect(k2).toBe('rfcs/README.md')
+    expect(k1).not.toBe(k2)
+  })
+
+  it('hierarchy mode: all sibling spec paths under different prefixes are unique', () => {
+    const entries = [
+      { path: 'docs/specs/auth.md',           folder: 'docs/specs', prefix: 'specs' },
+      { path: 'docs/specs/payments/retry.md', folder: 'docs/specs', prefix: 'specs' },
+      { path: 'docs/rfc/auth.md',             folder: 'docs/rfc',   prefix: 'rfcs' },
+      { path: 'docs/rfc/payments/retry.md',   folder: 'docs/rfc',   prefix: 'rfcs' },
+    ]
+    const keys = entries.map(({ path, folder, prefix }) =>
+      buildS3Key(path, prefix, { maintainHierarchy: true, matchedFolder: folder })
+    )
     const unique = new Set(keys)
     expect(unique.size).toBe(keys.length)
   })
 })
 
 // ---------------------------------------------------------------------------
-// 7. Distributed maps — different prefixes, different source folders
-// ---------------------------------------------------------------------------
-describe('distributed maps — isolated prefixes', () => {
-  it('two groups with different prefixes produce keys in separate S3 namespaces', async () => {
-    const key1 = buildS3Key('docs/specs/auth.md', 'specs/', 'md')
-    const key2 = buildS3Key('docs/rfc/microservices.md', 'rfcs/', 'md')
-
-    expect(key1.startsWith('specs/')).toBe(true)
-    expect(key2.startsWith('rfcs/')).toBe(true)
-    // Completely different prefixes — no overlap
-    expect(key1.startsWith('rfcs/')).toBe(false)
-    expect(key2.startsWith('specs/')).toBe(false)
-  })
-
-  it('same spec file name in different folders with different prefixes produces unique keys', async () => {
-    const key1 = buildS3Key('docs/specs/README.md', 'specs/', 'md')
-    const key2 = buildS3Key('docs/rfc/README.md', 'rfcs/', 'md')
-    expect(key1).toBe('specs/docs/specs/README.md')
-    expect(key2).toBe('rfcs/docs/rfc/README.md')
-    expect(key1).not.toBe(key2)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// 8. Error handling
+// 9. Error handling
 // ---------------------------------------------------------------------------
 describe('error handling', () => {
-  it('records failure on spec_publish_targets and continues when publishToS3 throws', async () => {
+  it('records failure and continues when publishToS3 throws on one spec', async () => {
+    let integrationDone = false; let mappingDone = false; let sptCount = 0
+    const fromMock = vi.fn((table: string) => {
+      if (table === 'integrations' && !integrationDone) { integrationDone = true; return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' }) }
+      if (table === 'folder_mappings' && !mappingDone) { mappingDone = true; return chain({ id: 'fm-1', target_id: null, s3_maintain_hierarchy: false }) }
+      if (table === 'spec_publish_targets') { sptCount++; return sptCount % 2 === 1 ? chain({ external_page_id: null, retry_count: 0 }) : chain(null) }
+      return chain(null)
+    })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
+    vi.mocked(publishToS3)
+      .mockRejectedValueOnce(new Error('S3 timeout'))
+      .mockResolvedValueOnce({ page_id: 'payments.md', page_url: '' })
+
     const specs = [
       makeSpec({ spec_id: 's1', spec_publish_target_id: 'spt-1', path: 'docs/specs/auth.md', content_hash: 'h1' }),
       makeSpec({ spec_id: 's2', spec_publish_target_id: 'spt-2', path: 'docs/specs/payments.md', content_hash: 'h2' }),
     ]
 
-    function chain(data: unknown, error: unknown = null) {
-      const c: Record<string, unknown> = {}
-      for (const m of ['select', 'eq', 'in', 'neq', 'not', 'order', 'insert', 'update', 'upsert', 'delete', 'maybeSingle']) {
-        c[m] = vi.fn().mockReturnValue(c)
-      }
-      c.single = vi.fn().mockResolvedValue({ data, error })
-      c.maybeSingle = vi.fn().mockResolvedValue({ data, error })
-      ;(c as Record<string, unknown>).then = (r: (v: unknown) => unknown) => Promise.resolve({ data, error }).then(r)
-      const ur = { eq: vi.fn().mockResolvedValue({ error: null }) }
-      ;(c.update as ReturnType<typeof vi.fn>).mockReturnValue(ur)
-      return c
-    }
-
-    let integrationDone = false
-    let mappingDone = false
-    let sptCount = 0
-
-    const fromMock = vi.fn((table: string) => {
-      if (table === 'integrations' && !integrationDone) { integrationDone = true; return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' }) }
-      if (table === 'folder_mappings' && !mappingDone) { mappingDone = true; return chain({ id: 'fm-1', target_id: null, s3_format: 'md' }) }
-      if (table === 'spec_publish_targets') { sptCount++; return sptCount % 2 === 1 ? chain({ external_page_id: null, retry_count: 0 }) : chain(null) }
-      return chain(null)
-    })
-
-    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
-
-    vi.mocked(publishToS3)
-      .mockRejectedValueOnce(new Error('S3 timeout'))            // first spec fails
-      .mockResolvedValueOnce({ page_id: 'docs/specs/payments.md', page_url: '' })  // second succeeds
-
-    // Should not throw — per-spec error is recorded, group continues
     await expect(runPublishGroup(makeJobData({ specs }))).resolves.toBeUndefined()
-
-    // Second spec still published
     expect(publishToS3).toHaveBeenCalledTimes(2)
   })
 
   it('throws UnrecoverableError when integration record not found', async () => {
-    function chain(data: unknown, error: unknown = null) {
-      const c: Record<string, unknown> = {}
-      for (const m of ['select', 'eq', 'in', 'neq', 'not', 'order', 'insert', 'update', 'upsert', 'delete', 'maybeSingle']) {
-        c[m] = vi.fn().mockReturnValue(c)
-      }
-      c.single = vi.fn().mockResolvedValue({ data, error })
-      c.maybeSingle = vi.fn().mockResolvedValue({ data, error })
-      ;(c as Record<string, unknown>).then = (r: (v: unknown) => unknown) => Promise.resolve({ data, error }).then(r)
-      return c
-    }
-
     const fromMock = vi.fn(() => chain(null, { message: 'not found' }))
     vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
 
@@ -638,17 +636,6 @@ describe('error handling', () => {
   })
 
   it('throws UnrecoverableError when credentials JSON is malformed', async () => {
-    function chain(data: unknown, error: unknown = null) {
-      const c: Record<string, unknown> = {}
-      for (const m of ['select', 'eq', 'in', 'neq', 'not', 'order', 'insert', 'update', 'upsert', 'delete', 'maybeSingle']) {
-        c[m] = vi.fn().mockReturnValue(c)
-      }
-      c.single = vi.fn().mockResolvedValue({ data, error })
-      c.maybeSingle = vi.fn().mockResolvedValue({ data, error })
-      ;(c as Record<string, unknown>).then = (r: (v: unknown) => unknown) => Promise.resolve({ data, error }).then(r)
-      return c
-    }
-
     const fromMock = vi.fn(() => chain({ credentials: 'not-valid-json', status: 'connected' }))
     vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
 
