@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { publishToNotion } from './adapters/notion'
 import { publishToConfluence } from './adapters/confluence'
 import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, clickUpPageExists, resolveToNativeTaskId } from './adapters/clickup'
-import { publishToS3, buildS3Key } from './adapters/s3'
+import { publishToS3, buildS3Key, s3ObjectExists } from './adapters/s3'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
@@ -298,6 +298,21 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
     const pageExists = await clickUpPageExists(clickupCreds, ctx.sharedSubDocId, existingPageId)
     if (!pageExists) {
       console.log(`[publish] page ${existingPageId} not found in doc ${ctx.sharedSubDocId} — will republish spec ${spec_id}`)
+      existingPageId = null
+      await supabase
+        .from('spec_publish_targets')
+        .update({ external_page_id: null, external_url: null })
+        .eq('id', spec_publish_target_id)
+    }
+  }
+
+  // For S3: verify the object still exists before allowing a skip.
+  // This handles the case where the bucket changed or objects were deleted.
+  if (target_type === 's3' && existingPageId) {
+    const s3Creds = credentials as { access_key_id: string; secret_access_key: string; bucket: string; region: string }
+    const exists = await s3ObjectExists(s3Creds, existingPageId)
+    if (!exists) {
+      console.log(`[publish] s3 object ${existingPageId} missing — republishing spec ${spec_id}`)
       existingPageId = null
       await supabase
         .from('spec_publish_targets')

@@ -25,6 +25,7 @@ vi.mock('@/lib/db-server', () => ({
 vi.mock('@/lib/publish/adapters/s3', () => ({
   publishToS3: vi.fn(),
   buildS3Key: vi.fn(),
+  s3ObjectExists: vi.fn(),
 }))
 vi.mock('@/lib/publish/adapters/notion', () => ({ publishToNotion: vi.fn() }))
 vi.mock('@/lib/publish/adapters/confluence', () => ({ publishToConfluence: vi.fn() }))
@@ -45,7 +46,7 @@ vi.mock('@/lib/agents/processor', () => ({
 
 import { runPublishGroup, UnrecoverableError } from '../processor.js'
 import { createSupabaseServiceClient } from '@/lib/db-server'
-import { publishToS3, buildS3Key } from '@/lib/publish/adapters/s3'
+import { publishToS3, buildS3Key, s3ObjectExists } from '@/lib/publish/adapters/s3'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -178,6 +179,8 @@ function useBuildS3KeyReal() {
 beforeEach(() => {
   vi.mocked(publishToS3).mockReset()
   vi.mocked(buildS3Key).mockReset()
+  vi.mocked(s3ObjectExists).mockReset()
+  vi.mocked(s3ObjectExists).mockResolvedValue(true)  // default: object exists
   useBuildS3KeyReal()
 })
 
@@ -461,6 +464,29 @@ describe('content-unchanged skip', () => {
     await runPublishGroup(makeJobData({ specs: [spec] }))
 
     expect(publishToS3).toHaveBeenCalledOnce()
+  })
+
+  it('republishes when S3 object no longer exists (bucket changed or object deleted)', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({ existingPageId: 'auth.md', storedHash: 'hash-abc' }) as never
+    )
+    vi.mocked(s3ObjectExists).mockResolvedValue(false)
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
+
+    await runPublishGroup(makeJobData())
+
+    expect(publishToS3).toHaveBeenCalledOnce()
+  })
+
+  it('skips when S3 object exists and content unchanged', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({ existingPageId: 'auth.md', storedHash: 'hash-abc' }) as never
+    )
+    vi.mocked(s3ObjectExists).mockResolvedValue(true)
+
+    await runPublishGroup(makeJobData())
+
+    expect(publishToS3).not.toHaveBeenCalled()
   })
 })
 

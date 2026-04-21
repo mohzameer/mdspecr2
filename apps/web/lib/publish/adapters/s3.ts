@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 
 export interface S3Credentials {
   access_key_id: string
@@ -26,6 +26,25 @@ export function buildS3Key(
 
   const path = relativePath.replace(/^\//, '')
   return prefix ? `${prefix}/${path}` : path
+}
+
+export async function s3ObjectExists(
+  credentials: S3Credentials,
+  objectKey: string
+): Promise<boolean> {
+  const client = new S3Client({
+    region: credentials.region,
+    credentials: {
+      accessKeyId: credentials.access_key_id,
+      secretAccessKey: credentials.secret_access_key,
+    },
+  })
+  try {
+    await client.send(new HeadObjectCommand({ Bucket: credentials.bucket, Key: objectKey }))
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function publishToS3(
