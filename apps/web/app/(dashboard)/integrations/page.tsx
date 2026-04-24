@@ -23,11 +23,11 @@ function parseClickUpWorkspaceId(url: string): string | null {
   return match ? match[1] : null
 }
 
-const integrationMeta: Record<IntegrationType, { label: string; description: string; icon: string }> = {
-  notion: { label: 'Notion', description: 'Publish specs as nested sub-pages in a Notion workspace.', icon: 'N' },
-  confluence: { label: 'Confluence', description: 'Publish specs as a page tree in a Confluence space.', icon: 'C' },
-  clickup: { label: 'ClickUp', description: 'Publish specs as ClickUp Docs in your workspace.', icon: '✓' },
-  s3: { label: 'Amazon S3', description: 'Publish specs as static markdown files in an S3 bucket.', icon: 'S3' },
+const integrationMeta: Record<IntegrationType, { label: string; description: string }> = {
+  notion: { label: 'Notion', description: 'Publish specs as nested sub-pages in a Notion workspace.' },
+  confluence: { label: 'Confluence', description: 'Publish specs as a page tree in a Confluence space.' },
+  clickup: { label: 'ClickUp', description: 'Publish specs as ClickUp Docs in your workspace.' },
+  s3: { label: 'Amazon S3', description: 'Publish specs as static markdown files in an S3 bucket.' },
 }
 
 const statusColors: Record<string, string> = {
@@ -157,9 +157,6 @@ export default function IntegrationsPage() {
             <div key={type} className={`rounded-lg border p-5 ${disabled ? 'border-zinc-100 dark:border-zinc-800/50 bg-zinc-50 dark:bg-zinc-900/50 opacity-60' : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'}`}>
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-md bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center font-semibold text-sm text-zinc-700 dark:text-zinc-300">
-                    {meta.icon}
-                  </div>
                   <div>
                     <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{meta.label}</p>
                     <p className="text-xs text-zinc-500">{meta.description}</p>

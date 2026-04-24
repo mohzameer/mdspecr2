@@ -163,15 +163,15 @@ export async function POST(request: Request) {
       const newSpecs = specs.filter((s) => !existingSyncedPaths.has(s.path))
       const synced = syncedCount ?? 0
 
-      if (newSpecs.length > 0 && synced + newSpecs.length > 10) {
+      if (newSpecs.length > 0 && synced + newSpecs.length > 15) {
         return Response.json({
           error: 'spec_limit_reached',
-          limit: 10,
+          limit: 15,
           upgrade_url: 'https://mdspec.dev/upgrade',
         }, { status: 402 })
       }
 
-      if (synced + newSpecs.length >= 8) {
+      if (synced + newSpecs.length >= 12) {
         upgradeNudge = true
       }
     }

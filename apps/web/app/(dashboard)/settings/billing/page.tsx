@@ -1,6 +1,6 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/db-server'
+import { UpgradeButton } from '@/components/UpgradeButton'
 import type { Subscription } from '@/lib/types'
 
 export default async function BillingPage() {
@@ -15,6 +15,7 @@ export default async function BillingPage() {
     .single()
 
   const subscription = sub as Subscription | null
+  const isFree = !subscription || subscription.plan === 'free'
 
   return (
     <div className="p-8 max-w-2xl">
@@ -65,15 +66,21 @@ export default async function BillingPage() {
             <span className="text-sm capitalize text-yellow-600 dark:text-yellow-400">{subscription.status}</span>
           </div>
         )}
+        {isFree && (
+          <div className="pt-1 border-t border-zinc-100 dark:border-zinc-800">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">1 project · 15 documents · All integrations included</p>
+          </div>
+        )}
       </div>
 
-      {(!subscription || subscription.plan === 'free') ? (
-        <Link
-          href="/pricing"
-          className="inline-block rounded-md bg-zinc-900 dark:bg-zinc-50 px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
-        >
-          Upgrade to Pro →
-        </Link>
+      {isFree ? (
+        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Upgrade to Pro</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">Unlimited projects and documents. Everything else stays the same.</p>
+          </div>
+          <UpgradeButton userId={user.id} />
+        </div>
       ) : subscription.status !== 'cancelled' ? (
         <div className="text-sm text-zinc-500">
           To cancel your subscription, contact{' '}

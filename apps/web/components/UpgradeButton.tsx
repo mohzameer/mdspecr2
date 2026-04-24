@@ -50,13 +50,13 @@ export function UpgradeButton({ userId }: UpgradeButtonProps) {
                 : 'text-muted-foreground'
             }`}
           >
-            {p === 'yearly' ? 'Yearly (save $44)' : 'Monthly'}
+            {p === 'yearly' ? 'Yearly (save $8)' : 'Monthly'}
           </button>
         ))}
       </div>
 
       <Button onClick={openCheckout} className="w-full">
-        Upgrade to Pro — {period === 'monthly' ? '$12/mo' : '$100/yr'}
+        Upgrade to Pro — {period === 'monthly' ? '$9/mo' : '$100/yr'}
       </Button>
     </div>
   )

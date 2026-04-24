@@ -4,12 +4,15 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { cn } from '@/lib/utils'
 
-export default function PricingPage() {
-  const features = {
-    free: ['1 organization', '1 project', '10 specs published', 'Notion, Confluence, ClickUp', 'CI/CD integration'],
-    pro: ['Unlimited organizations', 'Unlimited projects', 'Unlimited specs', 'All integrations', 'Priority support', 'Agent layer'],
-  }
+const sharedFeatures = [
+  'All integrations (ClickUp, S3, Notion, Confluence)',
+  'CI/CD integration',
+  'Agent layer',
+  'Git-native change detection',
+  'Alias system',
+]
 
+export default function PricingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Nav */}
@@ -21,10 +24,14 @@ export default function PricingPage() {
       </nav>
 
       <div className="px-6 pt-16 pb-20 max-w-3xl mx-auto">
-        <div className="text-center mb-12">
+        <div className="text-center mb-4">
           <h1 className="text-3xl font-semibold tracking-tight">Simple pricing</h1>
-          <p className="text-muted-foreground mt-2">Free to start. Upgrade when you need more.</p>
+          <p className="text-muted-foreground mt-2">Free to start. Upgrade only when you outgrow the limits.</p>
         </div>
+
+        <p className="text-center text-sm text-muted-foreground mb-10">
+          Both plans include every feature — the only difference is how many projects and documents you can publish.
+        </p>
 
         <div className="grid grid-cols-2 gap-6 mb-8">
           {/* Free */}
@@ -35,15 +42,22 @@ export default function PricingPage() {
                 <p className="text-3xl font-semibold mt-1">$0</p>
                 <p className="text-xs text-muted-foreground">forever</p>
               </div>
+
+              <div className="mb-4 p-3 rounded-md bg-muted/50 space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Limits</p>
+                <p className="text-sm">1 project</p>
+                <p className="text-sm">15 documents</p>
+              </div>
+
               <ul className="space-y-2 mb-6">
-                {features.free.map((f) => (
+                {sharedFeatures.map((f) => (
                   <li key={f} className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>--</span> {f}
+                    <span className="text-green-500">✓</span> {f}
                   </li>
                 ))}
               </ul>
               <Link href="/login?next=/onboarding" className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-center')}>
-                Get started
+                Get started free
               </Link>
             </CardContent>
           </Card>
@@ -54,17 +68,27 @@ export default function PricingPage() {
               <div className="mb-6">
                 <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Pro</p>
                 <div className="flex items-baseline gap-1 mt-1">
-                  <p className="text-3xl font-semibold">$12</p>
+                  <p className="text-3xl font-semibold">$9</p>
                   <p className="text-sm text-muted-foreground">/mo</p>
                 </div>
-                <p className="text-xs text-muted-foreground">or $100/yr (save $44)</p>
+                <p className="text-xs text-muted-foreground">or $100/yr (save $8)</p>
               </div>
+
+              <div className="mb-4 p-3 rounded-md bg-muted/50 space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Limits</p>
+                <p className="text-sm">Unlimited projects</p>
+                <p className="text-sm">Unlimited documents</p>
+              </div>
+
               <ul className="space-y-2 mb-6">
-                {features.pro.map((f) => (
+                {sharedFeatures.map((f) => (
                   <li key={f} className="flex items-center gap-2 text-sm">
                     <span className="text-green-500">✓</span> {f}
                   </li>
                 ))}
+                <li className="flex items-center gap-2 text-sm">
+                  <span className="text-green-500">✓</span> Priority support
+                </li>
               </ul>
               <Link href="/login?next=/onboarding" className={cn(buttonVariants(), 'w-full justify-center')}>
                 Start free, upgrade later
@@ -75,7 +99,7 @@ export default function PricingPage() {
 
         <Alert>
           <AlertDescription className="text-xs space-y-1">
-            <p><strong>Monthly plan:</strong> Cancel with 30 days notice. Billing continues until end of current period.</p>
+            <p><strong>Monthly plan:</strong> Cancel any time. Billing continues until end of the current period.</p>
             <p><strong>Annual plan:</strong> Rate locked for the full billing year. No partial refunds.</p>
           </AlertDescription>
         </Alert>

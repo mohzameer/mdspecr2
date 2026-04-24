@@ -9,7 +9,7 @@ interface UpgradeBannerProps {
   limit?: number
 }
 
-export function UpgradeBanner({ specCount, limit = 10 }: UpgradeBannerProps) {
+export function UpgradeBanner({ specCount, limit = 15 }: UpgradeBannerProps) {
   if (specCount < limit * 0.8) return null
 
   const atLimit = specCount >= limit

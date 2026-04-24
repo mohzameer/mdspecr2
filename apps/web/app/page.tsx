@@ -32,36 +32,36 @@ export default function LandingPage() {
           <span className="text-muted-foreground">Publish everywhere.</span>
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
-          Push markdown from CI — publish to Notion, Confluence, ClickUp, and S3 as vanilla docs or transform them with agent-based templates into release notes, task summaries, and more.
+          Push markdown from CI — publish to ClickUp and S3 as vanilla docs or transform them with agent-based templates into release notes, task summaries, and more. Notion and Confluence coming soon.
         </p>
         <div className="mt-10 flex items-center justify-center gap-3">
           <Link href="/login?next=/onboarding" className={buttonVariants({ size: 'lg' })}>
             Get started free
           </Link>
-          <Link href="/pricing" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
-            See pricing
-          </Link>
+          <a href="#how-it-works" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
+            How it works
+          </a>
         </div>
 
         {/* Integration badges */}
         <div className="mt-10 flex items-center justify-center gap-3 flex-wrap">
-          <IntegrationBadge label="ClickUp" icon="✓" active />
-          <IntegrationBadge label="S3" icon="⬡" active />
-          <IntegrationBadge label="Notion" icon="N" />
-          <IntegrationBadge label="Confluence" icon="C" />
+          <IntegrationBadge label="ClickUp" active />
+          <IntegrationBadge label="S3" active />
+          <IntegrationBadge label="Notion" />
+          <IntegrationBadge label="Confluence" />
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">Available now — more coming soon</p>
+        <p className="mt-3 text-xs text-muted-foreground">ClickUp & S3 available now — Notion and Confluence coming soon</p>
       </section>
 
       <Separator className="max-w-5xl mx-auto" />
 
       {/* How it works */}
-      <section className="px-6 py-20">
+      <section id="how-it-works" className="px-6 py-20">
         <div className="max-w-3xl mx-auto">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">How it works</p>
           <div className="grid sm:grid-cols-3 gap-6">
-            <Step number="1" title="Connect an integration" description="Sign up, create a project, connect Notion, Confluence, ClickUp, or S3. Set up aliases that map names to target pages." />
-            <Step number="2" title="Place your .mdspecmap" description="Drop a .mdspecmap in any folder you want to sync — or use the dashboard to generate a starter file. The file's location defines its scope." />
+            <Step number="1" title="Connect an integration" description="Sign up, create a project, connect ClickUp or S3. Set up aliases that map human-readable names to target locations." />
+            <Step number="2" title="Place your .mdspecmap" description="Drop a .mdspecmap into any folder you want to sync — its location defines its scope. Run `npx mdspeci init` to generate one interactively." />
             <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs." />
           </div>
         </div>
@@ -73,13 +73,13 @@ export default function LandingPage() {
       <section className="px-6 py-20">
         <div className="max-w-2xl mx-auto space-y-4">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Two files. Done.</p>
-          <p className="text-center text-sm text-muted-foreground mb-6">Place a .mdspecmap in any folder you want to sync — or generate one from the dashboard.</p>
+          <p className="text-center text-sm text-muted-foreground mb-6">Drop a .mdspecmap into any folder you want to sync — its location defines its scope and mappings apply to all subfolders automatically.</p>
           <Card>
             <CardContent className="p-6 font-mono text-sm">
-              <div className="text-muted-foreground mb-2"># .mdspecmap</div>
+              <div className="text-muted-foreground mb-2"># docs/specs/.mdspecmap</div>
+              <div className="text-foreground">version: <span className="text-foreground">1</span></div>
               <div className="text-foreground">mappings:</div>
-              <div className="text-muted-foreground ml-2">- folder: <span className="text-foreground">docs/specs</span></div>
-              <div className="text-muted-foreground ml-4">integration: <span className="text-foreground">notion</span></div>
+              <div className="text-muted-foreground ml-2">- integration: <span className="text-foreground">clickup</span></div>
               <div className="text-muted-foreground ml-4">parent: <span className="text-foreground">eng-docs</span></div>
             </CardContent>
           </Card>
@@ -102,11 +102,12 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">Features</p>
           <div className="grid sm:grid-cols-2 gap-4">
-            <Feature title="Git-native" description="Change detection via git diff. Only modified specs are published." />
-<Feature title="Skip patterns" description="Exclude files with glob patterns in .mdspecmap, or add mdspec_skip: true in frontmatter." />
-            <Feature title="Alias system" description="Map human-readable names to target pages in your tools. Safe to commit — no credentials or IDs." />
-            <Feature title="Free tier" description="1 project, 10 specs, all integrations. No credit card." />
+            <Feature title="Git-native" description="Change detection via git diff. Only modified specs are published. Distribution files live in the repo — version-controlled and easy to manage." />
+<Feature title="Skip patterns" description="Exclude files with glob patterns in .mdspecmap." />
+<Feature title="Free tier" description="1 project, 15 documents, all integrations. No credit card." />
             <Feature title="Agent layer" description="Transform specs post-publish with built-in templates like task summaries and release notes." />
+            <Feature title="Docs backup" description="Remove a file from the repo and it stays in the target tool. Published docs are never deleted automatically." />
+            <Feature title="Team-friendly" description="Different teams can manage their own .mdspecmap files — separately or in a monorepo — and sync to the same destination." />
           </div>
         </div>
       </section>
@@ -149,19 +150,19 @@ export default function LandingPage() {
       <section className="px-6 py-20">
         <div className="max-w-xl mx-auto text-center">
           <h2 className="text-2xl font-semibold tracking-tight mb-3">Simple pricing</h2>
-          <p className="text-muted-foreground mb-8">Free to start. $12/mo for unlimited everything.</p>
+          <p className="text-muted-foreground mb-8">Free to start. $9/mo for unlimited everything.</p>
           <div className="grid grid-cols-2 gap-4 text-left">
             <Card>
               <CardContent className="p-5">
                 <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Free</p>
                 <p className="text-2xl font-semibold mt-1">$0</p>
-                <p className="text-xs text-muted-foreground mt-1">1 project, 10 specs</p>
+                <p className="text-xs text-muted-foreground mt-1">1 project, 15 documents</p>
               </CardContent>
             </Card>
             <Card className="border-2 border-primary">
               <CardContent className="p-5">
                 <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Pro</p>
-                <p className="text-2xl font-semibold mt-1">$12<span className="text-sm text-muted-foreground font-normal">/mo</span></p>
+                <p className="text-2xl font-semibold mt-1">$9<span className="text-sm text-muted-foreground font-normal">/mo</span></p>
                 <p className="text-xs text-muted-foreground mt-1">Unlimited everything</p>
               </CardContent>
             </Card>
@@ -200,16 +201,13 @@ function Step({ number, title, description }: { number: string; title: string; d
   )
 }
 
-function IntegrationBadge({ label, icon, active }: { label: string; icon: string; active?: boolean }) {
+function IntegrationBadge({ label, active }: { label: string; active?: boolean }) {
   return (
     <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
       active
         ? 'border-foreground/20 bg-background text-foreground'
         : 'border-border bg-background text-muted-foreground opacity-40'
     }`}>
-      <span className="text-xs font-bold w-4 h-4 flex items-center justify-center rounded bg-muted text-muted-foreground">
-        {icon}
-      </span>
       {label}
       {active && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
     </div>
