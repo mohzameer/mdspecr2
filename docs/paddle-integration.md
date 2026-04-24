@@ -4,8 +4,9 @@
 
 Subscriptions are **per-user** (not per-org). When a user upgrades, their Paddle customer maps to their `user_id` via `custom_data`. The org's effective plan is derived from its owner's subscription at publish time.
 
-Webhook endpoint: `POST /api/webhooks/paddle`  
-Checkout is opened client-side via Paddle.js using the `UpgradeButton` component.
+Checkout uses the **server-side Paddle API** — no Paddle.js, no client token, no script tags. The upgrade button redirects to `/api/billing/checkout`, which calls the Paddle API server-side, receives a hosted checkout URL, and redirects the user there.
+
+Webhook endpoint: `POST /api/webhooks/paddle`
 
 ---
 
@@ -19,26 +20,26 @@ Checkout is opened client-side via Paddle.js using the `UpgradeButton` component
 
 ## 2. Create the Product and Prices
 
-In the Paddle dashboard → **Catalog → Products**:
+Dashboard → **Catalog → Products**:
 
 1. Create a product: `mdspec Pro`
-2. Add two prices to that product:
+2. Add two prices:
 
 | Price | Amount | Billing interval |
 |-------|--------|-----------------|
-| Monthly | $12.00 USD | Monthly |
+| Monthly | $9.00 USD | Monthly |
 | Yearly | $100.00 USD | Annually |
 
-3. Copy both **Price IDs** (format: `pri_xxxxxxxxxxxxxxxx`) — you'll need them for env vars.
+3. Copy both **Price IDs** (format: `pri_xxxxxxxxxxxxxxxx`) — needed for env vars.
 
 ---
 
-## 3. Get Your Client Token
+## 3. Get the API Key
 
 Dashboard → **Developer Tools → Authentication**:
 
-- Copy the **Client-side token** (starts with `live_` or `test_` depending on environment)
-- This is safe to expose in the browser — it goes in `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`
+- Copy the **API key** (starts with `live_` or `sandbox_`)
+- This is **server-side only** — never expose it to the browser
 
 ---
 
@@ -47,64 +48,40 @@ Dashboard → **Developer Tools → Authentication**:
 Add to `apps/web/.env.local`:
 
 ```bash
-# Paddle — get from Paddle dashboard → Developer Tools
-NEXT_PUBLIC_PADDLE_CLIENT_TOKEN=test_xxxxxxxxxxxxxxxxxxxxxxxx
-NEXT_PUBLIC_PADDLE_PRICE_MONTHLY=pri_xxxxxxxxxxxxxxxx
-NEXT_PUBLIC_PADDLE_PRICE_YEARLY=pri_xxxxxxxxxxxxxxxx
+# Paddle — server-side only
+PADDLE_API_KEY=sandbox_xxxxxxxxxxxxxxxxxxxxxxxx
+PADDLE_PRICE_MONTHLY=pri_xxxxxxxxxxxxxxxx   # $9/mo
+PADDLE_PRICE_YEARLY=pri_xxxxxxxxxxxxxxxx    # $100/yr
 PADDLE_WEBHOOK_SECRET=pdl_ntfset_xxxxxxxxxxxxxxxx
-
-# Set to "sandbox" for development, omit or set to "production" for live
-NEXT_PUBLIC_PADDLE_ENV=sandbox
+PADDLE_ENV=sandbox                          # omit or set "production" for live
 ```
 
-Update `.env.example` with these keys (no values) so they're documented for future devs.
+Update `apps/web/.env.example` with these keys (no values).
+
+No `NEXT_PUBLIC_` Paddle vars are needed.
 
 ---
 
-## 5. Load Paddle.js in the App Layout
+## 5. The Checkout API Route
 
-Paddle.js must be loaded globally. Add the script tag and initialization to [apps/web/app/layout.tsx](../apps/web/app/layout.tsx):
+`apps/web/app/api/billing/checkout/route.ts` handles checkout server-side:
 
-```tsx
-import Script from 'next/script'
+1. Reads the authenticated user from Supabase session
+2. Calls `POST https://api.paddle.com/transactions` with the chosen price ID and `custom_data.user_id`
+3. Receives a `checkout.url` from Paddle
+4. Redirects the user to that hosted checkout page
 
-// Inside <body>, after {children}:
-<Script src="https://cdn.paddle.com/paddle/v2/paddle.js" strategy="afterInteractive" />
-<Script id="paddle-init" strategy="afterInteractive">{`
-  if (typeof window !== 'undefined' && window.Paddle) {
-    ${process.env.NEXT_PUBLIC_PADDLE_ENV === 'sandbox'
-      ? "window.Paddle.Environment.set('sandbox');"
-      : ''}
-    window.Paddle.Initialize({ token: '${process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN}' });
-  }
-`}</Script>
-```
+After payment, Paddle redirects back to `/settings/billing?upgraded=1`.
 
-> **Note:** `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN` and `NEXT_PUBLIC_PADDLE_ENV` are inlined at build time. If you change them, rebuild.
+For sandbox, use `https://sandbox-api.paddle.com/transactions`.
 
 ---
 
-## 6. Wire Up the Upgrade Button
+## 6. The Upgrade Button
 
-The `UpgradeButton` component ([apps/web/components/UpgradeButton.tsx](../apps/web/components/UpgradeButton.tsx)) opens Paddle Checkout and passes `user_id` in `custom_data` so the webhook can map the subscription back to the correct user.
+`apps/web/components/UpgradeButton.tsx` is a client component with a monthly/yearly toggle. It renders an `<a>` tag pointing to `/api/billing/checkout?period=monthly` or `?period=yearly` — no JavaScript checkout call, no Paddle.js dependency.
 
-Place it in the billing page for free-tier users. In [apps/web/app/(dashboard)/settings/billing/page.tsx](../apps/web/app/(dashboard)/settings/billing/page.tsx), replace the plain `<Link href="/pricing">` with:
-
-```tsx
-import { UpgradeButton } from '@/components/UpgradeButton'
-
-// In the JSX, where plan === 'free':
-{(!subscription || subscription.plan === 'free') && (
-  <UpgradeButton userId={user.id} />
-)}
-```
-
-The component passes this to Paddle:
-```ts
-customData: { user_id: userId }
-```
-
-The webhook reads `custom_data.user_id` and updates that user's subscription row.
+The billing page passes no props to it; the route reads `auth.getUser()` server-side.
 
 ---
 
@@ -112,19 +89,16 @@ The webhook reads `custom_data.user_id` and updates that user's subscription row
 
 ### Register the endpoint
 
-In the Paddle dashboard → **Developer Tools → Notifications**:
+Dashboard → **Developer Tools → Notifications → New destination**:
 
-1. Click **New destination**
-2. Set URL: `https://yourdomain.com/api/webhooks/paddle`
-3. For local development, use [ngrok](https://ngrok.com) or similar:
+1. Set URL: `https://yourdomain.com/api/webhooks/paddle`
+2. For local development, use [ngrok](https://ngrok.com):
    ```bash
    ngrok http 3000
    # Use the generated https URL as your Paddle notification URL
    ```
 
 ### Subscribe to events
-
-Select these event types:
 
 - `subscription.created`
 - `subscription.updated`
@@ -134,16 +108,16 @@ Select these event types:
 
 ### Copy the webhook secret
 
-After creating the destination, Paddle shows a **secret key** (`pdl_ntfset_...`). Set it as `PADDLE_WEBHOOK_SECRET`.
+After saving, copy the **secret key** (`pdl_ntfset_...`) → set as `PADDLE_WEBHOOK_SECRET`.
 
 ### How the webhook works
 
-The handler at [apps/web/app/api/webhooks/paddle/route.ts](../apps/web/app/api/webhooks/paddle/route.ts):
+`apps/web/app/api/webhooks/paddle/route.ts`:
 
 1. Verifies the HMAC-SHA256 signature using `PADDLE_WEBHOOK_SECRET`
-2. Checks `billing_events.paddle_event_id` for idempotency (deduplicates retries)
+2. Checks `billing_events.paddle_event_id` for idempotency
 3. Reads `custom_data.user_id` to identify the subscriber
-4. Updates `subscriptions` accordingly:
+4. Updates `subscriptions`:
 
 | Event | Result |
 |-------|--------|
@@ -155,34 +129,49 @@ The handler at [apps/web/app/api/webhooks/paddle/route.ts](../apps/web/app/api/w
 
 ---
 
-## 8. How Plan Enforcement Works
+## 8. Seed Subscriptions on Signup
 
-At publish time ([apps/web/app/api/publish/route.ts](../apps/web/app/api/publish/route.ts)):
+The webhook does `.update()` — if no `subscriptions` row exists for the user, `subscription.created` silently no-ops. A Supabase trigger ensures every new user gets a `free` row:
 
-1. Look up the org's owner from `org_members` where `role = 'owner'`
-2. Fetch that owner's subscription from `subscriptions` by `user_id`
-3. If plan is `free` (or no subscription found), enforce the 10-spec limit
+```sql
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer as $$
+begin
+  insert into public.subscriptions (user_id, plan, status)
+  values (new.id, 'free', 'active')
+  on conflict (user_id) do nothing;
+  return new;
+end;
+$$;
 
-At billing page load, the subscription is fetched directly by `auth.uid()` — RLS ensures users can only read their own row.
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+```
 
 ---
 
-## 9. One Org Per User
+## 9. Plan Enforcement
 
-Users are blocked from creating a second organization at the API layer ([apps/web/app/api/org/create/route.ts](../apps/web/app/api/org/create/route.ts)). If they already have an `owner` membership in any org, the request returns `409 already_owns_org`.
+**Document limit (15 for free)** — enforced at publish time in `apps/web/app/api/publish/route.ts`:
+- Looks up the org owner's subscription
+- Counts synced specs; returns `402 spec_limit_reached` if `synced + new > 15`
+- Returns `upgrade_nudge: true` in the response at 12 docs (80%)
 
-The org switcher UI has the "Create new organization" option removed — it only shows orgs the user already belongs to.
+**Project limit (1 for free)** — enforced at project creation in `apps/web/app/api/projects/create/route.ts`.
+
+**One org per user** — enforced in `apps/web/app/api/org/create/route.ts`; returns `409 already_owns_org`.
 
 ---
 
 ## 10. Testing the Full Flow
 
-1. Start the app locally with sandbox env vars set
-2. Create a free account and create an org
+1. Start the app with sandbox env vars set
+2. Create a free account
 3. Go to **Settings → Billing**
-4. Click **Upgrade to Pro** — Paddle Checkout opens
+4. Click **Upgrade to Pro** — redirects to Paddle-hosted checkout
 5. Use a [Paddle test card](https://developer.paddle.com/concepts/payment-methods/credit-debit-card#test-cards): `4242 4242 4242 4242`, any future expiry, any CVV
-6. Complete checkout — Paddle fires `subscription.created` to your webhook URL
+6. Complete checkout — Paddle redirects back to `/settings/billing?upgraded=1` and fires `subscription.created`
 7. Verify the row in `subscriptions` has `plan = 'pro'` and `status = 'active'`
 8. To test cancellation, go to Paddle dashboard → Subscriptions → cancel the test subscription
 
@@ -192,8 +181,8 @@ The org switcher UI has the "Create new organization" option removed — it only
 
 | Variable | Where to get it | Exposed to browser |
 |----------|----------------|--------------------|
-| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN` | Dashboard → Developer Tools → Authentication | Yes |
-| `NEXT_PUBLIC_PADDLE_PRICE_MONTHLY` | Dashboard → Catalog → Prices | Yes |
-| `NEXT_PUBLIC_PADDLE_PRICE_YEARLY` | Dashboard → Catalog → Prices | Yes |
-| `NEXT_PUBLIC_PADDLE_ENV` | Set to `sandbox` for dev | Yes |
+| `PADDLE_API_KEY` | Dashboard → Developer Tools → Authentication | No — server only |
+| `PADDLE_PRICE_MONTHLY` | Dashboard → Catalog → Prices | No — server only |
+| `PADDLE_PRICE_YEARLY` | Dashboard → Catalog → Prices | No — server only |
 | `PADDLE_WEBHOOK_SECRET` | Dashboard → Developer Tools → Notifications → secret key | No — server only |
+| `PADDLE_ENV` | Set to `sandbox` for dev, omit for production | No — server only |

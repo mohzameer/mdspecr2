@@ -32,7 +32,7 @@ export default function LandingPage() {
           <span className="text-muted-foreground">Publish everywhere.</span>
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
-          Push markdown from CI — publish to ClickUp and S3 as vanilla docs or transform them with agent-based templates into release notes, task summaries, and more. Notion and Confluence coming soon.
+          Push markdown from CI — publish vanilla docs or agent-transformed release notes and task summaries to any project wiki or file storage.
         </p>
         <div className="mt-10 flex items-center justify-center gap-3">
           <Link href="/login?next=/onboarding" className={buttonVariants({ size: 'lg' })}>
@@ -49,6 +49,7 @@ export default function LandingPage() {
           <IntegrationBadge label="S3" active />
           <IntegrationBadge label="Notion" />
           <IntegrationBadge label="Confluence" />
+          <IntegrationBadge label="SharePoint" />
         </div>
         <p className="mt-3 text-xs text-muted-foreground">ClickUp & S3 available now — Notion and Confluence coming soon</p>
       </section>
@@ -60,7 +61,7 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">How it works</p>
           <div className="grid sm:grid-cols-3 gap-6">
-            <Step number="1" title="Connect an integration" description="Sign up, create a project, connect ClickUp or S3. Set up aliases that map human-readable names to target locations." />
+            <Step number="1" title="Connect an integration" description="Sign up, create a project, and connect your integrations. Optionally define agent templates to transform specs into structured documents before they publish." />
             <Step number="2" title="Place your .mdspecmap" description="Drop a .mdspecmap into any folder you want to sync — its location defines its scope. Run `npx mdspeci init` to generate one interactively." />
             <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs." />
           </div>
@@ -150,8 +151,8 @@ export default function LandingPage() {
       <section className="px-6 py-20">
         <div className="max-w-xl mx-auto text-center">
           <h2 className="text-2xl font-semibold tracking-tight mb-3">Simple pricing</h2>
-          <p className="text-muted-foreground mb-8">Free to start. $9/mo for unlimited everything.</p>
-          <div className="grid grid-cols-2 gap-4 text-left">
+          <p className="text-muted-foreground mb-8">Free to start. $9/mo or $100/yr for unlimited everything.</p>
+          <div className="grid grid-cols-3 gap-4 text-left">
             <Card>
               <CardContent className="p-5">
                 <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Free</p>
@@ -164,6 +165,13 @@ export default function LandingPage() {
                 <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Pro</p>
                 <p className="text-2xl font-semibold mt-1">$9<span className="text-sm text-muted-foreground font-normal">/mo</span></p>
                 <p className="text-xs text-muted-foreground mt-1">Unlimited everything</p>
+              </CardContent>
+            </Card>
+            <Card className="border-2 border-primary">
+              <CardContent className="p-5">
+                <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Pro Annual</p>
+                <p className="text-2xl font-semibold mt-1">$100<span className="text-sm text-muted-foreground font-normal">/yr</span></p>
+                <p className="text-xs text-muted-foreground mt-1">2 months free</p>
               </CardContent>
             </Card>
           </div>

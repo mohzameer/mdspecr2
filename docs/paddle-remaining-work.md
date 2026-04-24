@@ -1,40 +1,103 @@
 # Paddle Integration — Remaining Work
 
-Everything is wired up in code. What's left is external setup, two missing code pieces, and one enforcement gap.
+Using the **server-side Paddle API** instead of Paddle.js — no script tag, no `window.Paddle`, no client token. The upgrade button hits a Next.js API route which creates a Paddle checkout session and redirects the user to the hosted checkout URL. The webhook is unchanged.
 
 ---
 
-## 1. Load Paddle.js in the app layout  ← **critical, blocks checkout**
+## 1. Rewrite checkout to use the Paddle API  ← **replaces all Paddle.js work**
 
-`apps/web/app/layout.tsx` has no Paddle script. Without it the `UpgradeButton` always hits the `"Paddle.js not loaded"` alert. Add this inside `<body>`:
+### 1a. Add the API route
 
-```tsx
-import Script from 'next/script'
+Create `apps/web/app/api/billing/checkout/route.ts`:
 
-// After {children} in the body:
-<Script src="https://cdn.paddle.com/paddle/v2/paddle.js" strategy="afterInteractive" />
-<Script id="paddle-init" strategy="afterInteractive">{`
-  window.addEventListener('load', function () {
-    if (!window.Paddle) return;
-    ${process.env.NEXT_PUBLIC_PADDLE_ENV === 'sandbox'
-      ? "window.Paddle.Environment.set('sandbox');"
-      : ''}
-    window.Paddle.Initialize({ token: '${process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN}' });
-  });
-`}</Script>
+```ts
+import { redirect } from 'next/navigation'
+import { createSupabaseServerClient } from '@/lib/db-server'
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const period = searchParams.get('period') === 'yearly' ? 'yearly' : 'monthly'
+
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return Response.redirect('/login')
+
+  const priceId = period === 'yearly'
+    ? process.env.PADDLE_PRICE_YEARLY
+    : process.env.PADDLE_PRICE_MONTHLY
+
+  const res = await fetch('https://api.paddle.com/transactions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.PADDLE_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      items: [{ price_id: priceId, quantity: 1 }],
+      custom_data: { user_id: user.id },
+      checkout: {
+        url: `${process.env.NEXT_PUBLIC_APP_URL}/settings/billing?upgraded=1`,
+      },
+    }),
+  })
+
+  const json = await res.json()
+  const checkoutUrl = json?.data?.checkout?.url
+  if (!checkoutUrl) return Response.json({ error: 'checkout_failed' }, { status: 500 })
+
+  return Response.redirect(checkoutUrl)
+}
 ```
 
-> The env vars are inlined at **build time**. Rebuild after setting them.
+> For sandbox, use `https://sandbox-api.paddle.com/transactions` and set `PADDLE_ENV=sandbox`.
+
+### 1b. Rewrite `UpgradeButton`
+
+Replace the entire `window.Paddle` approach with a plain redirect:
+
+```tsx
+'use client'
+
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+
+export function UpgradeButton() {
+  const [period, setPeriod] = useState<'monthly' | 'yearly'>('monthly')
+
+  return (
+    <div className="space-y-3">
+      <div className="flex rounded-md border p-0.5 bg-muted">
+        {(['monthly', 'yearly'] as const).map((p) => (
+          <button
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={`flex-1 py-1.5 text-xs font-medium rounded transition-colors capitalize ${
+              period === p ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+            }`}
+          >
+            {p === 'yearly' ? 'Yearly (save $8)' : 'Monthly'}
+          </button>
+        ))}
+      </div>
+      <Button asChild className="w-full">
+        <a href={`/api/billing/checkout?period=${period}`}>
+          Upgrade to Pro — {period === 'monthly' ? '$9/mo' : '$100/yr'}
+        </a>
+      </Button>
+    </div>
+  )
+}
+```
+
+The `userId` prop is no longer needed — the route reads `auth.getUser()` server-side.
 
 ---
 
-## 2. Ensure every new user gets a subscriptions row  ← **blocks webhook**
+## 2. Seed a `subscriptions` row for every new user  ← **blocks webhook**
 
-The webhook handler (`/api/webhooks/paddle`) calls `.update()` on the `subscriptions` table when `subscription.created` fires. If the row doesn't exist yet, the update silently no-ops and the user stays on free forever.
+The webhook does `.update()` on `subscriptions`. If no row exists for the user yet, `subscription.created` silently no-ops and the user stays on free forever.
 
-**Fix:** either —
-
-**Option A — Supabase trigger on `auth.users` insert** (recommended):
+**Recommended fix — Supabase trigger:**
 ```sql
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer as $$
@@ -51,13 +114,13 @@ create trigger on_auth_user_created
   for each row execute procedure public.handle_new_user();
 ```
 
-**Option B — Change webhook to upsert:**
-In `apps/web/app/api/webhooks/paddle/route.ts`, for `subscription.created` change `.update(...)` to:
-```ts
-.upsert({ user_id: userId, plan: 'pro', status: 'active', ... }, { onConflict: 'user_id' })
+Run this in the Supabase SQL editor. Also manually insert rows for any existing users who don't have one:
+```sql
+insert into public.subscriptions (user_id, plan, status)
+select id, 'free', 'active' from auth.users
+where id not in (select user_id from public.subscriptions)
+on conflict do nothing;
 ```
-
-Option A is safer because it also guarantees free-plan rows exist before checkout ever happens.
 
 ---
 
@@ -65,7 +128,7 @@ Option A is safer because it also guarantees free-plan rows exist before checkou
 
 ### 3a. Create the product and prices
 
-In Paddle dashboard → **Catalog → Products**:
+Dashboard → **Catalog → Products**:
 
 1. Create product: `mdspec Pro`
 2. Add two prices:
@@ -75,13 +138,11 @@ In Paddle dashboard → **Catalog → Products**:
 | Monthly | **$9.00 USD** | Monthly |
 | Yearly | **$100.00 USD** | Annually |
 
-> The existing doc listed $12 — update these to $9 to match the new pricing.
-
 3. Copy both **Price IDs** (`pri_xxxxxxxxxxxxxxxx`)
 
-### 3b. Get client token
+### 3b. Get the API key
 
-Dashboard → **Developer Tools → Authentication** → copy the client-side token.
+Dashboard → **Developer Tools → Authentication** → copy the **API key** (starts with `live_` or `sandbox_`). This is server-side only — never expose it to the browser.
 
 ### 3c. Register the webhook
 
@@ -89,13 +150,13 @@ Dashboard → **Developer Tools → Notifications → New destination**:
 
 - URL: `https://yourdomain.com/api/webhooks/paddle`  
   (use [ngrok](https://ngrok.com) locally: `ngrok http 3000`)
-- Events to subscribe:
+- Subscribe to these events:
   - `subscription.created`
   - `subscription.updated`
   - `subscription.cancelled`
   - `transaction.completed`
   - `transaction.payment_failed`
-- Copy the **secret key** after saving
+- Copy the **secret key** after saving (`pdl_ntfset_...`)
 
 ---
 
@@ -104,23 +165,25 @@ Dashboard → **Developer Tools → Notifications → New destination**:
 Add to `apps/web/.env.local`:
 
 ```bash
-NEXT_PUBLIC_PADDLE_CLIENT_TOKEN=test_xxxxxxxxxxxxxxxxxxxxxxxx
-NEXT_PUBLIC_PADDLE_PRICE_MONTHLY=pri_xxxxxxxxxxxxxxxx   # $9/mo price ID
-NEXT_PUBLIC_PADDLE_PRICE_YEARLY=pri_xxxxxxxxxxxxxxxx    # $100/yr price ID
-NEXT_PUBLIC_PADDLE_ENV=sandbox                          # omit in production
+# Paddle — all server-side only (no NEXT_PUBLIC_ needed)
+PADDLE_API_KEY=live_xxxxxxxxxxxxxxxxxxxxxxxx   # or sandbox_xxx for dev
+PADDLE_PRICE_MONTHLY=pri_xxxxxxxxxxxxxxxx      # $9/mo price ID
+PADDLE_PRICE_YEARLY=pri_xxxxxxxxxxxxxxxx       # $100/yr price ID
 PADDLE_WEBHOOK_SECRET=pdl_ntfset_xxxxxxxxxxxxxxxx
+PADDLE_ENV=sandbox                             # omit or set to "production" for live
 ```
 
-Also update `apps/web/.env.example` to document these keys (no values).
+Update `apps/web/.env.example` with these keys (no values).
+
+No `NEXT_PUBLIC_` Paddle vars are needed — everything runs server-side.
 
 ---
 
 ## 5. Enforce the 1-project limit for free users
 
-`apps/web/app/api/projects/create/route.ts` currently has no plan check — a free user can create unlimited projects. Add this before the insert:
+`apps/web/app/api/projects/create/route.ts` has no plan check — free users can create unlimited projects. Add this after the membership check, before the insert:
 
 ```ts
-// After fetching membership, before the insert:
 const { data: ownerMember } = await supabase
   .from('org_members')
   .select('user_id')
@@ -143,37 +206,40 @@ if (!subscription || subscription.plan === 'free') {
 }
 ```
 
-The UI (`NewProjectButton`) should also handle `402 project_limit_reached` and show an upgrade prompt.
+`NewProjectButton` should handle the `402 project_limit_reached` response and show an upgrade prompt instead of a generic error.
 
 ---
 
-## 6. Refresh billing page after checkout
+## 6. Confirmation banner after checkout
 
-After a successful checkout, the billing page won't show the updated plan until the user manually refreshes. The webhook fires asynchronously so there's a short delay.
+Paddle redirects back to `/settings/billing?upgraded=1` after a successful payment (set as `checkout.url` in the API call). The webhook fires asynchronously so the plan may not be updated immediately when the redirect lands.
 
-In `UpgradeButton.tsx`, add an event callback to Paddle to redirect or refresh when checkout completes:
+In `billing/page.tsx`, read the `upgraded` search param and show a banner:
 
-```ts
-window.Paddle.Checkout.open({
-  items: [{ priceId, quantity: 1 }],
-  customData: { user_id: userId },
-  settings: {
-    successUrl: '/settings/billing?upgraded=1',
-  },
-})
+```tsx
+// In the server component:
+const upgraded = searchParams?.upgraded === '1'
+
+// In the JSX, at the top:
+{upgraded && (
+  <div className="rounded-md bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 px-4 py-3 text-sm text-green-700 dark:text-green-300 mb-6">
+    Payment received — your plan will update within a few seconds. Refresh if it doesn&apos;t appear.
+  </div>
+)}
 ```
-
-Then in `billing/page.tsx`, read the `upgraded` query param and show a "Subscription activated — welcome to Pro" banner. You may need a short poll or a `setTimeout` + refresh because the webhook may not have processed yet when the redirect lands.
 
 ---
 
 ## Summary checklist
 
-- [ ] Add Paddle.js script to `app/layout.tsx`
-- [ ] Add Supabase trigger to seed `subscriptions` row on user signup
+- [ ] Add `apps/web/app/api/billing/checkout/route.ts` (Paddle API → redirect)
+- [ ] Rewrite `UpgradeButton` to use `<a href="/api/billing/checkout?period=...">` — drop `userId` prop and `window.Paddle`
+- [ ] Update `billing/page.tsx` to remove the `userId` prop from `<UpgradeButton>`
+- [ ] Add Supabase trigger to seed `subscriptions` row on user signup + backfill existing users
 - [ ] Create `mdspec Pro` product in Paddle dashboard with $9/mo and $100/yr prices
-- [ ] Register webhook endpoint in Paddle dashboard with the 5 required event types
-- [ ] Set the 5 env vars in `.env.local` (and update `.env.example`)
-- [ ] Add 1-project limit enforcement to `api/projects/create/route.ts`
-- [ ] Handle `402 project_limit_reached` in the new-project UI
-- [ ] Add post-checkout success redirect / confirmation banner to billing page
+- [ ] Get Paddle API key from dashboard
+- [ ] Register webhook endpoint with the 5 required event types
+- [ ] Set the 4 env vars in `.env.local` (and update `.env.example`)
+- [ ] Add 1-project limit check to `api/projects/create/route.ts`
+- [ ] Handle `402 project_limit_reached` in `NewProjectButton`
+- [ ] Add `?upgraded=1` confirmation banner to `billing/page.tsx`
