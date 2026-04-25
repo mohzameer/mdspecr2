@@ -453,6 +453,7 @@ Validates S3 credentials by putting and immediately deleting a sentinel object (
 | Cause | Error message |
 |---|---|
 | IAM key lacks `s3:PutObject` / `s3:DeleteObject` | `Access denied. Ensure the key has s3:PutObject and s3:DeleteObject on the bucket.` |
+| IAM key lacks `s3:ListBucket` | Validation still passes, but the folder picker in the mapping UI will be unavailable — add `s3:ListBucket` on the bucket ARN (not `/*`) to enable it |
 | Bucket does not exist in the given region | `Bucket "acme-specs" not found in region us-east-1.` |
 | Invalid access key ID or secret | `Invalid credentials. Check your Access Key ID and Secret Access Key.` |
 

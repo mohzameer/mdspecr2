@@ -585,7 +585,7 @@ mappings:
               ]}
             />
             <p className="text-sm text-muted-foreground">
-              The IAM user needs <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:PutObject</code>, <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:GetObject</code>, and <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:DeleteObject</code> on the bucket. mdspec validates credentials on connect by putting and deleting a sentinel object.
+              The IAM user needs <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:PutObject</code>, <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:GetObject</code>, and <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:DeleteObject</code> on the bucket for publishing. mdspec validates credentials on connect by putting and deleting a sentinel object. Additionally, <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:ListBucket</code> on the bucket ARN (not <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/*</code>) is needed for the parent folder picker in the mapping UI.
             </p>
 
             <h3 className="text-sm font-semibold">Parent directory — the alias</h3>
@@ -672,7 +672,7 @@ mappings:
               <li>Click <strong>Next</strong>, name the policy (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mdspec-s3-acme-specs</code>), and click <strong>Create policy</strong>.</li>
             </ol>
             <p className="text-sm text-muted-foreground">
-              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:ListBucket</code> permission on the bucket resource (not the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/*</code> path) is needed for the connection health check. The three object-level permissions cover publishing.
+              The three object-level permissions cover publishing. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:ListBucket</code> on the bucket resource (not the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/*</code> path) is used by the web UI to populate the parent folder dropdown on the mapping page — without it the dropdown falls back to a text input.
             </p>
 
             <p className="text-sm font-medium mt-2">Step 3 — Create an IAM user and attach the policy</p>

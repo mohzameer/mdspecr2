@@ -71,6 +71,11 @@ export async function GET(
     return NextResponse.json(folders)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: message }, { status: 502 })
+    console.error('[s3-folders] ListObjectsV2 failed:', message)
+    const isPermission = message.includes('AccessDenied') || message.includes('403')
+    return NextResponse.json(
+      { error: isPermission ? 'access_denied' : message },
+      { status: 502 }
+    )
   }
 }

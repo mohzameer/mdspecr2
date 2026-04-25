@@ -410,14 +410,28 @@ All four fields are required. `external_url` in `spec_publish_targets` is always
 ### 10.2 Required IAM permissions
 
 ```json
-{
-  "Effect": "Allow",
-  "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
-  "Resource": "arn:aws:s3:::acme-engineering-specs/*"
-}
+[
+  {
+    "Effect": "Allow",
+    "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+    "Resource": "arn:aws:s3:::acme-engineering-specs/*"
+  },
+  {
+    "Effect": "Allow",
+    "Action": ["s3:ListBucket"],
+    "Resource": "arn:aws:s3:::acme-engineering-specs"
+  }
+]
 ```
 
-For the connection health check, `s3:ListBucket` on the bucket (not the prefix) is also required.
+| Permission | Resource | Purpose |
+|---|---|---|
+| `s3:PutObject` | `arn:aws:s3:::bucket/*` | Write specs to the bucket |
+| `s3:GetObject` | `arn:aws:s3:::bucket/*` | Read specs during processing |
+| `s3:DeleteObject` | `arn:aws:s3:::bucket/*` | Remove the health-check sentinel object on connect |
+| `s3:ListBucket` | `arn:aws:s3:::bucket` | List top-level folder prefixes in the web UI folder picker — note: applies to the bucket ARN, not the `/*` prefix |
+
+`s3:ListBucket` is optional for publishing but required for the folder picker dropdown in the mapping UI. Without it the UI falls back to a manual text input.
 
 ---
 

@@ -78,7 +78,7 @@ export function FolderMappingsTab({
   const [deletingMappingId, setDeletingMappingId] = useState<string | null>(null)
   const [addingDiscoveredFolder, setAddingDiscoveredFolder] = useState<string | null>(null)
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
-  const [s3FoldersCache, setS3FoldersCache] = useState<Record<string, string[] | 'loading' | 'error'>>({})
+  const [s3FoldersCache, setS3FoldersCache] = useState<Record<string, string[] | 'loading' | { error: string }>>({})
   // new row doc state
   const [newFolderDocId, setNewFolderDocId] = useState<string>('')
   const [newFolderSpaceId, setNewFolderSpaceId] = useState<string>('')
@@ -96,9 +96,12 @@ export function FolderMappingsTab({
     fetch(`/api/integrations/${integrationId}/s3-folders`)
       .then((r) => r.json())
       .then((data) => {
-        setS3FoldersCache((prev) => ({ ...prev, [integrationId]: Array.isArray(data) ? data : 'error' }))
+        setS3FoldersCache((prev) => ({
+          ...prev,
+          [integrationId]: Array.isArray(data) ? data : { error: data?.error ?? 'unknown' },
+        }))
       })
-      .catch(() => setS3FoldersCache((prev) => ({ ...prev, [integrationId]: 'error' })))
+      .catch(() => setS3FoldersCache((prev) => ({ ...prev, [integrationId]: { error: 'network error' } })))
   }
 
   // Load S3 folders for all existing S3 mappings
@@ -554,6 +557,7 @@ function prefillFromSuggestion(folderPath: string) {
                         const isSaving = savingMappingId === mapping.id
                         const s3State = s3FoldersCache[mapping.integration_id]
                         const s3Folders = Array.isArray(s3State) ? s3State : []
+                        const s3Error = s3State && !Array.isArray(s3State) && s3State !== 'loading' ? (s3State as { error: string }).error : null
                         const s3Loaded = Array.isArray(s3State)
                         return (
                           <div className="flex flex-col gap-1">
@@ -565,13 +569,19 @@ function prefillFromSuggestion(folderPath: string) {
                                 onChange={(e) => updateTarget(mapping.id, e.target.value || null)}
                                 className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 font-mono"
                               >
-                                <option value="">{s3State === 'loading' ? 'Loading…' : s3State === 'error' ? 'Error loading folders' : '/ (root)'}</option>
+                                <option value="">{s3State === 'loading' ? 'Loading…' : '/ (root)'}</option>
                                 {s3Folders.map((f) => (
                                   <option key={f} value={f}>{f}/</option>
                                 ))}
                               </select>
                               {isSaving && spinner}
                             </div>
+                            {s3Error && (
+                              <p className="text-xs text-red-500 dark:text-red-400">
+                                Could not load folders.{' '}
+                                <a href="/docs/api-reference#s3" target="_blank" rel="noopener noreferrer" className="underline hover:text-red-700 dark:hover:text-red-300">Check IAM permissions.</a>
+                              </p>
+                            )}
                           </div>
                         )
                       })() : mapping.integrations?.type === 'clickup' ? (() => {
@@ -760,6 +770,7 @@ function prefillFromSuggestion(folderPath: string) {
                       {newIntegration?.type === 's3' ? (() => {
                         const newS3State = s3FoldersCache[newFolderIntegrationId]
                         const newS3Folders = Array.isArray(newS3State) ? newS3State : []
+                        const newS3Error = newS3State && !Array.isArray(newS3State) && newS3State !== 'loading' ? (newS3State as { error: string }).error : null
                         const newS3Loaded = Array.isArray(newS3State)
                         return (
                           <div className="flex flex-col gap-1">
@@ -770,11 +781,17 @@ function prefillFromSuggestion(folderPath: string) {
                               onChange={(e) => setNewFolderSpaceId(e.target.value)}
                               className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 font-mono"
                             >
-                              <option value="">{newS3State === 'loading' ? 'Loading…' : newS3State === 'error' ? 'Error loading folders' : '/ (root)'}</option>
+                              <option value="">{newS3State === 'loading' ? 'Loading…' : '/ (root)'}</option>
                               {newS3Folders.map((f) => (
                                 <option key={f} value={f}>{f}/</option>
                               ))}
                             </select>
+                            {newS3Error && (
+                              <p className="text-xs text-red-500 dark:text-red-400">
+                                Could not load folders.{' '}
+                                <a href="/docs/api-reference#s3" target="_blank" rel="noopener noreferrer" className="underline hover:text-red-700 dark:hover:text-red-300">Check IAM permissions.</a>
+                              </p>
+                            )}
                           </div>
                         )
                       })() : isClickUp ? (() => {
