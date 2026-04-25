@@ -74,7 +74,7 @@ export default function LandingPage() {
       <section className="px-6 py-20">
         <div className="max-w-2xl mx-auto space-y-4">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Two files. Done.</p>
-          <p className="text-center text-sm text-muted-foreground mb-6">Drop a .mdspecmap into any folder you want to sync — its location defines its scope and mappings apply to all subfolders automatically.</p>
+          <p className="text-center text-sm text-muted-foreground mb-6">Drop a .mdspecmap into any folder you want to sync — its location defines its scope and mappings apply to all subfolders automatically. Optionally assign agent templates per file to transform specs before they publish.</p>
           <Card>
             <CardContent className="p-6 font-mono text-sm">
               <div className="text-muted-foreground mb-2"># docs/specs/.mdspecmap</div>
@@ -82,11 +82,6 @@ export default function LandingPage() {
               <div className="text-foreground">mappings:</div>
               <div className="text-muted-foreground ml-2">{'- '}<span className="text-foreground">integration: s3</span></div>
               <div className="text-muted-foreground ml-4">parent: <span className="text-foreground">eng-bucket</span></div>
-              <div className="text-foreground mt-2">specs:</div>
-              <div className="text-muted-foreground ml-2">changelog.md:</div>
-              <div className="text-muted-foreground ml-4">agent: <span className="text-foreground">release_notes</span></div>
-              <div className="text-muted-foreground ml-2">architecture.md:</div>
-              <div className="text-muted-foreground ml-4">agent: <span className="text-foreground">task_template</span></div>
             </CardContent>
           </Card>
           <Card>
