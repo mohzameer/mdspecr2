@@ -61,8 +61,8 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">How it works</p>
           <div className="grid sm:grid-cols-3 gap-6">
-            <Step number="1" title="Connect an integration" description="Sign up, create a project, and connect your integrations. Optionally define agent templates to transform specs into structured documents before they publish." />
-            <Step number="2" title="Place your .mdspecmap" description="Drop a .mdspecmap into any folder you want to sync — its location defines its scope. Run `npx mdspeci init` to generate one interactively." />
+            <Step number="1" title="Connect an integration" description="Sign up, create a project, and connect your integrations." />
+            <Step number="2" title="Place your .mdspecmap" description="Drop a .mdspecmap into any folder you want to sync — its location defines its scope." />
             <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs." />
           </div>
         </div>
@@ -80,8 +80,13 @@ export default function LandingPage() {
               <div className="text-muted-foreground mb-2"># docs/specs/.mdspecmap</div>
               <div className="text-foreground">version: <span className="text-foreground">1</span></div>
               <div className="text-foreground">mappings:</div>
-              <div className="text-muted-foreground ml-2">- integration: <span className="text-foreground">clickup</span></div>
-              <div className="text-muted-foreground ml-4">parent: <span className="text-foreground">eng-docs</span></div>
+              <div className="text-muted-foreground ml-2">{'- '}<span className="text-foreground">integration: s3</span></div>
+              <div className="text-muted-foreground ml-4">parent: <span className="text-foreground">eng-bucket</span></div>
+              <div className="text-foreground mt-2">specs:</div>
+              <div className="text-muted-foreground ml-2">changelog.md:</div>
+              <div className="text-muted-foreground ml-4">agent: <span className="text-foreground">release_notes</span></div>
+              <div className="text-muted-foreground ml-2">architecture.md:</div>
+              <div className="text-muted-foreground ml-4">agent: <span className="text-foreground">task_template</span></div>
             </CardContent>
           </Card>
           <Card>
@@ -195,6 +200,8 @@ export default function LandingPage() {
           <div className="flex gap-4">
             <Link href="/docs/api-reference" className="hover:text-foreground transition-colors">Docs</Link>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
+            <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
+            <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
             <Link href="/login" className="hover:text-foreground transition-colors">Sign in</Link>
           </div>
         </div>
