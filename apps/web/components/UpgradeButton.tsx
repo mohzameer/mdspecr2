@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button-variants'
+import { cn } from '@/lib/utils'
 
 export function UpgradeButton() {
   const [period, setPeriod] = useState<'monthly' | 'yearly'>('monthly')
@@ -21,11 +22,12 @@ export function UpgradeButton() {
           </button>
         ))}
       </div>
-      <Button asChild className="w-full">
-        <a href={`/api/billing/checkout?period=${period}`}>
-          Upgrade to Pro — {period === 'monthly' ? '$9/mo' : '$100/yr'}
-        </a>
-      </Button>
+      <a
+        href={`/api/billing/checkout?period=${period}`}
+        className={cn(buttonVariants(), 'w-full text-center')}
+      >
+        Upgrade to Pro — {period === 'monthly' ? '$9/mo' : '$100/yr'}
+      </a>
     </div>
   )
 }
