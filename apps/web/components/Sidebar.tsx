@@ -83,7 +83,7 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
         <OrgSwitcher orgs={orgs} currentOrg={currentOrg} />
       </div>
 
-      <Separator className="mx-4" />
+      <Separator className="mx-4 data-horizontal:w-auto" />
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
