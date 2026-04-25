@@ -78,6 +78,7 @@ export function FolderMappingsTab({
   const [deletingMappingId, setDeletingMappingId] = useState<string | null>(null)
   const [addingDiscoveredFolder, setAddingDiscoveredFolder] = useState<string | null>(null)
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
+  const [s3FoldersCache, setS3FoldersCache] = useState<Record<string, string[] | 'loading' | 'error'>>({})
   // new row doc state
   const [newFolderDocId, setNewFolderDocId] = useState<string>('')
   const [newFolderSpaceId, setNewFolderSpaceId] = useState<string>('')
@@ -87,9 +88,34 @@ export function FolderMappingsTab({
   const [listUrlDraft, setListUrlDraft] = useState<Record<string, string>>({})
   // skip patterns: mappingId → textarea draft (newline-separated)
   const [skipDraft, setSkipDraft] = useState<Record<string, string>>({})
-  // S3 parent dir drafts: mappingId → raw input
-  const [s3ParentDirDraft, setS3ParentDirDraft] = useState<Record<string, string>>({})
   const [newFolderSkipPatterns, setNewFolderSkipPatterns] = useState<string>('')
+
+  function fetchS3Folders(integrationId: string) {
+    if (s3FoldersCache[integrationId]) return
+    setS3FoldersCache((prev) => ({ ...prev, [integrationId]: 'loading' }))
+    fetch(`/api/integrations/${integrationId}/s3-folders`)
+      .then((r) => r.json())
+      .then((data) => {
+        setS3FoldersCache((prev) => ({ ...prev, [integrationId]: Array.isArray(data) ? data : 'error' }))
+      })
+      .catch(() => setS3FoldersCache((prev) => ({ ...prev, [integrationId]: 'error' })))
+  }
+
+  // Load S3 folders for all existing S3 mappings
+  useEffect(() => {
+    const ids = [...new Set(
+      mappings.filter((m) => m.integrations?.type === 's3').map((m) => m.integration_id)
+    )]
+    for (const id of ids) fetchS3Folders(id)
+  }, [mappings])
+
+  // Load S3 folders when a new-row S3 integration is selected
+  useEffect(() => {
+    if (!newFolderIntegrationId) return
+    const integration = availableIntegrations.find((i) => i.id === newFolderIntegrationId)
+    if (integration?.type !== 's3') return
+    fetchS3Folders(newFolderIntegrationId)
+  }, [newFolderIntegrationId])
 
   // Load ClickUp targets for all existing ClickUp mappings
   useEffect(() => {
@@ -526,24 +552,26 @@ function prefillFromSuggestion(folderPath: string) {
                     <td className="px-4 py-3 align-top">
                       {mapping.integrations?.type === 's3' ? (() => {
                         const isSaving = savingMappingId === mapping.id
+                        const s3State = s3FoldersCache[mapping.integration_id]
+                        const s3Folders = Array.isArray(s3State) ? s3State : []
+                        const s3Loaded = Array.isArray(s3State)
                         return (
                           <div className="flex flex-col gap-1">
-                            <span className="text-xs text-zinc-500">Parent folder <span className="text-zinc-400">(optional — bucket root if empty)</span></span>
-                            <input
-                              type="text"
-                              disabled={!canEdit || isSaving}
-                              value={s3ParentDirDraft[mapping.id] ?? mapping.target_id ?? ''}
-                              onChange={(e) => setS3ParentDirDraft((prev) => ({ ...prev, [mapping.id]: e.target.value }))}
-                              onBlur={(e) => {
-                                const val = e.target.value.trim().replace(/^\//, '').replace(/\/$/, '')
-                                updateTarget(mapping.id, val || null)
-                                setS3ParentDirDraft((prev) => ({ ...prev, [mapping.id]: val }))
-                              }}
-                              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                              placeholder="e.g. docs/eng-specs"
-                              className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 font-mono"
-                            />
-                            {isSaving && spinner}
+                            <span className="text-xs text-zinc-500">Parent folder</span>
+                            <div className="flex items-center gap-1.5">
+                              <select
+                                disabled={!canEdit || isSaving || !s3Loaded}
+                                value={mapping.target_id ?? ''}
+                                onChange={(e) => updateTarget(mapping.id, e.target.value || null)}
+                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 font-mono"
+                              >
+                                <option value="">{s3State === 'loading' ? 'Loading…' : s3State === 'error' ? 'Error loading folders' : '/ (root)'}</option>
+                                {s3Folders.map((f) => (
+                                  <option key={f} value={f}>{f}/</option>
+                                ))}
+                              </select>
+                              {isSaving && spinner}
+                            </div>
                           </div>
                         )
                       })() : mapping.integrations?.type === 'clickup' ? (() => {
@@ -729,20 +757,27 @@ function prefillFromSuggestion(folderPath: string) {
 
                     {/* Destination */}
                     <td className="px-4 py-3 align-top">
-                      {newIntegration?.type === 's3' ? (
-                        <div className="flex flex-col gap-1">
-                          <span className="text-xs text-zinc-500">Parent folder <span className="text-zinc-400">(optional)</span></span>
-                          <input
-                            type="text"
-                            value={newFolderSpaceId}
-                            onChange={(e) => setNewFolderSpaceId(e.target.value)}
-                            onBlur={(e) => setNewFolderSpaceId(e.target.value.trim().replace(/^\//, '').replace(/\/$/, ''))}
-                            onKeyDown={(e) => { if (e.key === 'Enter') addFolderManually() }}
-                            placeholder="e.g. docs/eng-specs"
-                            className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 font-mono w-full"
-                          />
-                        </div>
-                      ) : isClickUp ? (() => {
+                      {newIntegration?.type === 's3' ? (() => {
+                        const newS3State = s3FoldersCache[newFolderIntegrationId]
+                        const newS3Folders = Array.isArray(newS3State) ? newS3State : []
+                        const newS3Loaded = Array.isArray(newS3State)
+                        return (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs text-zinc-500">Parent folder</span>
+                            <select
+                              disabled={!newS3Loaded}
+                              value={newFolderSpaceId}
+                              onChange={(e) => setNewFolderSpaceId(e.target.value)}
+                              className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 font-mono"
+                            >
+                              <option value="">{newS3State === 'loading' ? 'Loading…' : newS3State === 'error' ? 'Error loading folders' : '/ (root)'}</option>
+                              {newS3Folders.map((f) => (
+                                <option key={f} value={f}>{f}/</option>
+                              ))}
+                            </select>
+                          </div>
+                        )
+                      })() : isClickUp ? (() => {
                         const newTargets = targetsCache[newFolderIntegrationId] ?? []
                         const newTargetsLoaded = !!targetsCache[newFolderIntegrationId]
                         return (
