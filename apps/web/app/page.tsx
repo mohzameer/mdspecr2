@@ -28,11 +28,11 @@ export default function LandingPage() {
       <section className="px-6 min-h-[calc(100dvh-57px)] max-w-3xl mx-auto text-center flex flex-col items-center justify-center">
         <Badge variant="outline" className="mb-6">CI-first spec publishing</Badge>
         <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-tight">
-          Push markdown.<br />
-          <span className="text-muted-foreground">Publish everywhere.</span>
+          Keep writing markdown.<br />
+          <span className="text-muted-foreground">We&apos;ll handle the rest.</span>
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
-          Push markdown from CI — publish vanilla docs or agent-transformed release notes and task summaries to any project wiki or file storage.
+          Drop a mapping file in your repo, add one line to GitHub Actions, and every markdown file lands exactly where your team needs it — published as clean docs or agent-transformed into release notes, task summaries, and more.
         </p>
         <div className="mt-10 flex items-center justify-center gap-3">
           <Link href="/login?next=/onboarding" className={buttonVariants({ size: 'lg' })}>
@@ -105,7 +105,7 @@ export default function LandingPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <Feature title="Git-native" description="Change detection via git diff. Only modified specs are published. Distribution files live in the repo — version-controlled and easy to manage." />
 <Feature title="Skip patterns" description="Exclude files with glob patterns in .mdspecmap." />
-<Feature title="Free tier" description="1 project, 15 documents, all integrations. No credit card." />
+<Feature title="One repo, any number of integrations" description="Map different folders to different tools — one team's specs go to ClickUp, another's to S3, all from the same repo." />
             <Feature title="Agent layer" description="Transform specs post-publish with built-in templates like task summaries and release notes." />
             <Feature title="Docs backup" description="Remove a file from the repo and it stays in the target tool. Published docs are never deleted automatically." />
             <Feature title="Team-friendly" description="Different teams can manage their own .mdspecmap files — separately or in a monorepo — and sync to the same destination." />
@@ -122,7 +122,7 @@ export default function LandingPage() {
           <p className="text-center text-sm text-muted-foreground mb-8">
             mdspec runs on Vercel — SOC 2 Type II certified and ISO 27001 compliant infrastructure.
           </p>
-          <div className="grid sm:grid-cols-3 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
               <CardContent className="p-5">
                 <h3 className="text-sm font-semibold mb-1">SOC 2 Type II</h3>
@@ -139,6 +139,12 @@ export default function LandingPage() {
               <CardContent className="p-5">
                 <h3 className="text-sm font-semibold mb-1">No content storage</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">Spec content is never stored outside your compliant sources. It flows directly from CI to your target tool — only metadata is retained.</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <h3 className="text-sm font-semibold mb-1">Powered by Claude Haiku</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">Agent template transformations run on Anthropic&apos;s Claude Haiku 4.5 — fast, cost-efficient, and built on Anthropic&apos;s enterprise-grade infrastructure.</p>
               </CardContent>
             </Card>
           </div>

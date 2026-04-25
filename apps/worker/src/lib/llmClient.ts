@@ -1,35 +1,21 @@
-import OpenAI from 'openai'
+import Anthropic from '@anthropic-ai/sdk'
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-  baseURL: process.env.OPENAI_BASE_URL ?? undefined,
-  timeout: 30_000,
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY!,
 })
 
-const MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini'
+const MODEL = 'claude-haiku-4-5-20251001'
 
-/**
- * Calls the LLM with the assembled prompt and returns the transformed markdown.
- * Throws on timeout or API error — BullMQ will handle retries.
- */
 export async function callLLM(prompt: string): Promise<string> {
-  const completion = await client.chat.completions.create({
+  const message = await client.messages.create({
     model: MODEL,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a technical documentation agent. Follow the instructions exactly. Output clean markdown only — no code fences around the entire output, no commentary outside the document.',
-      },
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-    temperature: 0.2,
+    max_tokens: 4096,
+    system:
+      'You are a technical documentation agent. Follow the instructions exactly. Output clean markdown only — no code fences around the entire output, no commentary outside the document.',
+    messages: [{ role: 'user', content: prompt }],
   })
 
-  const content = completion.choices[0]?.message?.content
-  if (!content) throw new Error('LLM returned empty response')
-  return content
+  const content = message.content[0]
+  if (content.type !== 'text' || !content.text) throw new Error('LLM returned empty response')
+  return content.text
 }
