@@ -4,13 +4,17 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 max-w-5xl mx-auto">
-        <span className="text-lg font-semibold tracking-tight">mdspec</span>
+        <span className="flex items-center gap-2">
+          <img src="/icon.svg" alt="" width={24} height={24} className="rounded-[4px]" />
+          <span className="text-lg font-semibold tracking-tight">mdspec</span>
+        </span>
         <div className="flex items-center gap-3">
           <Link href="/docs/api-reference" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
             Docs
@@ -18,6 +22,7 @@ export default function LandingPage() {
           <Link href="/pricing" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
             Pricing
           </Link>
+          <ThemeToggle />
           <Link href="/login" className={buttonVariants({ size: 'sm' })}>
             Sign in
           </Link>

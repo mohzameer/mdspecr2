@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import type { Organization, Project } from '@/lib/types'
 
 interface SidebarProps {
@@ -72,7 +73,8 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
   return (
     <aside className="flex h-screen w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       {/* Logo */}
-      <div className="px-4 pt-5 pb-2">
+      <div className="px-4 pt-5 pb-2 flex items-center gap-2">
+        <img src="/icon.svg" alt="" width={20} height={20} className="rounded-[3px]" />
         <span className="text-base font-semibold tracking-tight">mdspec</span>
       </div>
 
@@ -165,10 +167,11 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
 
       {/* Footer */}
       <Separator />
-      <div className="p-3">
-        <Button variant="ghost" size="default" className="w-full justify-start text-muted-foreground" onClick={signOut}>
+      <div className="p-3 flex items-center gap-1">
+        <Button variant="ghost" size="default" className="flex-1 justify-start text-muted-foreground" onClick={signOut}>
           Sign out
         </Button>
+        <ThemeToggle />
       </div>
     </aside>
   )
