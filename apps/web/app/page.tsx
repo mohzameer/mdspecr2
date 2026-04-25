@@ -5,8 +5,13 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { createSupabaseServerClient } from '@/lib/db-server'
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const isLoggedIn = !!user
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Nav */}
@@ -23,8 +28,8 @@ export default function LandingPage() {
             Pricing
           </Link>
           <ThemeToggle />
-          <Link href="/login" className={buttonVariants({ size: 'sm' })}>
-            Sign in
+          <Link href={isLoggedIn ? '/dashboard' : '/login'} className={buttonVariants({ size: 'sm' })}>
+            {isLoggedIn ? 'Dashboard' : 'Sign in'}
           </Link>
         </div>
       </nav>
@@ -40,8 +45,8 @@ export default function LandingPage() {
           Drop a mapping file in your repo, add one line to GitHub Actions, and every markdown file lands exactly where your team needs it — published as clean docs or agent-transformed into release notes, task summaries, and more.
         </p>
         <div className="mt-10 flex items-center justify-center gap-3">
-          <Link href="/login?next=/onboarding" className={buttonVariants({ size: 'lg' })}>
-            Get started free
+          <Link href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'} className={buttonVariants({ size: 'lg' })}>
+            {isLoggedIn ? 'Go to dashboard' : 'Get started free'}
           </Link>
           <a href="#how-it-works" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
             How it works
@@ -186,8 +191,8 @@ export default function LandingPage() {
               </CardContent>
             </Card>
           </div>
-          <Link href="/login?next=/onboarding" className={cn(buttonVariants({ size: 'lg' }), 'mt-8')}>
-            Get started free
+          <Link href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'} className={cn(buttonVariants({ size: 'lg' }), 'mt-8')}>
+            {isLoggedIn ? 'Go to dashboard' : 'Get started free'}
           </Link>
         </div>
       </section>
