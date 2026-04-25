@@ -21,11 +21,24 @@ export default async function ProjectsPage() {
     .eq('org_id', currentOrgId)
     .order('created_at', { ascending: false })
 
+  const { data: ownerMember } = await supabase
+    .from('org_members')
+    .select('user_id')
+    .eq('org_id', currentOrgId)
+    .eq('role', 'owner')
+    .single()
+
+  const { data: subscription } = ownerMember
+    ? await supabase.from('subscriptions').select('plan').eq('user_id', ownerMember.user_id).single()
+    : { data: null }
+
+  const atLimit = (!subscription || subscription.plan === 'free') && (projects?.length ?? 0) >= 1
+
   return (
     <div className="p-8 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Projects</h1>
-        <NewProjectButton />
+        <NewProjectButton atLimit={atLimit} />
       </div>
 
       {!projects || projects.length === 0 ? (

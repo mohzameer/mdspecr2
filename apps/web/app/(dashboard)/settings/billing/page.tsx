@@ -3,7 +3,11 @@ import { createSupabaseServerClient } from '@/lib/db-server'
 import { UpgradeButton } from '@/components/UpgradeButton'
 import type { Subscription } from '@/lib/types'
 
-export default async function BillingPage() {
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ upgraded?: string }>
+}) {
   const supabase = await createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -17,9 +21,18 @@ export default async function BillingPage() {
   const subscription = sub as Subscription | null
   const isFree = !subscription || subscription.plan === 'free'
 
+  const params = await searchParams
+  const upgraded = params?.upgraded === '1'
+
   return (
     <div className="p-8 max-w-2xl">
       <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50 mb-6">Billing</h1>
+
+      {upgraded && (
+        <div className="rounded-md bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 px-4 py-3 text-sm text-green-700 dark:text-green-300 mb-6">
+          Payment received — your plan will update within a few seconds. Refresh if it doesn&apos;t appear.
+        </div>
+      )}
 
       {subscription?.status === 'payment_failed' && (
         <div className="rounded-md bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300 mb-6">
@@ -79,7 +92,7 @@ export default async function BillingPage() {
             <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Upgrade to Pro</p>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">Unlimited projects and documents. Everything else stays the same.</p>
           </div>
-          <UpgradeButton userId={user.id} />
+          <UpgradeButton />
         </div>
       ) : subscription.status !== 'cancelled' ? (
         <div className="text-sm text-zinc-500">

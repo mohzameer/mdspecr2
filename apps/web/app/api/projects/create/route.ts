@@ -23,6 +23,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
+  const { data: ownerMember } = await supabase
+    .from('org_members')
+    .select('user_id')
+    .eq('org_id', orgId)
+    .eq('role', 'owner')
+    .single()
+
+  const { data: subscription } = ownerMember
+    ? await supabase.from('subscriptions').select('plan').eq('user_id', ownerMember.user_id).single()
+    : { data: null }
+
+  if (!subscription || subscription.plan === 'free') {
+    const { count } = await supabase
+      .from('projects')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId)
+    if ((count ?? 0) >= 1) {
+      return NextResponse.json({ error: 'project_limit_reached', limit: 1 }, { status: 402 })
+    }
+  }
+
   const { name, description, spec_dirs } = await request.json()
   if (!name?.trim()) return NextResponse.json({ error: 'name required' }, { status: 400 })
 
