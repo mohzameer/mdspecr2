@@ -53,6 +53,7 @@ const integrationLabels: Record<string, string> = {
   notion: 'Notion',
   confluence: 'Confluence',
   clickup: 'ClickUp',
+  s3: 'S3',
 }
 
 export function FolderMappingsTab({
@@ -86,6 +87,8 @@ export function FolderMappingsTab({
   const [listUrlDraft, setListUrlDraft] = useState<Record<string, string>>({})
   // skip patterns: mappingId → textarea draft (newline-separated)
   const [skipDraft, setSkipDraft] = useState<Record<string, string>>({})
+  // S3 parent dir drafts: mappingId → raw input
+  const [s3ParentDirDraft, setS3ParentDirDraft] = useState<Record<string, string>>({})
   const [newFolderSkipPatterns, setNewFolderSkipPatterns] = useState<string>('')
 
   // Load ClickUp targets for all existing ClickUp mappings
@@ -519,9 +522,31 @@ function prefillFromSuggestion(folderPath: string) {
                       </div>
                     </td>
 
-                    {/* ClickUp destination */}
+                    {/* Destination */}
                     <td className="px-4 py-3 align-top">
-                      {mapping.integrations?.type === 'clickup' ? (() => {
+                      {mapping.integrations?.type === 's3' ? (() => {
+                        const isSaving = savingMappingId === mapping.id
+                        return (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs text-zinc-500">Parent folder <span className="text-zinc-400">(optional — bucket root if empty)</span></span>
+                            <input
+                              type="text"
+                              disabled={!canEdit || isSaving}
+                              value={s3ParentDirDraft[mapping.id] ?? mapping.target_id ?? ''}
+                              onChange={(e) => setS3ParentDirDraft((prev) => ({ ...prev, [mapping.id]: e.target.value }))}
+                              onBlur={(e) => {
+                                const val = e.target.value.trim().replace(/^\//, '').replace(/\/$/, '')
+                                updateTarget(mapping.id, val || null)
+                                setS3ParentDirDraft((prev) => ({ ...prev, [mapping.id]: val }))
+                              }}
+                              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                              placeholder="e.g. docs/eng-specs"
+                              className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 font-mono"
+                            />
+                            {isSaving && spinner}
+                          </div>
+                        )
+                      })() : mapping.integrations?.type === 'clickup' ? (() => {
                         const targets = targetsCache[mapping.integration_id] ?? []
                         const targetsLoaded = !!targetsCache[mapping.integration_id]
                         const isSaving = savingMappingId === mapping.id
@@ -704,7 +729,20 @@ function prefillFromSuggestion(folderPath: string) {
 
                     {/* Destination */}
                     <td className="px-4 py-3 align-top">
-                      {isClickUp ? (() => {
+                      {newIntegration?.type === 's3' ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-zinc-500">Parent folder <span className="text-zinc-400">(optional)</span></span>
+                          <input
+                            type="text"
+                            value={newFolderSpaceId}
+                            onChange={(e) => setNewFolderSpaceId(e.target.value)}
+                            onBlur={(e) => setNewFolderSpaceId(e.target.value.trim().replace(/^\//, '').replace(/\/$/, ''))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') addFolderManually() }}
+                            placeholder="e.g. docs/eng-specs"
+                            className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 font-mono w-full"
+                          />
+                        </div>
+                      ) : isClickUp ? (() => {
                         const newTargets = targetsCache[newFolderIntegrationId] ?? []
                         const newTargetsLoaded = !!targetsCache[newFolderIntegrationId]
                         return (
