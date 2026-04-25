@@ -285,11 +285,11 @@ describe('2.1 Free tier', () => {
     })
   }
 
-  it('2.1.14 exceeding free tier (10+1 new) returns 402', async () => {
+  it('2.1.14 exceeding free tier (15+1 new) returns 402', async () => {
     const supabase = createServiceMock()
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    // 10 synced existing + 1 new = 11 > 10 → 402
-    setupFreeTierBase(supabase, 10)
+    // 15 synced existing + 1 new = 16 > 15 → 402
+    setupFreeTierBase(supabase, 15)
 
     const res = await POST(makeRequest(BASE_PAYLOAD))
     expect(res.status).toBe(402)
@@ -297,11 +297,11 @@ describe('2.1 Free tier', () => {
     expect(body.error).toBe('spec_limit_reached')
   })
 
-  it('2.1.15 at 7 synced + 1 new returns 202 with upgrade_nudge', async () => {
+  it('2.1.15 at 12 synced + 1 new returns 202 with upgrade_nudge', async () => {
     const supabase = createServiceMock()
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    // 7 synced + 1 new = 8 → upgrade nudge
-    setupFreeTierBase(supabase, 7)
+    // 12 synced + 1 new = 13 >= 12 → upgrade nudge
+    setupFreeTierBase(supabase, 12)
     setupAliasResolution(supabase)
     setupSpecUpsert(supabase)
     supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
@@ -607,5 +607,229 @@ describe('2.1 Depth filtering', () => {
     expect(res.status).toBe(202)
     const body = await res.json()
     expect(body.queued).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 2.1 reconcileFolderMappings — folder_mappings DB sync
+// ---------------------------------------------------------------------------
+
+describe('2.1 reconcileFolderMappings', () => {
+  function setupIntegrationsOnly(supabase: ReturnType<typeof createServiceMock>, type = 'notion', id = 'int1') {
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [{ id, type }], error: null })
+    )
+  }
+
+  function setupSpecUpsertNoTarget(supabase: ReturnType<typeof createServiceMock>) {
+    // spec upsert succeeds
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: { id: 'spec1' }, error: null })
+    )
+    // spec_publish_targets maybySingle → null (new)
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: null, error: null })
+    )
+    // spec_publish_targets insert
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: { id: 'tgt1', external_page_id: null }, error: null })
+    )
+  }
+
+  it('upserts folder_mappings table after a successful publish', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    setupIntegrationsOnly(supabase)
+    setupSpecUpsertNoTarget(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+
+    const folderMappingCalls = supabase.from.mock.calls.filter((c: unknown[]) => c[0] === 'folder_mappings')
+    expect(folderMappingCalls.length).toBeGreaterThan(0)
+  })
+
+  it('skips folder_mappings upsert when commit_timestamp is absent', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    setupIntegrationsOnly(supabase)
+    setupSpecUpsertNoTarget(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const { commit_timestamp: _, ...payloadWithoutTimestamp } = BASE_PAYLOAD
+    const payload = {
+      ...payloadWithoutTimestamp,
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+
+    const folderMappingCalls = supabase.from.mock.calls.filter((c: unknown[]) => c[0] === 'folder_mappings')
+    expect(folderMappingCalls.length).toBe(0)
+  })
+
+  it('second publish with different integration overwrites folder_mappings DB row', async () => {
+    // First publish with notion
+    const supabase1 = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase1 as never)
+    setupAuthSuccess(supabase1)
+    setupProjectAndOrg(supabase1, { registered_repo: 'owner/repo' })
+    setupIntegrationsOnly(supabase1, 'notion', 'int-notion')
+    setupSpecUpsertNoTarget(supabase1)
+    supabase1.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    await POST(makeRequest({ ...BASE_PAYLOAD, config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion' }] } }))
+    const fm1 = supabase1.from.mock.calls.filter((c: unknown[]) => c[0] === 'folder_mappings')
+    expect(fm1.length).toBeGreaterThan(0)
+
+    // Second publish with clickup — new client simulates fresh request
+    const supabase2 = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase2 as never)
+    setupAuthSuccess(supabase2)
+    setupProjectAndOrg(supabase2, { registered_repo: 'owner/repo' })
+    setupIntegrationsOnly(supabase2, 'clickup', 'int-clickup')
+    setupSpecUpsertNoTarget(supabase2)
+    supabase2.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const res2 = await POST(makeRequest({ ...BASE_PAYLOAD, config: { version: 1, mappings: [{ folder: 'docs', integration: 'clickup' }] } }))
+    expect(res2.status).toBe(202)
+
+    const fm2 = supabase2.from.mock.calls.filter((c: unknown[]) => c[0] === 'folder_mappings')
+    expect(fm2.length).toBeGreaterThan(0)
+  })
+
+  it('deletes stale rows for covered folders before upserting — integration change (clickup → s3)', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    setupIntegrationsOnly(supabase, 's3', 'int-s3')
+    setupSpecUpsertNoTarget(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    // Config maps 'src' to s3 — previously it was clickup (stale DB rows exist)
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'src/App.jsx', hash: 'sha256:abc', frontmatter: {}, content: '# App' }],
+      config: { version: 1, mappings: [{ folder: 'src', integration: 's3', parent_dir: 'eng-specs' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+
+    // A delete call must have been made against folder_mappings for 'src'
+    const deleteCalls = supabase.from.mock.calls
+      .map((c: unknown[], i: number) => ({ table: c[0], chain: supabase.from.mock.results[i]?.value }))
+      .filter(({ table }) => table === 'folder_mappings')
+    expect(deleteCalls.length).toBeGreaterThan(0)
+
+    // Verify delete was called (the chain includes a .delete() invocation)
+    const folderMappingChains = supabase.from.mock.results
+      .filter((_: unknown, i: number) => supabase.from.mock.calls[i]?.[0] === 'folder_mappings')
+      .map((r: { value: Record<string, unknown> }) => r.value)
+    const deleteChain = folderMappingChains.find((chain: Record<string, unknown>) =>
+      (chain.delete as ReturnType<typeof vi.fn>)?.mock?.calls?.length > 0
+    )
+    expect(deleteChain).toBeDefined()
+  })
+
+  it('does not delete rows for uncovered folders (root is never touched)', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    setupIntegrationsOnly(supabase, 'notion', 'int1')
+    setupSpecUpsertNoTarget(supabase)
+
+    const deletedFolders: string[][] = []
+    supabase.from.mockImplementation((table: string) => {
+      const chain = makeChain({ data: null, error: null })
+      if (table === 'folder_mappings') {
+        // Intercept .in() calls to capture which folder_paths are being deleted
+        ;(chain.in as ReturnType<typeof vi.fn>).mockImplementation((_col: string, vals: string[]) => {
+          deletedFolders.push(vals)
+          return chain
+        })
+      }
+      return chain
+    })
+
+    // Config only maps 'docs' (non-root) — root '' must not appear in deletes
+    const payload = {
+      ...BASE_PAYLOAD,
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion' }] },
+    }
+    await POST(makeRequest(payload))
+
+    // Every delete batch must contain only non-root folders
+    for (const batch of deletedFolders) {
+      expect(batch).not.toContain('')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 2.1 UI-only mapping routing — DB mappings not in .mdspecmap are ignored
+// ---------------------------------------------------------------------------
+
+describe('2.1 UI-only mapping routing', () => {
+  it('spec in folder with DB-only mapping is saved but not queued', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    // integrations present
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [{ id: 'int1', type: 'notion' }], error: null })
+    )
+    // spec upsert (spec is saved to DB regardless of routing)
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: { id: 'spec1' }, error: null })
+    )
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      // Spec lives in 'ui-only/' which exists in DB but is absent from payload config
+      specs: [{ path: 'ui-only/spec.md', hash: 'sha256:abc', frontmatter: {}, content: '# Spec' }],
+      // Config only maps 'docs' — ui-only folder has no entry here
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+    const body = await res.json()
+    expect(body.saved).toBe(1)
+    expect(body.queued).toBe(0)
+  })
+
+  it('spec in correctly mapped folder is both saved and queued', async () => {
+    const supabase = createServiceMock()
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    supabase.from.mockImplementationOnce(() =>
+      makeChain({ data: [{ id: 'int1', type: 'notion' }], error: null })
+    )
+    setupSpecUpsert(supabase)
+    supabase.from.mockImplementation(() => makeChain({ data: null, error: null }))
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'docs/auth.md', hash: 'sha256:abc', frontmatter: {}, content: '# Auth' }],
+      config: { version: 1, mappings: [{ folder: 'docs', integration: 'notion' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+    const body = await res.json()
+    expect(body.saved).toBe(1)
+    expect(body.queued).toBe(1)
   })
 })

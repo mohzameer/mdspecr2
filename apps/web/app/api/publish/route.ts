@@ -573,6 +573,25 @@ async function reconcileFolderMappings(
 
     const parseId = (val?: string) => val?.startsWith('id:') ? val.slice(3) : (val ?? null)
 
+    // Collect all non-root folders covered by this config, then delete their
+    // existing rows so stale entries (e.g. old integration after a config change)
+    // don't linger in the DB.
+    const coveredFolders = new Set<string>()
+    for (const rawMapping of config.mappings) {
+      const m = resolveMapping(rawMapping, config)
+      if (!m.integration) continue
+      const f = normalizeFolder(m.folder ?? '')
+      if (f !== '') coveredFolders.add(f)
+    }
+
+    if (coveredFolders.size > 0) {
+      await supabase
+        .from('folder_mappings')
+        .delete()
+        .eq('project_id', projectId)
+        .in('folder_path', [...coveredFolders])
+    }
+
     for (const rawMapping of config.mappings) {
       const mapping = resolveMapping(rawMapping, config)
       if (!mapping.integration) continue
