@@ -27,7 +27,7 @@ export default async function LandingPage() {
           <Link href="/pricing" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
             Pricing
           </Link>
-          <a href="https://blog.mdspec.dev" target="_blank" rel="noopener noreferrer" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+          <a href="https://blog.mdspec.dev"  className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
             Blog
           </a>
           <ThemeToggle />
@@ -208,7 +208,7 @@ export default async function LandingPage() {
           <div className="flex gap-4">
             <Link href="/docs/api-reference" className="hover:text-foreground transition-colors">Docs</Link>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
-            <a href="https://blog.mdspec.dev" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">Blog</a>
+            <a href="https://blog.mdspec.dev"  className="hover:text-foreground transition-colors">Blog</a>
             <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
             <Link href="/login" className="hover:text-foreground transition-colors">Sign in</Link>
