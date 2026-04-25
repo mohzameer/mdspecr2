@@ -1,7 +1,12 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/db-server'
 import { UpgradeButton } from '@/components/UpgradeButton'
+import { CancelSubscriptionButton } from '@/components/CancelSubscriptionButton'
 import type { Subscription } from '@/lib/types'
+
+function fmt(date: string) {
+  return new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+}
 
 export default async function BillingPage({
   searchParams,
@@ -20,6 +25,8 @@ export default async function BillingPage({
 
   const subscription = sub as Subscription | null
   const isFree = !subscription || subscription.plan === 'free'
+  const isCancelled = subscription?.status === 'cancelled'
+  const isActive = subscription?.status === 'active'
 
   const params = await searchParams
   const upgraded = params?.upgraded === '1'
@@ -48,6 +55,7 @@ export default async function BillingPage({
         </div>
       )}
 
+      {/* Subscription details */}
       <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 mb-6 space-y-3">
         <div className="flex items-center justify-between">
           <p className="text-sm text-zinc-600 dark:text-zinc-400">Current plan</p>
@@ -57,28 +65,48 @@ export default async function BillingPage({
             {subscription?.plan ?? 'Free'}
           </span>
         </div>
+
         {subscription?.billing_period && (
           <div className="flex items-center justify-between">
             <p className="text-sm text-zinc-600 dark:text-zinc-400">Billing period</p>
             <span className="text-sm capitalize text-zinc-700 dark:text-zinc-300">{subscription.billing_period}</span>
           </div>
         )}
+
+        {subscription?.current_period_start && subscription.plan === 'pro' && (
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">Period started</p>
+            <span className="text-sm text-zinc-700 dark:text-zinc-300">{fmt(subscription.current_period_start)}</span>
+          </div>
+        )}
+
         {subscription?.current_period_end && subscription.plan === 'pro' && (
           <div className="flex items-center justify-between">
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {subscription.status === 'cancelled' ? 'Access until' : 'Next renewal'}
+              {isCancelled ? 'Access until' : 'Next renewal'}
             </p>
-            <span className="text-sm text-zinc-700 dark:text-zinc-300">
-              {new Date(subscription.current_period_end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-            </span>
+            <span className="text-sm text-zinc-700 dark:text-zinc-300">{fmt(subscription.current_period_end)}</span>
           </div>
         )}
+
+        {subscription?.cancelled_at && (
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">Cancelled on</p>
+            <span className="text-sm text-zinc-700 dark:text-zinc-300">{fmt(subscription.cancelled_at)}</span>
+          </div>
+        )}
+
         {subscription?.status && subscription.status !== 'active' && (
           <div className="flex items-center justify-between">
             <p className="text-sm text-zinc-600 dark:text-zinc-400">Status</p>
-            <span className="text-sm capitalize text-yellow-600 dark:text-yellow-400">{subscription.status}</span>
+            <span className={`text-sm capitalize font-medium ${
+              isCancelled ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400'
+            }`}>
+              {subscription.status}
+            </span>
           </div>
         )}
+
         {isFree && (
           <div className="pt-1 border-t border-zinc-100 dark:border-zinc-800">
             <p className="text-xs text-zinc-500 dark:text-zinc-400">1 project · 15 documents · All integrations included</p>
@@ -86,6 +114,7 @@ export default async function BillingPage({
         )}
       </div>
 
+      {/* Actions */}
       {isFree ? (
         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
           <div>
@@ -94,14 +123,21 @@ export default async function BillingPage({
           </div>
           <UpgradeButton />
         </div>
-      ) : subscription.status !== 'cancelled' ? (
-        <div className="text-sm text-zinc-500">
-          To cancel your subscription, contact{' '}
-          <a href="mailto:billing@mdspec.dev" className="underline">billing@mdspec.dev</a>
-          {' '}or manage via{' '}
-          <a href="https://vendors.paddle.com" target="_blank" rel="noopener noreferrer" className="underline">
-            Paddle portal ↗
-          </a>
+      ) : isActive ? (
+        <div className="space-y-3">
+          <div className="text-sm text-zinc-500 dark:text-zinc-400">
+            To update your payment method, visit the{' '}
+            <a href="https://vendors.paddle.com" target="_blank" rel="noopener noreferrer" className="underline">
+              Paddle customer portal ↗
+            </a>
+          </div>
+          <CancelSubscriptionButton />
+        </div>
+      ) : isCancelled ? (
+        <div className="rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
+          Your subscription has been cancelled. You&apos;ll retain Pro access until the end of your billing period.
+          To resubscribe, contact{' '}
+          <a href="mailto:billing@mdspec.dev" className="underline">billing@mdspec.dev</a>.
         </div>
       ) : null}
     </div>

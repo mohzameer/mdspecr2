@@ -107,6 +107,35 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
                 {loading && <Spinner />}
               </Link>
 
+              {/* Settings sub-list */}
+              {mounted && item.href === '/settings' && effectivePathname.startsWith('/settings') && (
+                <div className="mt-0.5 pl-5 space-y-0.5">
+                  {[
+                    { href: '/settings/organization', label: 'Organization' },
+                    { href: '/settings/members', label: 'Members' },
+                    { href: '/settings/billing', label: 'Billing' },
+                    { href: '/settings/account', label: 'Account' },
+                  ].map((sub) => {
+                    const subActive = isActive(sub.href)
+                    const subLoading = pendingHref === sub.href && pathname !== sub.href
+                    return (
+                      <Link
+                        key={sub.href}
+                        href={sub.href}
+                        onClick={() => navigate(sub.href)}
+                        className={cn(
+                          buttonVariants({ variant: subActive ? 'secondary' : 'ghost', size: 'sm' }),
+                          'w-full justify-start'
+                        )}
+                      >
+                        {sub.label}
+                        {subLoading && <Spinner />}
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+
               {/* Projects sub-list — renders immediately after the Projects item */}
               {mounted && item.href === '/projects' && projects.length > 0 && effectivePathname.startsWith('/projects') && (
                 <div className="mt-0.5 pl-5 space-y-0.5">
