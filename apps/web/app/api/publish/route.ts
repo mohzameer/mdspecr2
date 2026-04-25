@@ -493,7 +493,7 @@ export async function POST(request: Request) {
       }
 
       // Update folder_mappings in DB to mirror config (for UI display)
-      await reconcileFolderMappings(supabase, project_id, config, resolvedAliases, integrationByType)
+      await reconcileFolderMappings(supabase, project_id, project.org_id, config, resolvedAliases, integrationByType)
     }
 
     // -------------------------------------------------------------------------
@@ -557,16 +557,17 @@ function levenshtein(a: string, b: string): number {
 async function reconcileFolderMappings(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   projectId: string,
+  orgId: string,
   config: MdspecMapConfig,
   resolvedAliases: Map<string, { integration_id: string; native_id: string; type: string }>,
   integrationByType: Map<string, string>
 ): Promise<void> {
   try {
-    // Fetch project templates once for agent name → id resolution
+    // Fetch org templates once for agent name → id resolution
     const { data: projectTemplates } = await supabase
       .from('templates')
       .select('id, name')
-      .eq('project_id', projectId)
+      .eq('org_id', orgId)
 
     const templateByName = new Map<string, string>()
     for (const t of projectTemplates ?? []) templateByName.set(t.name, t.id)

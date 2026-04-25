@@ -60,7 +60,7 @@ export async function PATCH(
     .from('templates')
     .update(updates)
     .eq('id', templateId)
-    .eq('project_id', projectId)
+    .eq('org_id', project.org_id)
     .select()
     .single()
 
@@ -82,7 +82,7 @@ export async function DELETE(
     .from('templates')
     .select('is_default')
     .eq('id', templateId)
-    .eq('project_id', projectId)
+    .eq('org_id', project.org_id)
     .single()
 
   if (!template) return NextResponse.json({ error: 'not_found' }, { status: 404 })
@@ -90,6 +90,6 @@ export async function DELETE(
     return NextResponse.json({ error: 'cannot_delete_default' }, { status: 409 })
   }
 
-  await supabase.from('templates').delete().eq('id', templateId).eq('project_id', projectId)
+  await supabase.from('templates').delete().eq('id', templateId).eq('org_id', project.org_id)
   return new NextResponse(null, { status: 204 })
 }

@@ -44,7 +44,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pro
   const { data: templates, error } = await supabase
     .from('templates')
     .select('*')
-    .eq('project_id', projectId)
+    .eq('org_id', project.org_id)
     .order('is_default', { ascending: false })
     .order('created_at', { ascending: true })
 
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const { data: template, error } = await supabase
     .from('templates')
     .insert({
-      project_id: projectId,
+      org_id: project.org_id,
       name: name.trim(),
       description: description?.trim() ?? null,
       instructions: instructions.trim(),

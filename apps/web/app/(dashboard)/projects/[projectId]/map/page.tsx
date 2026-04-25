@@ -41,7 +41,7 @@ export default async function MapPage({ params }: { params: Promise<{ projectId:
     supabase
       .from('templates')
       .select('id, name, is_default, description, instructions, created_at, updated_at, created_by')
-      .eq('project_id', projectId)
+      .eq('org_id', project.org_id)
       .order('is_default', { ascending: false })
       .order('created_at', { ascending: true }),
     supabase
