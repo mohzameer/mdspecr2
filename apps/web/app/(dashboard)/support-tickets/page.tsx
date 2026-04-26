@@ -148,9 +148,14 @@ export default async function AdminSupportTicketsPage({
                   <td className="px-4 py-3 max-w-xs">
                     <Link
                       href={`/support-tickets/${ticket.id}`}
-                      className="font-medium text-zinc-900 dark:text-zinc-50 hover:underline truncate block"
+                      className="font-medium text-zinc-900 dark:text-zinc-50 hover:underline inline-flex items-center gap-1.5 truncate"
                     >
-                      {ticket.title}
+                      <span className="truncate">{ticket.title}</span>
+                      {ticket.last_message_sender_role === 'user' && (
+                        <span className="shrink-0 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[9px] leading-none">
+                          ✉
+                        </span>
+                      )}
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400 text-xs">{ticket.category}</td>

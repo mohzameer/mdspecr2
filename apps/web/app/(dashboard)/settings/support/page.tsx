@@ -35,13 +35,13 @@ export default async function SupportPage({
 
   const { data } = await supabase
     .from('support_tickets')
-    .select('id, title, category, status, criticality_label, criticality_score, created_at')
+    .select('id, title, category, status, criticality_label, criticality_score, created_at, last_message_sender_role')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
   const tickets = (data ?? []) as Pick<
     SupportTicket,
-    'id' | 'title' | 'category' | 'status' | 'criticality_label' | 'criticality_score' | 'created_at'
+    'id' | 'title' | 'category' | 'status' | 'criticality_label' | 'criticality_score' | 'created_at' | 'last_message_sender_role'
   >[]
 
   return (
@@ -88,9 +88,13 @@ export default async function SupportPage({
                   className="block rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
                       <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50 truncate">{ticket.title}</p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{ticket.category} · {fmt(ticket.created_at)}</p>
+                      {ticket.last_message_sender_role === 'admin' && (
+                        <span className="shrink-0 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[9px] leading-none">
+                          ✉
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CRITICALITY_COLORS[ticket.criticality_label]}`}>

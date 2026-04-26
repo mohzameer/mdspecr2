@@ -294,6 +294,8 @@ export interface SupportTicket {
   status: TicketStatus
   submitter_is_paid: boolean
   submitter_plan: string | null
+  last_message_at: string | null
+  last_message_sender_role: 'user' | 'admin' | null
   created_at: string
   updated_at: string
 }
