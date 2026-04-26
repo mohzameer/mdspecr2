@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
@@ -16,8 +16,18 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const supabase = await createSupabaseServerClient()
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
+      const user = sessionData.user
+      if (user) {
+        const service = createSupabaseServiceClient()
+        const [{ error: userErr }, { error: subErr }] = await Promise.all([
+          service.from('users').upsert({ id: user.id, email: user.email }, { onConflict: 'id', ignoreDuplicates: true }),
+          service.from('subscriptions').upsert({ user_id: user.id, plan: 'free', status: 'active' }, { onConflict: 'user_id', ignoreDuplicates: true }),
+        ])
+        if (userErr) console.error('[auth] user upsert failed', { userId: user.id, error: userErr.message })
+        if (subErr) console.error('[auth] subscription upsert failed', { userId: user.id, error: subErr.message })
+      }
       return NextResponse.redirect(`${origin}${next}`)
     }
     console.error('[auth] exchangeCodeForSession error', { message: error.message, status: error.status, next })
