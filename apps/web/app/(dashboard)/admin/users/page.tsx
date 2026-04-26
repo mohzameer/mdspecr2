@@ -145,17 +145,6 @@ async function ProjectsTab({
     return <p className="text-sm text-zinc-500">No projects in this organization.</p>
   }
 
-  const projectIds = projects.map((p) => p.id)
-  const { data: memberCounts } = await service
-    .from('project_members')
-    .select('project_id')
-    .in('project_id', projectIds)
-
-  const countByProject = (memberCounts ?? []).reduce<Record<string, number>>((acc, row) => {
-    acc[row.project_id] = (acc[row.project_id] ?? 0) + 1
-    return acc
-  }, {})
-
   return (
     <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
       <table className="w-full text-sm">
@@ -163,7 +152,6 @@ async function ProjectsTab({
           <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
             <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">Project</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">Description</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">Members</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">Created</th>
           </tr>
         </thead>
@@ -172,7 +160,6 @@ async function ProjectsTab({
             <tr key={p.id} className="bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors">
               <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{p.name}</td>
               <td className="px-4 py-3 text-zinc-500 max-w-xs truncate">{p.description ?? '—'}</td>
-              <td className="px-4 py-3 text-zinc-500">{countByProject[p.id] ?? 0}</td>
               <td className="px-4 py-3 text-zinc-500 text-xs whitespace-nowrap">
                 {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
               </td>
