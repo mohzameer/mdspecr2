@@ -1,4 +1,18 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
+
+export const metadata: Metadata = {
+  title: "mdspec — Keep writing markdown. We'll handle the rest.",
+  description:
+    "Push markdown specs from CI. Auto-sync to ClickUp, S3, Notion, and Confluence. Git-native markdown CMS for engineering teams — free to start.",
+  alternates: { canonical: "https://mdspec.dev" },
+  openGraph: {
+    title: "mdspec — Keep writing markdown. We'll handle the rest.",
+    description:
+      "Push markdown specs from CI. Auto-sync to ClickUp, S3, Notion, and Confluence. Free to start.",
+    url: "https://mdspec.dev",
+  },
+}
 import { buttonVariants } from '@/components/ui/button-variants'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'

@@ -1,4 +1,18 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
+
+export const metadata: Metadata = {
+  title: "Pricing",
+  description:
+    "mdspec is free to start — 1 project, 15 documents. Upgrade to Pro for $9/mo or $100/yr for unlimited markdown sync to ClickUp, S3, Notion, and Confluence.",
+  alternates: { canonical: "https://mdspec.dev/pricing" },
+  openGraph: {
+    title: "mdspec Pricing — Free to start",
+    description:
+      "Free plan with 1 project and 15 documents. Pro plan at $9/mo for unlimited markdown sync to ClickUp, S3, Notion, and Confluence.",
+    url: "https://mdspec.dev/pricing",
+  },
+}
 import { buttonVariants } from '@/components/ui/button-variants'
 import { Card, CardContent } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'

@@ -457,7 +457,7 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
               rows={[
                 ['`MDSPEC_TOKEN`', 'Yes', 'Project token — generate in Dashboard → Project → Settings → Tokens'],
                 ['`GITHUB_EVENT_BEFORE`', 'No', 'Previous commit SHA. Set automatically by GitHub Actions.'],
-                ['`MDSPEC_API_URL`', 'No', 'API base URL. Defaults to https://mdspec.app'],
+                ['`MDSPEC_API_URL`', 'No', 'API base URL. Defaults to https://mdspec.dev'],
               ]}
             />
           </section>
