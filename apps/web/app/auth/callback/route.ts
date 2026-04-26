@@ -21,7 +21,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${origin}${next}`)
     }
     console.error('[auth] exchangeCodeForSession error', { message: error.message, status: error.status, next })
-    return NextResponse.redirect(`${origin}/login?error=auth_error&next=${encodeURIComponent(next)}`)
+    // Email is confirmed on Supabase's side but session creation failed (e.g. PKCE
+    // verifier missing when link opened in a different browser). Let the user sign in.
+    return NextResponse.redirect(`${origin}/login?error=confirmed_sign_in&next=${encodeURIComponent(next)}`)
   }
 
   console.error('[auth] callback reached with no code and no error_code', { url: request.url })

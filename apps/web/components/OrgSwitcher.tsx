@@ -5,6 +5,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
@@ -49,6 +50,11 @@ export function OrgSwitcher({ orgs, currentOrg }: OrgSwitcherProps) {
             <span className="truncate">{org.name}</span>
           </DropdownMenuItem>
         ))}
+        {orgs.length > 0 && <DropdownMenuSeparator />}
+        <DropdownMenuItem onClick={() => router.push('/onboarding')} className="gap-2">
+          <span className="text-muted-foreground">+</span>
+          <span>Create organization</span>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )

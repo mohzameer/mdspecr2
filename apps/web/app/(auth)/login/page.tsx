@@ -19,16 +19,17 @@ export default function LoginPage() {
   )
 }
 
-function resolveUrlError(code: string): string {
+function resolveUrlError(code: string): { message: string; isSuccess?: boolean } {
   switch (code) {
     case 'otp_expired':
-      return 'That sign-in link has expired. Request a new one below.'
+      return { message: 'That sign-in link has expired. Request a new one below.' }
     case 'access_denied':
-      return 'Access denied. The link may have already been used.'
+      return { message: 'Access denied. The link may have already been used.' }
+    case 'confirmed_sign_in':
+      return { message: 'Your email has been confirmed. Sign in below to continue.', isSuccess: true }
     case 'auth_error':
-      return 'Authentication failed. Please try again.'
     default:
-      return 'Authentication failed. Please try again.'
+      return { message: 'Authentication failed. Please try again.' }
   }
 }
 
@@ -38,12 +39,13 @@ function LoginForm() {
   const next = searchParams.get('next') ?? '/dashboard'
   const urlError = searchParams.get('error')
 
+  const urlResolved = urlError ? resolveUrlError(urlError) : null
   const [mode, setMode] = useState<Mode>(urlError === 'otp_expired' ? 'magic' : 'signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(urlError ? resolveUrlError(urlError) : null)
-  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(urlResolved && !urlResolved.isSuccess ? urlResolved.message : null)
+  const [message, setMessage] = useState<string | null>(urlResolved?.isSuccess ? urlResolved.message : null)
   const [needsConfirmation, setNeedsConfirmation] = useState(false)
 
   const supabase = createSupabaseBrowserClient()
