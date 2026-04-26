@@ -1,11 +1,47 @@
 'use client'
 
 import { useState } from 'react'
+import { initializePaddle, type Paddle } from '@paddle/paddle-js'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { cn } from '@/lib/utils'
 
+let paddleInstance: Paddle | null = null
+
+async function getPaddle(): Promise<Paddle> {
+  if (paddleInstance) return paddleInstance
+  const paddle = await initializePaddle({
+    environment: (process.env.NEXT_PUBLIC_PADDLE_ENV as 'sandbox' | 'production') ?? 'production',
+    token: process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN!,
+  })
+  if (!paddle) throw new Error('Paddle failed to initialize')
+  paddleInstance = paddle
+  return paddle
+}
+
 export function UpgradeButton() {
   const [period, setPeriod] = useState<'monthly' | 'yearly'>('monthly')
+  const [loading, setLoading] = useState(false)
+
+  async function handleUpgrade() {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/billing/checkout?period=${period}`)
+      const json = await res.json()
+      if (!json.transactionId) throw new Error('no transaction id')
+
+      const paddle = await getPaddle()
+      paddle.Checkout.open({
+        transactionId: json.transactionId,
+        settings: {
+          successUrl: `${window.location.origin}/settings/billing?upgraded=1`,
+        },
+      })
+    } catch (err) {
+      console.error('upgrade failed', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -22,12 +58,13 @@ export function UpgradeButton() {
           </button>
         ))}
       </div>
-      <a
-        href={`/api/billing/checkout?period=${period}`}
-        className={cn(buttonVariants(), 'w-full text-center')}
+      <button
+        onClick={handleUpgrade}
+        disabled={loading}
+        className={cn(buttonVariants(), 'w-full')}
       >
-        Upgrade to Pro — {period === 'monthly' ? '$9/mo' : '$100/yr'}
-      </a>
+        {loading ? 'Loading…' : `Upgrade to Pro — ${period === 'monthly' ? '$9/mo' : '$100/yr'}`}
+      </button>
     </div>
   )
 }

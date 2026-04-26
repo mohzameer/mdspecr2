@@ -25,15 +25,15 @@ export async function GET(request: Request) {
     body: JSON.stringify({
       items: [{ price_id: priceId, quantity: 1 }],
       custom_data: { user_id: user.id },
-      checkout: {
-        url: `${process.env.NEXT_PUBLIC_APP_URL}/settings/billing?upgraded=1`,
-      },
     }),
   })
 
   const json = await res.json()
-  const checkoutUrl = json?.data?.checkout?.url
-  if (!checkoutUrl) return Response.json({ error: 'checkout_failed' }, { status: 500 })
+  const transactionId = json?.data?.id
+  if (!transactionId) {
+    console.error('[billing/checkout] Paddle error', { status: res.status, body: json })
+    return Response.json({ error: 'checkout_failed' }, { status: 500 })
+  }
 
-  return Response.redirect(checkoutUrl)
+  return Response.json({ transactionId })
 }
