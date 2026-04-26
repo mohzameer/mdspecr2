@@ -25,8 +25,8 @@ export async function GET(request: NextRequest) {
           service.from('users').upsert({ id: user.id, email: user.email }, { onConflict: 'id', ignoreDuplicates: true }),
           service.from('subscriptions').upsert({ user_id: user.id, plan: 'free', status: 'active' }, { onConflict: 'user_id', ignoreDuplicates: true }),
         ])
-        if (userErr) console.error('[auth] user upsert failed', { userId: user.id, error: userErr.message })
-        if (subErr) console.error('[auth] subscription upsert failed', { userId: user.id, error: subErr.message })
+        if (userErr) console.error('[auth/callback] user upsert failed', { userId: user.id, error: userErr.message })
+        if (subErr) console.error('[auth/callback] subscription upsert failed', { userId: user.id, error: subErr.message })
       }
       return NextResponse.redirect(`${origin}${next}`)
     }

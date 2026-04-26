@@ -87,6 +87,7 @@ function LoginForm() {
             setError(error.message)
           }
         } else {
+          await fetch('/api/auth/setup', { method: 'POST' })
           router.push(next)
           router.refresh()
           return // keep spinner showing during navigation
