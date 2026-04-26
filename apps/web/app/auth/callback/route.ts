@@ -9,6 +9,8 @@ export async function GET(request: NextRequest) {
 
   // Supabase redirects here with error params when the link is invalid/expired
   if (error_code) {
+    const error_description = searchParams.get('error_description') ?? ''
+    console.error('[auth] callback error from Supabase', { error_code, error_description, next })
     return NextResponse.redirect(`${origin}/login?error=${error_code}&next=${encodeURIComponent(next)}`)
   }
 
@@ -18,8 +20,10 @@ export async function GET(request: NextRequest) {
     if (!error) {
       return NextResponse.redirect(`${origin}${next}`)
     }
+    console.error('[auth] exchangeCodeForSession error', { message: error.message, status: error.status, next })
     return NextResponse.redirect(`${origin}/login?error=auth_error&next=${encodeURIComponent(next)}`)
   }
 
+  console.error('[auth] callback reached with no code and no error_code', { url: request.url })
   return NextResponse.redirect(`${origin}/login?error=auth_error&next=${encodeURIComponent(next)}`)
 }

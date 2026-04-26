@@ -44,6 +44,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(urlError ? resolveUrlError(urlError) : null)
   const [message, setMessage] = useState<string | null>(null)
+  const [needsConfirmation, setNeedsConfirmation] = useState(false)
 
   const supabase = createSupabaseBrowserClient()
 
@@ -52,6 +53,7 @@ function LoginForm() {
     setLoading(true)
     setError(null)
     setMessage(null)
+    setNeedsConfirmation(false)
 
     if (mode === 'signup') {
       const { error } = await supabase.auth.signUp({
@@ -60,7 +62,14 @@ function LoginForm() {
         options: { emailRedirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
       })
       if (error) {
-        setError(error.message)
+        console.error('[auth] signup error', { email, code: error.status, message: error.message })
+        const msg = error.message.toLowerCase()
+        if (msg.includes('user already registered') || msg.includes('already been registered')) {
+          setError('An account with this email exists but has not been confirmed yet.')
+          setNeedsConfirmation(true)
+        } else {
+          setError(error.message)
+        }
       } else {
         setMessage('Check your email to confirm your account.')
       }
@@ -68,8 +77,10 @@ function LoginForm() {
       try {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) {
+          console.error('[auth] signin error', { email, code: error.status, message: error.message })
           if (error.message.toLowerCase().includes('email not confirmed')) {
-            setError('Please confirm your email before signing in. Check your inbox.')
+            setError('Please confirm your email before signing in.')
+            setNeedsConfirmation(true)
           } else {
             setError(error.message)
           }
@@ -78,9 +89,40 @@ function LoginForm() {
           router.refresh()
           return // keep spinner showing during navigation
         }
-      } catch {
+      } catch (err) {
+        console.error('[auth] signin network error', err)
         setError('Could not reach the server. Check your connection and try again.')
       }
+    }
+    setLoading(false)
+  }
+
+  async function handleResendConfirmation() {
+    setLoading(true)
+    setError(null)
+    console.log('[auth] resend confirmation attempt', { email })
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+        options: { emailRedirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
+      })
+      if (error) {
+        console.error('[auth] resend confirmation error', { email, code: error.status, message: error.message })
+        const userMsg = error.status === 500
+          ? 'Could not send confirmation email — our email service is unavailable. Try again later or contact support.'
+          : error.status === 429
+          ? 'Too many emails sent. Please wait a few minutes before trying again.'
+          : error.message
+        setError(userMsg)
+      } else {
+        console.log('[auth] resend confirmation success', { email })
+        setNeedsConfirmation(false)
+        setMessage('Confirmation email sent — check your inbox.')
+      }
+    } catch (err) {
+      console.error('[auth] resend confirmation network error', err)
+      setError('Could not reach the server. Try again.')
     }
     setLoading(false)
   }
@@ -121,6 +163,16 @@ function LoginForm() {
       {error && (
         <Alert variant="destructive" className="flex items-start justify-between gap-3">
           <AlertDescription className="flex-1">{error}</AlertDescription>
+          {needsConfirmation && email && (
+            <Button
+              size="xs"
+              variant="destructive"
+              disabled={loading}
+              onClick={handleResendConfirmation}
+            >
+              Resend confirmation
+            </Button>
+          )}
           {urlError === 'otp_expired' && email && (
             <Button
               size="xs"
@@ -162,7 +214,7 @@ function LoginForm() {
         {(['signin', 'signup', 'magic'] as Mode[]).map((m) => (
           <button
             key={m}
-            onClick={() => { setMode(m); setError(null); setMessage(null) }}
+            onClick={() => { setMode(m); setError(null); setMessage(null); setNeedsConfirmation(false) }}
             className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
               mode === m
                 ? 'bg-background text-foreground shadow-sm'

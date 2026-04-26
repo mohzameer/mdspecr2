@@ -14,7 +14,10 @@ export async function GET(request: NextRequest) {
     if (!error) {
       return NextResponse.redirect(`${origin}${next}`)
     }
+    console.error('[auth] verifyOtp error', { type, message: error.message, status: error.status })
+    return NextResponse.redirect(`${origin}/login?error=invalid_link`)
   }
 
+  console.error('[auth] confirm route missing token_hash or type', { token_hash: !!token_hash, type })
   return NextResponse.redirect(`${origin}/login?error=invalid_link`)
 }

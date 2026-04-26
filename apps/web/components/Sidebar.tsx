@@ -88,7 +88,21 @@ export function Sidebar({ orgs, currentOrg, projects, isAdmin = false }: Sidebar
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-        {navItems.map((item) => {
+        {/* Platform admins only see Dashboard link (pointing to /admin) */}
+        {isAdmin ? (
+          <Link
+            href="/admin"
+            onClick={() => navigate('/admin')}
+            className={cn(
+              buttonVariants({ variant: isActive('/admin', true) ? 'secondary' : 'ghost', size: 'default' }),
+              'w-full justify-start gap-2.5'
+            )}
+          >
+            <span className="text-base leading-none">⊡</span>
+            Dashboard
+            {pendingHref === '/admin' && pathname !== '/admin' && <Spinner />}
+          </Link>
+        ) : navItems.map((item) => {
           const active = isActive(item.href, item.href === '/dashboard')
           const loading = pendingHref !== null && (
             item.href === '/dashboard' ? pendingHref === '/dashboard' : pendingHref.startsWith(item.href)
@@ -194,6 +208,21 @@ export function Sidebar({ orgs, currentOrg, projects, isAdmin = false }: Sidebar
             </div>
           )
         })}
+        {/* Admin: Users */}
+        {mounted && isAdmin && (
+          <Link
+            href="/admin/users"
+            onClick={() => navigate('/admin/users')}
+            className={cn(
+              buttonVariants({ variant: isActive('/admin/users') ? 'secondary' : 'ghost', size: 'default' }),
+              'w-full justify-start gap-2.5'
+            )}
+          >
+            <span className="text-base leading-none">◉</span>
+            Users
+            {pendingHref === '/admin/users' && pathname !== '/admin/users' && <Spinner />}
+          </Link>
+        )}
         {/* Admin: Support Tickets */}
         {mounted && isAdmin && (
           <div>

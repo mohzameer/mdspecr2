@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
 import { ActivityFeed } from '@/components/ActivityFeed'
 
 export default async function DashboardPage() {
@@ -8,11 +8,18 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // Admins go to their own separate page — never see the user dashboard
+  const { data: userData } = await createSupabaseServiceClient()
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+  if (userData?.role === 'admin') redirect('/admin')
+
   const cookieStore = await cookies()
   const currentOrgId = cookieStore.get('current_org_id')?.value
 
   if (!currentOrgId) {
-    // No org yet — prompt to create one
     return (
       <div className="flex flex-col items-center justify-center h-full py-32 text-center">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-2">
@@ -29,7 +36,6 @@ export default async function DashboardPage() {
     )
   }
 
-  // Fetch stats
   const [{ count: specCount }, { count: projectCount }, { data: recentActivity }] =
     await Promise.all([
       supabase
@@ -64,7 +70,6 @@ export default async function DashboardPage() {
     <div className="p-8 max-w-4xl">
       <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50 mb-6">Dashboard</h1>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 gap-4 mb-8">
         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
           <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Specs published</p>
@@ -76,7 +81,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Activity */}
       <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
         <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-4">Recent activity</h2>
         <ActivityFeed orgId={currentOrgId} initialItems={activityItems} />

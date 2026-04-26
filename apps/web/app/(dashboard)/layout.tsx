@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
 import { Sidebar } from '@/components/Sidebar'
 import type { Organization, Project } from '@/lib/types'
 
@@ -37,8 +37,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     projects = (data ?? []) as Project[]
   }
 
-  // Check platform admin role
-  const { data: userData } = await supabase
+  // Check platform admin role via service client (bypasses RLS)
+  const { data: userData } = await createSupabaseServiceClient()
     .from('users')
     .select('role')
     .eq('id', user.id)
