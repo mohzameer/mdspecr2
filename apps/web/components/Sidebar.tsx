@@ -16,6 +16,7 @@ interface SidebarProps {
   orgs: Organization[]
   currentOrg: Organization | null
   projects: Project[]
+  isAdmin?: boolean
 }
 
 const navItems = [
@@ -32,7 +33,7 @@ function Spinner() {
   )
 }
 
-export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
+export function Sidebar({ orgs, currentOrg, projects, isAdmin = false }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
@@ -115,6 +116,7 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
                     { href: '/settings/members', label: 'Members' },
                     { href: '/settings/billing', label: 'Billing' },
                     { href: '/settings/account', label: 'Account' },
+                    { href: '/settings/support', label: 'Support' },
                   ].map((sub) => {
                     const subActive = isActive(sub.href)
                     const subLoading = pendingHref === sub.href && pathname !== sub.href
@@ -192,6 +194,23 @@ export function Sidebar({ orgs, currentOrg, projects }: SidebarProps) {
             </div>
           )
         })}
+        {/* Admin: Support Tickets */}
+        {mounted && isAdmin && (
+          <div>
+            <Link
+              href="/support-tickets"
+              onClick={() => navigate('/support-tickets')}
+              className={cn(
+                buttonVariants({ variant: isActive('/support-tickets') ? 'secondary' : 'ghost', size: 'default' }),
+                'w-full justify-start gap-2.5'
+              )}
+            >
+              <span className="text-base leading-none">◈</span>
+              Support Tickets
+              {pendingHref === '/support-tickets' && pathname !== '/support-tickets' && <Spinner />}
+            </Link>
+          </div>
+        )}
       </nav>
 
       {/* Footer */}

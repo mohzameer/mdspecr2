@@ -266,6 +266,51 @@ export interface Alias {
   updated_at: string
 }
 
+// ---------------------------------------------------------------------------
+// Support tickets
+// ---------------------------------------------------------------------------
+
+export type PlatformRole = 'user' | 'admin'
+export type TicketCategory =
+  | 'Bug / Error'
+  | 'Billing'
+  | 'Account Access'
+  | 'Feature Request'
+  | 'Performance'
+  | 'Data / Content'
+  | 'Other'
+export type CriticalityLabel = 'low' | 'medium' | 'high' | 'critical'
+export type TicketStatus = 'open' | 'in_progress' | 'resolved'
+
+export interface SupportTicket {
+  id: string
+  user_id: string
+  title: string
+  category: string
+  body: string
+  criticality_score: number
+  criticality_label: CriticalityLabel
+  ai_reasoning: string | null
+  status: TicketStatus
+  submitter_is_paid: boolean
+  submitter_plan: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TicketMessage {
+  id: string
+  ticket_id: string
+  sender_id: string
+  sender_role: PlatformRole
+  body: string
+  created_at: string
+}
+
+export interface SupportTicketWithUser extends SupportTicket {
+  users: { email: string } | null
+}
+
 export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'failed'
 export type AgentRunTrigger = 'folder_mapping' | 'frontmatter'
 

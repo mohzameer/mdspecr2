@@ -68,8 +68,8 @@ export default function TermsOfServicePage() {
           <Section title="10. Contact">
             <p>
               Questions about these Terms? Email us at{' '}
-              <a href="mailto:legal@mdspec.dev" className="underline text-foreground hover:text-muted-foreground transition-colors">
-                legal@mdspec.dev
+              <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
+                zameer@xadlabs.com
               </a>
               .
             </p>
@@ -84,6 +84,7 @@ export default function TermsOfServicePage() {
           <div className="flex gap-4">
             <Link href="/" className="hover:text-foreground transition-colors">Home</Link>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
+            <Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link>
           </div>
         </div>
       </footer>

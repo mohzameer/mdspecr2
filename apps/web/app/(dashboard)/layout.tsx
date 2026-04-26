@@ -37,9 +37,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
     projects = (data ?? []) as Project[]
   }
 
+  // Check platform admin role
+  const { data: userData } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+  const isAdmin = userData?.role === 'admin'
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar orgs={orgs} currentOrg={currentOrg} projects={projects} />
+      <Sidebar orgs={orgs} currentOrg={currentOrg} projects={projects} isAdmin={isAdmin} />
       <main className="flex-1 overflow-y-auto">
         {children}
       </main>

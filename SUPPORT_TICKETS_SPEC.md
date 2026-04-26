@@ -8,19 +8,18 @@ A support ticket system embedded in the user dashboard, with AI-powered critical
 
 ## 1. Database Changes
 
-### 1.1 Users Table — Role & Subscription Columns
+### 1.1 Users Table — Role Column
 
-Add the following columns to the existing `users` (or `profiles`) table.
+Add a `role` column to the existing `users` (or `profiles`) table.
 
 | Column | Type | Default | Notes |
 |--------|------|---------|-------|
 | `role` | `text` | `'user'` | Possible values: `'user'`, `'admin'` |
-| `is_paid` | `boolean` | `false` | `true` if the user has an active paid subscription |
-| `plan` | `text` | `null` | e.g. `'pro'`, `'team'`, `'enterprise'` — nullable for free users |
 
 - `role` is set **manually** by the admin directly in the database.
-- `is_paid` and `plan` should be kept in sync with the payment/subscription provider (e.g. Stripe webhook updating the row on subscription events).
-- No UI for role or plan assignment in this spec — these are data-layer concerns.
+- No UI for role assignment in this spec.
+
+> **Subscription data is already tracked.** The existing `subscriptions` table (managed by Paddle webhooks) has `plan` (`'free'` | `'pro'`) and `status` (`'active'` | `'cancelled'` | `'payment_failed'`). A paid user is defined as `plan = 'pro' AND status = 'active'`. No new columns are needed on the users table.
 
 ### 1.2 Support Tickets Table
 
@@ -37,8 +36,8 @@ New table: `support_tickets`
 | `criticality_label` | `text` | `'low'`, `'medium'`, `'high'`, `'critical'` |
 | `ai_reasoning` | `text` | Brief AI explanation for the score (for admin context) |
 | `status` | `text` | `'open'`, `'in_progress'`, `'resolved'` — default `'open'` |
-| `submitter_is_paid` | `boolean` | Snapshotted from `users.is_paid` at submission time |
-| `submitter_plan` | `text` | Snapshotted from `users.plan` at submission time — nullable |
+| `submitter_is_paid` | `boolean` | Snapshotted from `subscriptions.plan = 'pro' AND status = 'active'` at submission time |
+| `submitter_plan` | `text` | Snapshotted from `subscriptions.plan` at submission time (`'free'` or `'pro'`) |
 | `created_at` | `timestamptz` | Auto-set on insert |
 | `updated_at` | `timestamptz` | Auto-updated on change |
 

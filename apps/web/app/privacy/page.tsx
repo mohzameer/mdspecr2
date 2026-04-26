@@ -56,8 +56,8 @@ export default function PrivacyPolicyPage() {
 
           <Section title="6. Your Rights">
             <p>You have the right to access, correct, export, or delete your account and associated data at any time. To exercise any of these rights, contact us at{' '}
-              <a href="mailto:privacy@mdspec.dev" className="underline text-foreground hover:text-muted-foreground transition-colors">
-                privacy@mdspec.dev
+              <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
+                zameer@xadlabs.com
               </a>
               .
             </p>
@@ -74,8 +74,8 @@ export default function PrivacyPolicyPage() {
           <Section title="9. Contact">
             <p>
               Questions about this policy? Email us at{' '}
-              <a href="mailto:privacy@mdspec.dev" className="underline text-foreground hover:text-muted-foreground transition-colors">
-                privacy@mdspec.dev
+              <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
+                zameer@xadlabs.com
               </a>
               .
             </p>
@@ -90,6 +90,7 @@ export default function PrivacyPolicyPage() {
           <div className="flex gap-4">
             <Link href="/" className="hover:text-foreground transition-colors">Home</Link>
             <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
+            <Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link>
           </div>
         </div>
       </footer>
