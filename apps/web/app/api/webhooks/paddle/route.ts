@@ -22,6 +22,7 @@ export async function POST(request: Request) {
   }
 
   if (!verifyPaddleSignature(rawBody, signature, secret)) {
+    console.error('[paddle webhook] invalid signature', { signature, secretPrefix: secret.slice(0, 10) })
     return Response.json({ error: 'invalid_signature' }, { status: 400 })
   }
 
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
   try {
     event = JSON.parse(rawBody)
   } catch {
+    console.error('[paddle webhook] invalid json', rawBody.slice(0, 200))
     return Response.json({ error: 'invalid_json' }, { status: 400 })
   }
 
@@ -38,7 +40,10 @@ export async function POST(request: Request) {
   const customData = data?.custom_data as Record<string, string> | undefined
   const userId = customData?.user_id
 
+  console.log('[paddle webhook] received', { eventType, eventId, userId, customData })
+
   if (!userId || !eventId) {
+    console.error('[paddle webhook] missing user_id or event_id', { userId, eventId, customData })
     return Response.json({ error: 'missing user_id or event_id' }, { status: 400 })
   }
 
