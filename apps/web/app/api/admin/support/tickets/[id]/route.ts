@@ -80,7 +80,7 @@ export async function PATCH(
       .eq('id', id)
       .single()
 
-    const userEmail = (ticket?.users as { email: string } | null)?.email
+    const userEmail = (ticket?.users as unknown as { email: string } | null)?.email
     if (userEmail && ticket) {
       sendUserNewReplyEmail({
         toEmail: userEmail,
