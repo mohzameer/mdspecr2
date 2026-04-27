@@ -22,7 +22,17 @@ export async function POST(request: Request) {
   }
 
   if (!verifyPaddleSignature(rawBody, signature, secret)) {
-    console.error('[paddle webhook] signature verification failed', { signature, secretPrefix: secret.slice(0, 8) })
+    const parts = Object.fromEntries(signature.split(';').map((p) => p.split('=')))
+    const computed = createHmac('sha256', secret).update(`${parts['ts']}:${rawBody}`).digest('hex')
+    console.error('[paddle webhook] signature verification failed', {
+      secretPrefix: secret.slice(0, 8),
+      secretLength: secret.length,
+      ts: parts['ts'],
+      h1Received: parts['h1'],
+      h1Computed: computed,
+      bodyLength: rawBody.length,
+      bodyPreview: rawBody.slice(0, 100),
+    })
     return Response.json({ error: 'invalid_signature' }, { status: 400 })
   }
 
