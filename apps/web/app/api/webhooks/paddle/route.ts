@@ -22,6 +22,7 @@ export async function POST(request: Request) {
   }
 
   if (!verifyPaddleSignature(rawBody, signature, secret)) {
+    console.error('[paddle webhook] signature verification failed', { signature, secretPrefix: secret.slice(0, 8) })
     return Response.json({ error: 'invalid_signature' }, { status: 400 })
   }
 
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
   const userId = customData?.user_id
 
   if (!userId || !eventId) {
+    console.error('[paddle webhook] missing user_id or event_id', { eventType, userId, eventId, customData })
     return Response.json({ error: 'missing user_id or event_id' }, { status: 400 })
   }
 
