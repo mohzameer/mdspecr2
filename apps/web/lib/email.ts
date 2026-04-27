@@ -15,19 +15,25 @@ export async function sendUserNewReplyEmail({
 }) {
   if (!process.env.RESEND_API_KEY) return
 
-  await resend.emails.send({
-    from: FROM,
-    to: toEmail,
-    subject: `New reply on your support ticket: ${ticketTitle}`,
-    html: `
-      <p>Hi,</p>
-      <p>The support team has replied to your ticket <strong>${ticketTitle}</strong>.</p>
-      <p>
-        <a href="${APP_URL}/settings/support/${ticketId}">View the conversation →</a>
-      </p>
-      <p style="color:#6b7280;font-size:12px;">You're receiving this because you submitted a support ticket on mdspec.</p>
-    `,
-  })
+  const subject = `New reply on your support ticket: ${ticketTitle}`
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: toEmail,
+      subject,
+      html: `
+        <p>Hi,</p>
+        <p>The support team has replied to your ticket <strong>${ticketTitle}</strong>.</p>
+        <p>
+          <a href="${APP_URL}/settings/support/${ticketId}">View the conversation →</a>
+        </p>
+        <p style="color:#6b7280;font-size:12px;">You're receiving this because you submitted a support ticket on mdspec.</p>
+      `,
+    })
+    console.log('[email] sent user_reply_notification to', toEmail, 'for ticket', ticketId)
+  } catch (err) {
+    console.error('[email] failed user_reply_notification to', toEmail, err)
+  }
 }
 
 export async function sendAdminNewReplyEmail({
@@ -43,15 +49,21 @@ export async function sendAdminNewReplyEmail({
 }) {
   if (!process.env.RESEND_API_KEY || adminEmails.length === 0) return
 
-  await resend.emails.send({
-    from: FROM,
-    to: adminEmails,
-    subject: `User replied on ticket: ${ticketTitle}`,
-    html: `
-      <p>${userEmail} has replied to support ticket <strong>${ticketTitle}</strong>.</p>
-      <p>
-        <a href="${APP_URL}/support-tickets/${ticketId}">View the ticket →</a>
-      </p>
-    `,
-  })
+  const subject = `User replied on ticket: ${ticketTitle}`
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: adminEmails,
+      subject,
+      html: `
+        <p>${userEmail} has replied to support ticket <strong>${ticketTitle}</strong>.</p>
+        <p>
+          <a href="${APP_URL}/support-tickets/${ticketId}">View the ticket →</a>
+        </p>
+      `,
+    })
+    console.log('[email] sent admin_reply_notification to', adminEmails, 'for ticket', ticketId)
+  } catch (err) {
+    console.error('[email] failed admin_reply_notification to', adminEmails, err)
+  }
 }
