@@ -102,8 +102,14 @@ export async function POST(request: Request) {
       await supabase
         .from('subscriptions')
         .update({
+          plan: 'free',
           status: 'cancelled',
           cancelled_at: currentPeriodEnd ?? new Date().toISOString(),
+          paddle_subscription_id: null,
+          paddle_customer_id: null,
+          billing_period: null,
+          current_period_start: null,
+          current_period_end: null,
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', userId)

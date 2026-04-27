@@ -41,6 +41,13 @@ export default async function BillingPage({
         </div>
       )}
 
+      {isCancelled && subscription?.current_period_end && (
+        <div className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 mb-6">
+          <strong>Cancellation scheduled.</strong> Your subscription will end on{' '}
+          <strong>{fmt(subscription.current_period_end)}</strong>. You&apos;ll keep Pro access until then.
+        </div>
+      )}
+
       {subscription?.status === 'payment_failed' && (
         <div className="rounded-md bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300 mb-6">
           <strong>Payment failed.</strong> Please update your payment method to avoid service interruption.{' '}

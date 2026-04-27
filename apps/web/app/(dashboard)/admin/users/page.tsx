@@ -3,6 +3,7 @@ import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/d
 import { cn } from '@/lib/utils'
 import { OrgSelect } from './OrgSelect'
 import { TabNav } from './TabNav'
+import { DeactivateSubscriptionButton } from './DeactivateSubscriptionButton'
 
 export default async function AdminUsersPage({
   searchParams,
@@ -87,7 +88,12 @@ async function UsersTab({
     ? await service.from('users').select('id, email').in('id', userIds)
     : { data: [] }
 
+  const { data: subscriptions } = userIds.length > 0
+    ? await service.from('subscriptions').select('user_id, plan, status').in('user_id', userIds)
+    : { data: [] }
+
   const usersMap = Object.fromEntries((users ?? []).map((u) => [u.id, u]))
+  const subsMap = Object.fromEntries((subscriptions ?? []).map((s) => [s.user_id, s]))
 
   if (!members || members.length === 0) {
     return <p className="text-sm text-zinc-500">No members in this organization.</p>
@@ -100,12 +106,16 @@ async function UsersTab({
           <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
             <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">Email</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">Role</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">Plan</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">Joined</th>
+            <th className="px-4 py-3" />
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {members.map((m) => {
             const u = usersMap[m.user_id]
+            const sub = subsMap[m.user_id]
+            const isPro = sub?.plan === 'pro'
             return (
               <tr key={m.user_id} className="bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors">
                 <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
@@ -116,8 +126,20 @@ async function UsersTab({
                     {m.role}
                   </span>
                 </td>
+                <td className="px-4 py-3">
+                  <span className={cn('inline-flex px-2 py-0.5 rounded text-xs font-medium capitalize',
+                    isPro
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                      : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+                  )}>
+                    {sub?.plan ?? 'free'}
+                  </span>
+                </td>
                 <td className="px-4 py-3 text-zinc-500 text-xs whitespace-nowrap">
                   {new Date(m.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  {isPro && <DeactivateSubscriptionButton userId={m.user_id} />}
                 </td>
               </tr>
             )
