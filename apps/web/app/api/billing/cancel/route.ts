@@ -25,7 +25,7 @@ export async function POST() {
     return Response.json({ error: 'no_paddle_subscription' }, { status: 400 })
   }
 
-  console.log('[billing/cancel] debug', {
+  console.log('[billing/cancel] debug ', {
     PADDLE_ENV: process.env.PADDLE_ENV,
     PADDLE_API_BASE,
     PADDLE_API_KEY: process.env.PADDLE_API_KEY?.slice(0, 20) + '...',
