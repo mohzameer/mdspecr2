@@ -83,6 +83,7 @@ export async function PATCH(
     const userEmail = (ticket?.users as unknown as { email: string } | null)?.email
     if (userEmail && ticket) {
       sendUserNewReplyEmail({
+        userId: ticket.user_id,
         toEmail: userEmail,
         ticketTitle: ticket.title,
         ticketId: id,
