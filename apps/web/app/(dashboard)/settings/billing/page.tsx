@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/db-server'
 import { UpgradeButton } from '@/components/UpgradeButton'
 import { CancelSubscriptionButton } from '@/components/CancelSubscriptionButton'
+import { UpgradedBanner } from './UpgradedBanner'
+import { CancelledBanner } from './CancelledBanner'
 import type { Subscription } from '@/lib/types'
 
 function fmt(date: string) {
@@ -11,7 +13,7 @@ function fmt(date: string) {
 export default async function BillingPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ upgraded?: string }>
+  searchParams?: Promise<{ upgraded?: string; cancelled?: string }>
 }) {
   const supabase = await createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -30,16 +32,14 @@ export default async function BillingPage({
 
   const params = await searchParams
   const upgraded = params?.upgraded === '1'
+  const cancelled = params?.cancelled === '1'
 
   return (
     <div className="p-8 max-w-2xl">
       <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50 mb-6">Billing</h1>
 
-      {upgraded && (
-        <div className="rounded-md bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 px-4 py-3 text-sm text-green-700 dark:text-green-300 mb-6">
-          Payment received — your plan will update within a few seconds. Refresh if it doesn&apos;t appear.
-        </div>
-      )}
+      {upgraded && <UpgradedBanner />}
+      {cancelled && <CancelledBanner />}
 
       {isCancelled && subscription?.current_period_end && (
         <div className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 mb-6">

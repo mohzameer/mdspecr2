@@ -15,7 +15,7 @@ export function CancelSubscriptionButton() {
     const res = await fetch('/api/billing/cancel', { method: 'POST' })
     if (res.ok) {
       setConfirming(false)
-      router.refresh()
+      router.replace('?cancelled=1')
     } else {
       const body = await res.json().catch(() => ({}))
       setError(body.error === 'paddle_error'
