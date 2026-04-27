@@ -1,6 +1,6 @@
 import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
 
-const PADDLE_API_BASE = process.env.PADDLE_ENV === 'sandbox'
+const PADDLE_API_BASE = process.env.NEXT_PUBLIC_PADDLE_ENV === 'sandbox'
   ? 'https://sandbox-api.paddle.com'
   : 'https://api.paddle.com'
 

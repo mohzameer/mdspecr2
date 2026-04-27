@@ -1,6 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/db-server'
 
-const PADDLE_API_BASE = process.env.PADDLE_ENV === 'sandbox'
+const PADDLE_API_BASE = process.env.NEXT_PUBLIC_PADDLE_ENV === 'sandbox'
   ? 'https://sandbox-api.paddle.com'
   : 'https://api.paddle.com'
 
@@ -26,7 +26,7 @@ export async function POST() {
   }
 
   console.log('[billing/cancel] debug ', {
-    PADDLE_ENV: process.env.PADDLE_ENV,
+    PADDLE_ENV: process.env.NEXT_PUBLIC_PADDLE_ENV,
     PADDLE_API_BASE,
     PADDLE_API_KEY: process.env.PADDLE_API_KEY?.slice(0, 20) + '...',
     paddle_subscription_id: sub.paddle_subscription_id,
