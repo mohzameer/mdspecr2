@@ -25,6 +25,13 @@ export async function POST() {
     return Response.json({ error: 'no_paddle_subscription' }, { status: 400 })
   }
 
+  console.log('[billing/cancel] debug', {
+    PADDLE_ENV: process.env.PADDLE_ENV,
+    PADDLE_API_BASE,
+    PADDLE_API_KEY: process.env.PADDLE_API_KEY?.slice(0, 20) + '...',
+    paddle_subscription_id: sub.paddle_subscription_id,
+  })
+
   const res = await fetch(`${PADDLE_API_BASE}/subscriptions/${sub.paddle_subscription_id}/cancel`, {
     method: 'POST',
     headers: {
