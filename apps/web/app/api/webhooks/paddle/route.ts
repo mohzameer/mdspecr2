@@ -22,17 +22,6 @@ export async function POST(request: Request) {
   }
 
   if (!verifyPaddleSignature(rawBody, signature, secret)) {
-    const parts = Object.fromEntries(signature.split(';').map((p) => p.split('=')))
-    const computed = createHmac('sha256', secret).update(`${parts['ts']}:${rawBody}`).digest('hex')
-    console.error('[paddle webhook] signature verification failed', {
-      secretPrefix: secret.slice(0, 8),
-      secretLength: secret.length,
-      ts: parts['ts'],
-      h1Received: parts['h1'],
-      h1Computed: computed,
-      bodyLength: rawBody.length,
-      bodyPreview: rawBody.slice(0, 100),
-    })
     return Response.json({ error: 'invalid_signature' }, { status: 400 })
   }
 
@@ -50,7 +39,6 @@ export async function POST(request: Request) {
   const userId = customData?.user_id
 
   if (!userId || !eventId) {
-    console.error('[paddle webhook] missing user_id or event_id', { eventType, userId, eventId, customData })
     return Response.json({ error: 'missing user_id or event_id' }, { status: 400 })
   }
 

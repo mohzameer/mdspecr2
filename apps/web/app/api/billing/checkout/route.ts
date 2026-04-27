@@ -16,12 +16,6 @@ export async function GET(request: Request) {
     ? 'https://sandbox-api.paddle.com'
     : 'https://api.paddle.com'
 
-  console.log('[billing/checkout] debug', {
-    PADDLE_ENV: process.env.NEXT_PUBLIC_PADDLE_ENV,
-    apiBase,
-    priceId,
-    keyPrefix: process.env.PADDLE_API_KEY?.slice(0, 12),
-  })
 
   const res = await fetch(`${apiBase}/transactions`, {
     method: 'POST',
