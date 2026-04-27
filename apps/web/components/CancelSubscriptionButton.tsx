@@ -18,6 +18,11 @@ export function CancelSubscriptionButton() {
       router.replace('?cancelled=1')
     } else {
       const body = await res.json().catch(() => ({}))
+      if (body.error === 'already_cancelled') {
+        setConfirming(false)
+        router.replace('?cancelled=1')
+        return
+      }
       setError(body.error === 'paddle_error'
         ? 'Could not reach billing provider. Try again or contact support.'
         : 'Something went wrong. Please try again.')
