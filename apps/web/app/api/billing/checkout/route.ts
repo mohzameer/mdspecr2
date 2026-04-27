@@ -12,12 +12,12 @@ export async function GET(request: Request) {
     ? process.env.PADDLE_PRICE_YEARLY
     : process.env.PADDLE_PRICE_MONTHLY
 
-  const apiBase = process.env.PADDLE_ENV === 'sandbox'
+  const apiBase = process.env.NEXT_PUBLIC_PADDLE_ENV === 'sandbox'
     ? 'https://sandbox-api.paddle.com'
     : 'https://api.paddle.com'
 
   console.log('[billing/checkout] debug', {
-    PADDLE_ENV: process.env.PADDLE_ENV,
+    PADDLE_ENV: process.env.NEXT_PUBLIC_PADDLE_ENV,
     apiBase,
     priceId,
     keyPrefix: process.env.PADDLE_API_KEY?.slice(0, 12),
