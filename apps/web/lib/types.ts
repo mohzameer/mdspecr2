@@ -296,6 +296,8 @@ export interface SupportTicket {
   submitter_plan: string | null
   last_message_at: string | null
   last_message_sender_role: 'user' | 'admin' | null
+  user_unread_count: number
+  admin_unread_count: number
   created_at: string
   updated_at: string
 }

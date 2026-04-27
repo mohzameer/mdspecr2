@@ -151,9 +151,9 @@ export default async function AdminSupportTicketsPage({
                       className="font-medium text-zinc-900 dark:text-zinc-50 hover:underline inline-flex items-center gap-1.5 truncate"
                     >
                       <span className="truncate">{ticket.title}</span>
-                      {ticket.last_message_sender_role === 'user' && (
-                        <span className="shrink-0 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[9px] leading-none">
-                          ✉
+                      {ticket.admin_unread_count > 0 && (
+                        <span className="shrink-0 flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-semibold leading-none">
+                          {ticket.admin_unread_count}
                         </span>
                       )}
                     </Link>
