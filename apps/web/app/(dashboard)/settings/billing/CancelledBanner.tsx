@@ -1,17 +1,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 
 export function CancelledBanner() {
-  const router = useRouter()
   const [visible, setVisible] = useState(true)
 
   useEffect(() => {
     const url = new URL(window.location.href)
     url.searchParams.delete('cancelled')
-    router.replace(url.pathname + url.search, { scroll: false })
-  }, [router])
+    window.history.replaceState(null, '', url.pathname + url.search)
+  }, [])
 
   if (!visible) return null
 
