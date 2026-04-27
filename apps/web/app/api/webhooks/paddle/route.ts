@@ -38,16 +38,29 @@ export async function POST(request: Request) {
   const eventId = event.notification_id as string
   const data = event.data as Record<string, unknown>
   const customData = data?.custom_data as Record<string, string> | undefined
-  const userId = customData?.user_id
+  let userId = customData?.user_id
+
+  const supabase = createSupabaseServiceClient()
+
+  // Subscription events don't carry transaction custom_data — look up by paddle_subscription_id
+  if (!userId) {
+    const subscriptionId = data?.id as string | undefined
+    if (subscriptionId) {
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('user_id')
+        .eq('paddle_subscription_id', subscriptionId)
+        .maybeSingle()
+      userId = sub?.user_id
+    }
+  }
 
   console.log('[paddle webhook] received', { eventType, eventId, userId, customData })
 
   if (!userId || !eventId) {
-    console.error('[paddle webhook] missing user_id or event_id', { userId, eventId, customData })
+    console.error('[paddle webhook] missing user_id or event_id', { userId, eventId, customData, dataId: data?.id })
     return Response.json({ error: 'missing user_id or event_id' }, { status: 400 })
   }
-
-  const supabase = createSupabaseServiceClient()
 
   // Idempotency check
   const { data: existing } = await supabase
@@ -74,9 +87,11 @@ export async function POST(request: Request) {
   const currentPeriodEnd = (data?.current_billing_period as Record<string, string> | undefined)?.ends_at
 
   // Process event
+  let dbError: unknown = null
+
   switch (eventType) {
-    case 'subscription.created':
-      await supabase
+    case 'subscription.created': {
+      const { error } = await supabase
         .from('subscriptions')
         .update({
           plan: 'pro',
@@ -89,10 +104,12 @@ export async function POST(request: Request) {
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', userId)
+      dbError = error
       break
+    }
 
-    case 'subscription.updated':
-      await supabase
+    case 'subscription.updated': {
+      const { error } = await supabase
         .from('subscriptions')
         .update({
           billing_period: billingPeriod,
@@ -101,10 +118,12 @@ export async function POST(request: Request) {
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', userId)
+      dbError = error
       break
+    }
 
-    case 'subscription.cancelled':
-      await supabase
+    case 'subscription.cancelled': {
+      const { error } = await supabase
         .from('subscriptions')
         .update({
           plan: 'free',
@@ -118,10 +137,12 @@ export async function POST(request: Request) {
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', userId)
+      dbError = error
       break
+    }
 
-    case 'transaction.completed':
-      await supabase
+    case 'transaction.completed': {
+      const { error } = await supabase
         .from('subscriptions')
         .update({
           status: 'active',
@@ -130,17 +151,29 @@ export async function POST(request: Request) {
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', userId)
+      dbError = error
       break
+    }
 
-    case 'transaction.payment_failed':
-      await supabase
+    case 'transaction.payment_failed': {
+      const { error } = await supabase
         .from('subscriptions')
         .update({
           status: 'payment_failed',
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', userId)
+      dbError = error
       break
+    }
+
+    default:
+      console.log('[paddle webhook] unhandled event type', eventType)
+  }
+
+  if (dbError) {
+    console.error('[paddle webhook] db update failed', { eventType, userId, error: dbError })
+    return Response.json({ error: 'db_error' }, { status: 500 })
   }
 
   return Response.json({ ok: true })
