@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/db-server'
-import { createSupabaseServiceClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
+import { sendUserNewReplyEmail } from '@/lib/email'
 
 async function requireAdmin() {
   const supabase = await createSupabaseServerClient()
@@ -72,6 +72,22 @@ export async function PATCH(
       .from('ticket_messages')
       .insert({ ticket_id: id, sender_id: admin.id, sender_role: 'admin', body: body.trim() })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Notify the ticket owner — fire and forget
+    const { data: ticket } = await service
+      .from('support_tickets')
+      .select('title, user_id, users(email)')
+      .eq('id', id)
+      .single()
+
+    const userEmail = (ticket?.users as { email: string } | null)?.email
+    if (userEmail && ticket) {
+      sendUserNewReplyEmail({
+        toEmail: userEmail,
+        ticketTitle: ticket.title,
+        ticketId: id,
+      }).catch(() => {})
+    }
   }
 
   return NextResponse.json({ ok: true })

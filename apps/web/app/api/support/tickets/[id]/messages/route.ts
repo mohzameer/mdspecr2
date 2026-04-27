@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
+import { sendAdminNewReplyEmail } from '@/lib/email'
 
 export async function POST(
   request: NextRequest,
@@ -13,7 +14,7 @@ export async function POST(
   // Verify the ticket belongs to this user and is not resolved
   const { data: ticket } = await supabase
     .from('support_tickets')
-    .select('id, status, user_id')
+    .select('id, title, status, user_id')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
@@ -33,5 +34,25 @@ export async function POST(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Notify all admins — fire and forget
+  const service = createSupabaseServiceClient()
+  const { data: admins } = await service
+    .from('users')
+    .select('email')
+    .eq('role', 'admin')
+  const { data: sender } = await service
+    .from('users')
+    .select('email')
+    .eq('id', user.id)
+    .single()
+
+  sendAdminNewReplyEmail({
+    adminEmails: (admins ?? []).map((a) => a.email),
+    userEmail: sender?.email ?? 'A user',
+    ticketTitle: ticket.title,
+    ticketId: id,
+  }).catch(() => {})
+
   return NextResponse.json(message, { status: 201 })
 }
