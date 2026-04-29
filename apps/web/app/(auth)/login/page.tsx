@@ -47,6 +47,7 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(urlResolved && !urlResolved.isSuccess ? urlResolved.message : null)
   const [message, setMessage] = useState<string | null>(urlResolved?.isSuccess ? urlResolved.message : null)
   const [needsConfirmation, setNeedsConfirmation] = useState(false)
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
 
   const supabase = createSupabaseBrowserClient()
 
@@ -217,7 +218,7 @@ function LoginForm() {
         {(['signin', 'signup', 'magic'] as Mode[]).map((m) => (
           <button
             key={m}
-            onClick={() => { setMode(m); setError(null); setMessage(null); setNeedsConfirmation(false) }}
+            onClick={() => { setMode(m); setError(null); setMessage(null); setNeedsConfirmation(false); setAgreedToTerms(false) }}
             className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
               mode === m
                 ? 'bg-background text-foreground shadow-sm'
@@ -256,7 +257,24 @@ function LoginForm() {
               placeholder="••••••••"
             />
           </div>
-          <Button type="submit" className="w-full gap-2" disabled={loading}>
+          {mode === 'signup' && (
+            <div className="flex items-start gap-2">
+              <input
+                id="terms"
+                type="checkbox"
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border border-input accent-primary"
+              />
+              <label htmlFor="terms" className="text-xs text-muted-foreground leading-snug">
+                I agree to the{' '}
+                <a href="/terms" className="underline hover:text-foreground" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+                {' '}and{' '}
+                <a href="/privacy" className="underline hover:text-foreground" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+              </label>
+            </div>
+          )}
+          <Button type="submit" className="w-full gap-2" disabled={loading || (mode === 'signup' && !agreedToTerms)}>
             {loading && <Spinner />}
             {loading ? (mode === 'signup' ? 'Creating account…' : 'Signing in…') : mode === 'signup' ? 'Create account' : 'Sign in'}
           </Button>
