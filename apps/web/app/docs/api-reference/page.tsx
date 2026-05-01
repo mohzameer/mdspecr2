@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { InfoIcon } from 'lucide-react'
 
 function CodeBlock({ children }: { children: string }) {
   const [copied, setCopied] = useState(false)
@@ -73,6 +75,7 @@ const NAV = [
   { label: 'CI setup', href: '#ci' },
   { label: 'CLI reference', href: '#cli' },
   { label: 'Spec files', href: '#specfiles' },
+  { label: 'Frontmatter', href: '#frontmatter' },
   { label: 'Skip patterns', href: '#skip' },
   { label: 'Depth limiting', href: '#depth' },
   { label: 'Multiple integrations', href: '#multi' },
@@ -178,6 +181,13 @@ specs:
           {/* Distributed maps */}
           <section id="distributed" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">Distributed maps</h2>
+            <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
+              <InfoIcon className="text-amber-600 dark:text-amber-400" />
+              <AlertTitle className="text-amber-900 dark:text-amber-200">Sub-folder maps override the parent</AlertTitle>
+              <AlertDescription className="text-amber-900/80 dark:text-amber-200/80">
+                A <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">.mdspecmap</code> in a sub-folder takes precedence over any ancestor map for files in that subtree. If a sub-folder has no map of its own, the nearest ancestor&apos;s mappings apply recursively — unless the ancestor opts out with <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">sub_folders: false</code>.
+              </AlertDescription>
+            </Alert>
             <p className="text-sm text-muted-foreground">
               Place a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> in any folder — you are not limited to one at the root.
               Each file owns the subtree it sits in. Teams in a monorepo can manage their own map files independently without touching each other&apos;s config.
@@ -468,7 +478,7 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
           <section id="specfiles" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">Spec files</h2>
             <p className="text-sm text-muted-foreground">
-              Spec files are plain markdown. No YAML frontmatter, no special syntax. Any <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.md</code> file in a mapped folder is a valid spec.
+              Spec files are plain markdown. Any <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.md</code> file in a mapped folder is a valid spec. YAML frontmatter is optional — see <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a> for declaring native IDs and titles directly in the file.
             </p>
             <CodeBlock>{`# Checkout Retry Policy
 
@@ -478,7 +488,85 @@ This spec describes the retry behaviour for the checkout service.
 
 On transient failures, the checkout service retries up to 3 times...`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
-              All configuration — IDs, titles, task wiring, skip rules — lives in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code>. Teams can adopt mdspec without touching any existing spec files.
+              Configuration can live in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> (centralized) or in per-file frontmatter (decentralized). Frontmatter wins when both are present — the file is the source of truth.
+            </p>
+          </section>
+
+          <Separator />
+
+          {/* Frontmatter */}
+          <section id="frontmatter" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">Frontmatter</h2>
+            <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
+              <InfoIcon className="text-amber-600 dark:text-amber-400" />
+              <AlertTitle className="text-amber-900 dark:text-amber-200">Frontmatter is the source of truth</AlertTitle>
+              <AlertDescription className="text-amber-900/80 dark:text-amber-200/80">
+                When the same field is declared in both the spec file&apos;s frontmatter and in <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">.mdspecmap</code> (e.g. <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">specs[].title</code> or <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">specs[].id</code>), <strong>frontmatter always wins</strong>. The user wrote it explicitly in the file, so we treat the file as authoritative and re-point bindings on every publish.
+              </AlertDescription>
+            </Alert>
+            <p className="text-sm text-muted-foreground">
+              Spec files may begin with a YAML frontmatter block. mdspec strips the block before publishing — the remote document never contains <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">---</code> markers — and the content hash is computed from the stripped body, so editing frontmatter does not invalidate the hash on its own.
+            </p>
+            <CodeBlock>{`---
+title: Checkout Retry Policy
+clickup_id: 86abc123
+---
+
+# Checkout Retry Policy
+
+On transient failures, the checkout service retries up to 3 times...`}</CodeBlock>
+
+            <h3 className="text-base font-semibold pt-2">Native ID keys</h3>
+            <p className="text-sm text-muted-foreground">
+              Each integration has a default frontmatter key. Setting it binds the spec to an existing remote page or task — mdspec adopts that ID instead of creating a new one. The file is authoritative: if the ID changes in frontmatter, the binding re-points on the next publish.
+            </p>
+            <Table
+              headers={['Integration', 'Default key', 'Resolves to']}
+              rows={[
+                ['ClickUp', '`clickup_id`', 'Task ID (task_list mode) or doc page ID (doc mode)'],
+                ['Notion', '`notion_page_id`', 'Notion page ID'],
+                ['Confluence', '`confluence_page_id`', 'Confluence page ID'],
+                ['S3', '`s3_key`', 'Full object key (overrides the computed key)'],
+              ]}
+            />
+            <p className="text-sm text-muted-foreground">
+              <strong>ClickUp task_list mode:</strong> the value can be a custom task ID (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">CU-123</code>) — mdspec resolves it to a native task ID before adoption when the mapping has <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">custom_task_ids: true</code>.
+            </p>
+
+            <h3 className="text-base font-semibold pt-2">Title</h3>
+            <p className="text-sm text-muted-foreground">
+              <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">title:</code> in frontmatter takes precedence over both <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs[].title</code> in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> and the H1 heading in the body.
+            </p>
+
+            <h3 className="text-base font-semibold pt-2">Renaming the keys (frontmatter_map)</h3>
+            <p className="text-sm text-muted-foreground">
+              If your team already uses a different convention (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">task:</code> instead of <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">clickup_id:</code>), set <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">frontmatter_map</code> on the folder mapping. It accepts <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id</code> (native ID lookup) and, for ClickUp, <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">title</code>.
+            </p>
+            <CodeBlock>{`mappings:
+  - folder: docs
+    integration: clickup
+    target: task
+    list_id: id:901812345
+    frontmatter_map:
+      id: task          # look up "task:" instead of "clickup_id:"
+      title: heading    # look up "heading:" instead of "title:"`}</CodeBlock>
+            <p className="text-sm text-muted-foreground">
+              Per-mapping <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">frontmatter_map</code> values can also be edited directly from the project map UI.
+            </p>
+
+            <h3 className="text-base font-semibold pt-2">Precedence</h3>
+            <p className="text-sm text-muted-foreground">
+              When more than one source declares the same value, frontmatter always wins:
+            </p>
+            <Table
+              headers={['Field', 'Order (highest first)']}
+              rows={[
+                ['Title', 'frontmatter `title:` → `.mdspecmap` `specs[].title` → first H1 → filename'],
+                ['Native ID', 'frontmatter native ID key → `.mdspecmap` `specs[].id` → DB binding'],
+              ]}
+            />
+            <p className="text-sm text-muted-foreground">
+              Other frontmatter keys (numbers, booleans, arrays) are preserved on the artifact but ignored by adapters unless mapped explicitly.
             </p>
           </section>
 
@@ -714,7 +802,7 @@ mappings:
 
 Rules for working with spec files:
 
-1. Spec files are plain markdown — no YAML frontmatter, no special syntax.
+1. Spec files are plain markdown. YAML frontmatter is optional — see rule 9 below.
    Any .md file in a folder with a .mdspecmap file (or a .mdspecmap in any parent folder)
    is automatically picked up by mdspec on the next CI run.
 
@@ -770,8 +858,23 @@ Rules for working with spec files:
          title: Auth Spec
    Unquoted keys with spaces are invalid YAML and will cause the CLI to error.
 
-8. Never add mdspec_id, mdspec_taskid, or any mdspec frontmatter to spec files.
-   All configuration belongs in .mdspecmap.`}</CodeBlock>
+8. .mdspecmap is the centralized place for configuration, but per-file YAML frontmatter
+   is also supported — see rule 9.
+
+9. Optional YAML frontmatter (the file is the source of truth — overrides .mdspecmap):
+     ---
+     title: Human Readable Title
+     clickup_id: 86abc123        # or notion_page_id / confluence_page_id / s3_key
+     ---
+     # H1 here
+
+   - Frontmatter is stripped before publishing; remote docs never contain --- markers.
+   - Native ID keys (clickup_id, notion_page_id, confluence_page_id, s3_key) bind the
+     spec to an existing remote page/task. Changing the ID re-points the binding on the
+     next publish.
+   - title: in frontmatter overrides specs[].title in .mdspecmap and the body H1.
+   - To rename the keys (e.g. use \`task:\` instead of \`clickup_id:\`), set
+     \`frontmatter_map\` on the folder mapping in .mdspecmap.`}</CodeBlock>
           </section>
         </main>
       </div>

@@ -282,6 +282,7 @@ export async function POST(request: Request) {
       clickup_mode: string
       matched_folder: string
       s3_root_prefix?: string | null
+      frontmatter_map?: Record<string, string> | null
       specs: PublishGroupSpec[]
     }>()
     let savedCount = 0
@@ -307,6 +308,8 @@ export async function POST(request: Request) {
         }
       }
 
+      const specFrontmatter = spec.frontmatter ?? {}
+
       const { data: upsertedSpec, error: specError } = await supabase
         .from('specs')
         .upsert(
@@ -318,7 +321,7 @@ export async function POST(request: Request) {
             commit_sha,
             content_hash: spec.hash,
             title: spec.title,
-            frontmatter: null,
+            frontmatter: Object.keys(specFrontmatter).length > 0 ? specFrontmatter : null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'project_id,path' }
@@ -429,6 +432,7 @@ export async function POST(request: Request) {
                 clickup_mode: mode,
                 matched_folder: normalizedMappingFolder,
                 s3_root_prefix: s3RootPrefix,
+                frontmatter_map: bestMapping.frontmatter_map ?? null,
                 specs: [],
               })
             }
@@ -440,7 +444,7 @@ export async function POST(request: Request) {
               ...(spec.id_ref ? { id_ref: spec.id_ref } : {}),
               content: spec.content,
               content_hash: spec.hash,
-              frontmatter: {},
+              frontmatter: specFrontmatter,
             })
           }
         }
@@ -461,6 +465,7 @@ export async function POST(request: Request) {
         clickup_mode: group.clickup_mode as 'doc' | 'task_list',
         matched_folder: group.matched_folder,
         ...(group.target_type === 's3' ? { s3_root_prefix: group.s3_root_prefix ?? null } : {}),
+        ...(group.frontmatter_map ? { frontmatter_map: group.frontmatter_map } : {}),
       }
 
       try {
@@ -630,6 +635,7 @@ async function reconcileFolderMappings(
             ...(mapping.custom_task_ids !== undefined ? { clickup_use_custom_task_ids: mapping.custom_task_ids } : {}),
             ...(templateId !== undefined ? { template_id: templateId } : {}),
             ...(mapping.maintain_hierarchy !== undefined ? { s3_maintain_hierarchy: mapping.maintain_hierarchy } : {}),
+            ...(mapping.frontmatter_map !== undefined ? { frontmatter_map: mapping.frontmatter_map } : {}),
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'project_id,folder_path,integration_id,clickup_mode' }

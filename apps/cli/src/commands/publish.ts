@@ -1,4 +1,5 @@
 import yaml from 'js-yaml'
+import matter from 'gray-matter'
 import { execSync } from 'child_process'
 import { createHash } from 'crypto'
 import { readFile, access } from 'fs/promises'
@@ -24,6 +25,7 @@ export interface MdspecMapMapping {
   agent?: string                     // agent template name
   parent_dir?: string                // s3 only: bucket key prefix (e.g. "docs/eng-specs")
   maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths under parent_dir (default false = flat)
+  frontmatter_map?: Record<string, string>  // canonical-attr → frontmatter-key override
 }
 
 export interface MdspecMapSpecEntry {
@@ -62,6 +64,7 @@ export interface SpecArtifact {
   id_ref?: string
   agent?: string
   content: string
+  frontmatter?: Record<string, unknown>
 }
 
 interface PublishPayload {
@@ -743,12 +746,17 @@ export async function buildSpecArtifact(
   previousPath?: string
 ): Promise<SpecArtifact | null> {
   try {
-    const content = await readFile(filePath, 'utf8')
+    const raw = await readFile(filePath, 'utf8')
+    const parsed = matter(raw)
+    const frontmatter = (parsed.data ?? {}) as Record<string, unknown>
+    const content = parsed.content
     const specConfig = resolveSpecConfig(filePath, config)
-    // If no explicit title in specs: section, try first H1 before falling back to filename
-    const title = specConfig.title !== deriveTitle(filePath)
-      ? specConfig.title
-      : (extractH1(content) ?? specConfig.title)
+    // Frontmatter title wins, then specs:[].title, then first H1, then filename
+    const fmTitle = typeof frontmatter.title === 'string' ? frontmatter.title : undefined
+    const title = fmTitle
+      ?? (specConfig.title !== deriveTitle(filePath)
+        ? specConfig.title
+        : (extractH1(content) ?? specConfig.title))
     const hash = 'sha256:' + createHash('sha256').update(content).digest('hex')
 
     return {
@@ -759,6 +767,7 @@ export async function buildSpecArtifact(
       ...(specConfig.id_ref ? { id_ref: specConfig.id_ref } : {}),
       ...(specConfig.agent ? { agent: specConfig.agent } : {}),
       content,
+      ...(Object.keys(frontmatter).length > 0 ? { frontmatter } : {}),
     }
   } catch (err) {
     console.error(`✗ Failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`)

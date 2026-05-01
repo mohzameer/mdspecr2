@@ -27,6 +27,7 @@ export interface MdspecMapMapping {
   agent?: string                     // agent template name
   parent_dir?: string                // s3 only: bucket key prefix (e.g. "docs/eng-specs")
   maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths under parent_dir (default false = flat)
+  frontmatter_map?: Record<string, string>  // canonical-attr → frontmatter-key override (e.g. { id: 'clickup_id' })
 }
 
 export interface MdspecMapSpecEntry {
@@ -59,10 +60,11 @@ export interface SpecArtifact {
   path: string
   previous_path?: string             // set on rename (git R status)
   hash: string
-  title: string                      // resolved by CLI: specs[path].title > H1 > filename
+  title: string                      // resolved by CLI: frontmatter.title > specs[path].title > H1 > filename
   id_ref?: string                    // resolved from specs[path].id
   agent?: string                     // resolved from specs[path].agent or folder mapping
-  content: string
+  content: string                    // markdown body with frontmatter stripped
+  frontmatter?: Record<string, unknown>  // parsed YAML frontmatter (omitted if empty)
 }
 
 export interface PublishPayload {
@@ -103,6 +105,7 @@ export interface PublishGroupJobData {
   clickup_mode?: 'doc' | 'task_list'
   matched_folder?: string  // the folder path that was matched for this group (longest-prefix)
   s3_root_prefix?: string | null  // S3 bucket key prefix from mapping's parent_dir field
+  frontmatter_map?: Record<string, string> | null  // canonical-attr → frontmatter-key override (from .mdspecmap mapping)
 }
 
 // ---------------------------------------------------------------------------
@@ -264,55 +267,6 @@ export interface Alias {
   created_by: string | null
   created_at: string
   updated_at: string
-}
-
-// ---------------------------------------------------------------------------
-// Support tickets
-// ---------------------------------------------------------------------------
-
-export type PlatformRole = 'user' | 'admin'
-export type TicketCategory =
-  | 'Bug / Error'
-  | 'Billing'
-  | 'Account Access'
-  | 'Feature Request'
-  | 'Performance'
-  | 'Data / Content'
-  | 'Other'
-export type CriticalityLabel = 'low' | 'medium' | 'high' | 'critical'
-export type TicketStatus = 'open' | 'in_progress' | 'resolved'
-
-export interface SupportTicket {
-  id: string
-  user_id: string
-  title: string
-  category: string
-  body: string
-  criticality_score: number
-  criticality_label: CriticalityLabel
-  ai_reasoning: string | null
-  status: TicketStatus
-  submitter_is_paid: boolean
-  submitter_plan: string | null
-  last_message_at: string | null
-  last_message_sender_role: 'user' | 'admin' | null
-  user_unread_count: number
-  admin_unread_count: number
-  created_at: string
-  updated_at: string
-}
-
-export interface TicketMessage {
-  id: string
-  ticket_id: string
-  sender_id: string
-  sender_role: PlatformRole
-  body: string
-  created_at: string
-}
-
-export interface SupportTicketWithUser extends SupportTicket {
-  users: { email: string } | null
 }
 
 export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'failed'

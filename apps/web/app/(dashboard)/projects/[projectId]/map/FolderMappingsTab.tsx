@@ -56,6 +56,40 @@ const integrationLabels: Record<string, string> = {
   s3: 'S3',
 }
 
+const defaultNativeIdKey: Record<string, string> = {
+  clickup: 'clickup_id',
+  notion: 'notion_page_id',
+  confluence: 'confluence_page_id',
+  s3: 's3_key',
+}
+
+function frontmatterMapPlaceholder(intType: string | undefined): string {
+  const idKey = defaultNativeIdKey[intType ?? ''] ?? 'page_id'
+  if (intType === 'clickup') {
+    return `id: ${idKey}\ntitle: title`
+  }
+  return `id: ${idKey}`
+}
+
+function serializeFrontmatterMap(m: Record<string, string> | null | undefined): string {
+  if (!m) return ''
+  return Object.entries(m).map(([k, v]) => `${k}: ${v}`).join('\n')
+}
+
+function parseFrontmatterMap(raw: string): Record<string, string> | null {
+  const out: Record<string, string> = {}
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const idx = trimmed.indexOf(':')
+    if (idx === -1) continue
+    const key = trimmed.slice(0, idx).trim()
+    const value = trimmed.slice(idx + 1).trim()
+    if (key && value) out[key] = value
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
 export function FolderMappingsTab({
   projectId,
   discoveredFolders,
@@ -89,6 +123,9 @@ export function FolderMappingsTab({
   // skip patterns: mappingId → textarea draft (newline-separated)
   const [skipDraft, setSkipDraft] = useState<Record<string, string>>({})
   const [newFolderSkipPatterns, setNewFolderSkipPatterns] = useState<string>('')
+  // frontmatter_map: mappingId → textarea draft (key: value per line)
+  const [frontmatterMapDraft, setFrontmatterMapDraft] = useState<Record<string, string>>({})
+  const [newFolderFrontmatterMap, setNewFolderFrontmatterMap] = useState<string>('')
 
   function fetchS3Folders(integrationId: string) {
     if (s3FoldersCache[integrationId]) return
@@ -253,6 +290,19 @@ async function applyToAll() {
     setSavingMappingId(null)
   }
 
+  async function saveFrontmatterMap(mappingId: string, raw: string) {
+    const parsed = parseFrontmatterMap(raw)
+    const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ frontmatter_map: parsed }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      onMappingsChange(mappings.map((m) => m.id === mappingId ? { ...m, frontmatter_map: updated.frontmatter_map ?? null } : m))
+    }
+  }
+
   async function saveSkipPatterns(mappingId: string, raw: string) {
     const patterns = raw.split('\n').map((l) => l.trim()).filter(Boolean)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings/${mappingId}`, {
@@ -350,6 +400,7 @@ function prefillFromSuggestion(folderPath: string) {
         clickup_doc_id: newFolderDocId || null,
         skip_patterns: newFolderSkipPatterns.split('\n').map((l) => l.trim()).filter(Boolean),
         template_id: newFolderTemplateId || null,
+        frontmatter_map: parseFrontmatterMap(newFolderFrontmatterMap),
       }),
     })
     if (res.ok) {
@@ -365,6 +416,7 @@ function prefillFromSuggestion(folderPath: string) {
       setNewFolderDocId('')
       setNewFolderSpaceId('')
       setNewFolderSkipPatterns('')
+      setNewFolderFrontmatterMap('')
     }
     setAddingFolder(false)
   }
@@ -487,6 +539,7 @@ function prefillFromSuggestion(folderPath: string) {
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Integration</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Agent Template</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Destination</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide" title="Override which frontmatter keys map to native IDs and (for ClickUp) attributes">Frontmatter map</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Skip files</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Download</th>
               </tr>
@@ -690,6 +743,20 @@ function prefillFromSuggestion(folderPath: string) {
                       )}
                     </td>
 
+                    {/* Frontmatter map */}
+                    <td className="px-4 py-3 align-top">
+                      <textarea
+                        disabled={!canEdit}
+                        rows={3}
+                        value={frontmatterMapDraft[mapping.id] ?? serializeFrontmatterMap(mapping.frontmatter_map)}
+                        onChange={(e) => setFrontmatterMapDraft((prev) => ({ ...prev, [mapping.id]: e.target.value }))}
+                        onBlur={(e) => saveFrontmatterMap(mapping.id, e.target.value)}
+                        placeholder={frontmatterMapPlaceholder(mapping.integrations?.type)}
+                        title="Override which frontmatter key holds the native ID (and for ClickUp, attribute keys). One `key: source_key` per line."
+                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50 w-full font-mono resize-none min-w-[180px]"
+                      />
+                    </td>
+
                     {/* Skip files */}
                     <td className="px-4 py-3 align-top">
                       <textarea
@@ -853,6 +920,18 @@ function prefillFromSuggestion(folderPath: string) {
                       })() : (
                         <span className="text-xs text-zinc-400">—</span>
                       )}
+                    </td>
+
+                    {/* Frontmatter map — new row */}
+                    <td className="px-4 py-3 align-top">
+                      <textarea
+                        rows={3}
+                        value={newFolderFrontmatterMap}
+                        onChange={(e) => setNewFolderFrontmatterMap(e.target.value)}
+                        placeholder={frontmatterMapPlaceholder(newIntegration?.type)}
+                        title="Override which frontmatter key holds the native ID. One `key: source_key` per line."
+                        className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-2 py-1 text-zinc-700 dark:text-zinc-300 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-500 w-full font-mono resize-none min-w-[180px]"
+                      />
                     </td>
 
                     {/* Skip files — new row */}

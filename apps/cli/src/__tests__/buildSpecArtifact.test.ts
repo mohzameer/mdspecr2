@@ -149,3 +149,84 @@ it('resolveSpecConfig: unmatched path has no entry', () => {
   expect(cfg.id_ref).toBeUndefined()
   expect(cfg.title).toBe('auth')
 })
+
+// ---------------------------------------------------------------------------
+// Frontmatter parsing (Option B authoritative — file is source of truth)
+// ---------------------------------------------------------------------------
+
+// FM.1
+it('FM.1 parses YAML frontmatter into artifact.frontmatter', async () => {
+  mockFile('---\nclickup_id: "abc123"\nstatus: ready\n---\n# Body\ncontent')
+  const artifact = await buildSpecArtifact('docs/auth.md', minimalConfig)
+  expect(artifact!.frontmatter).toEqual({ clickup_id: 'abc123', status: 'ready' })
+})
+
+// FM.2
+it('FM.2 strips frontmatter from artifact.content (adapters never see ---)', async () => {
+  mockFile('---\nclickup_id: "abc"\n---\n# Body\nLine two')
+  const artifact = await buildSpecArtifact('docs/auth.md', minimalConfig)
+  expect(artifact!.content).not.toContain('---')
+  expect(artifact!.content).not.toContain('clickup_id')
+  expect(artifact!.content).toContain('# Body')
+  expect(artifact!.content).toContain('Line two')
+})
+
+// FM.3
+it('FM.3 hash is computed from stripped content (frontmatter changes do not invalidate hash)', async () => {
+  mockFile('# Body\nLine two')
+  const a1 = await buildSpecArtifact('docs/auth.md', minimalConfig)
+
+  mockFile('---\nclickup_id: "abc"\n---\n# Body\nLine two')
+  const a2 = await buildSpecArtifact('docs/auth.md', minimalConfig)
+
+  expect(a1!.hash).toBe(a2!.hash)
+})
+
+// FM.4
+it('FM.4 spec without frontmatter omits frontmatter field on artifact', async () => {
+  mockFile('# Just a heading\nNo frontmatter.')
+  const artifact = await buildSpecArtifact('docs/auth.md', minimalConfig)
+  expect(artifact!.frontmatter).toBeUndefined()
+})
+
+// FM.5
+it('FM.5 empty frontmatter block also omits the field', async () => {
+  mockFile('---\n---\n# Body')
+  const artifact = await buildSpecArtifact('docs/auth.md', minimalConfig)
+  expect(artifact!.frontmatter).toBeUndefined()
+})
+
+// FM.6
+it('FM.6 frontmatter.title wins over specs[].title and H1', async () => {
+  mockFile('---\ntitle: From Frontmatter\n---\n# H1 Title')
+  const config: MdspecMapConfig = {
+    version: 1,
+    mappings: [{ folder: 'docs' }],
+    specs: { 'docs/auth.md': { title: 'From Map' } },
+  }
+  const artifact = await buildSpecArtifact('docs/auth.md', config)
+  expect(artifact!.title).toBe('From Frontmatter')
+})
+
+// FM.7
+it('FM.7 native id keys (clickup_id, notion_page_id, etc.) preserved in frontmatter', async () => {
+  mockFile('---\nclickup_id: "task-1"\nnotion_page_id: "page-2"\nconfluence_page_id: "page-3"\ns3_key: "docs/x.md"\n---\n# Body')
+  const artifact = await buildSpecArtifact('docs/auth.md', minimalConfig)
+  expect(artifact!.frontmatter).toMatchObject({
+    clickup_id: 'task-1',
+    notion_page_id: 'page-2',
+    confluence_page_id: 'page-3',
+    s3_key: 'docs/x.md',
+  })
+})
+
+// FM.8
+it('FM.8 non-string frontmatter values (number, bool, array) preserved as-is', async () => {
+  mockFile('---\npriority: 1\npublished: true\ntags: [a, b]\n---\n# Body')
+  const artifact = await buildSpecArtifact('docs/auth.md', minimalConfig)
+  expect(artifact!.frontmatter).toMatchObject({
+    priority: 1,
+    published: true,
+    tags: ['a', 'b'],
+  })
+})

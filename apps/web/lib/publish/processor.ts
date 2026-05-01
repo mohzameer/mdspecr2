@@ -13,6 +13,25 @@ export class UnrecoverableError extends Error {
   readonly unrecoverable = true
 }
 
+// Default frontmatter keys per integration for native ID adoption.
+// Overridable via folder_mappings.frontmatter_map.id on a per-mapping basis.
+const DEFAULT_NATIVE_ID_KEY: Record<IntegrationType, string> = {
+  clickup: 'clickup_id',
+  notion: 'notion_page_id',
+  confluence: 'confluence_page_id',
+  s3: 's3_key',
+}
+
+function readFrontmatterNativeId(
+  frontmatter: Record<string, unknown>,
+  targetType: IntegrationType,
+  frontmatterMap: Record<string, string> | null | undefined
+): string | null {
+  const key = frontmatterMap?.id ?? DEFAULT_NATIVE_ID_KEY[targetType]
+  const val = frontmatter[key]
+  return typeof val === 'string' && val.trim() ? val.trim() : null
+}
+
 interface GroupContext {
   supabase: SupabaseClient
   credentials: Record<string, unknown>
@@ -36,7 +55,8 @@ interface GroupContext {
   clickupMode: 'doc' | 'task_list'
   clickupListId: string | null
   clickupUseCustomTaskIds: boolean
-  clickupFrontmatterMap: Record<string, string> | null
+  // Generic per-mapping frontmatter key map (canonical-attr → frontmatter-key)
+  frontmatterMap: Record<string, string> | null
   // S3-only
   s3RootPrefix: string | null
   s3MaintainHierarchy: boolean
@@ -92,7 +112,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     clickupMode: 'doc',
     clickupListId: null,
     clickupUseCustomTaskIds: false,
-    clickupFrontmatterMap: null,
+    frontmatterMap: data.frontmatter_map ?? null,
     s3RootPrefix: null,
     s3MaintainHierarchy: false,
     s3MatchedFolder: '',
@@ -174,7 +194,10 @@ async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string
     ctx.folderMappingPath = rootFolder
     ctx.clickupListId = mapping.clickup_list_id ?? null
     ctx.clickupUseCustomTaskIds = mapping.clickup_use_custom_task_ids ?? false
-    ctx.clickupFrontmatterMap = (mapping.frontmatter_map as Record<string, string> | null) ?? null
+    // DB folder_mappings.frontmatter_map wins over job-level (more specific)
+    if (mapping.frontmatter_map) {
+      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
+    }
     // If user explicitly selected a parent doc, use it as the shared doc ID —
     // no auto-creation needed, no race condition possible.
     if (mapping.clickup_doc_id) {
@@ -227,7 +250,7 @@ async function setupS3GroupContext(ctx: GroupContext, matchedFolder: string): Pr
 
   const { data: mapping } = await supabase
     .from('folder_mappings')
-    .select('id, target_id, s3_maintain_hierarchy')
+    .select('id, target_id, s3_maintain_hierarchy, frontmatter_map')
     .eq('project_id', project_id)
     .eq('integration_id', integration_id)
     .eq('folder_path', matchedFolder)
@@ -240,6 +263,9 @@ async function setupS3GroupContext(ctx: GroupContext, matchedFolder: string): Pr
     if (mapping.target_id !== null) ctx.s3RootPrefix = mapping.target_id
     ctx.s3MaintainHierarchy = (mapping.s3_maintain_hierarchy as boolean | null) ?? false
     ctx.s3MatchedFolder = matchedFolder
+    if (mapping.frontmatter_map) {
+      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
+    }
   }
 
   console.log(`[publish:s3] folder=${matchedFolder} prefix=${ctx.s3RootPrefix ?? '(none)'} hierarchy=${ctx.s3MaintainHierarchy}`)
@@ -276,6 +302,28 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
 
   let existingPageId = target?.external_page_id ?? null
   const lastPublishedHash = (target as { content_hash?: string | null } | null)?.content_hash ?? null
+
+  // -- Frontmatter native ID (Option B authoritative) ------------------------
+  // If the user supplies a native ID via frontmatter (e.g. clickup_id, notion_page_id),
+  // it overrides the DB binding on every publish. Editing/removing the key re-points or
+  // unbinds the spec — file is the source of truth.
+  const fmNativeId = readFrontmatterNativeId(frontmatter, target_type, ctx.frontmatterMap)
+  if (fmNativeId) {
+    let resolved: string | null = fmNativeId
+    if (target_type === 'clickup' && ctx.clickupMode === 'task_list') {
+      const clickupCreds = { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string }
+      resolved = await resolveToNativeTaskId(clickupCreds, fmNativeId, ctx.clickupUseCustomTaskIds)
+      console.log(`[publish] frontmatter clickup_id="${fmNativeId}" → native ${resolved ?? 'null'}`)
+    }
+    if (resolved && resolved !== existingPageId) {
+      console.log(`[publish] frontmatter native id override: ${existingPageId ?? 'none'} → ${resolved}`)
+      existingPageId = resolved
+      await supabase
+        .from('spec_publish_targets')
+        .update({ external_page_id: resolved })
+        .eq('id', spec_publish_target_id)
+    }
+  }
 
   // For ClickUp doc mode (single/flat): verify the stored doc still exists.
   // task_list mode stores a task ID, not a doc ID — skip this check for it.
@@ -399,7 +447,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
           console.log(`[publish:task] no id_ref in specs — will create new task`)
         }
 
-        let taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId, ctx.clickupFrontmatterMap)
+        let taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId, ctx.frontmatterMap)
 
         // Stored ID was stale (task deleted in ClickUp) — try to re-resolve from
         // links: section before falling through to create a brand new task.
@@ -456,7 +504,8 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         bucket: credentials.bucket as string,
         region: credentials.region as string,
       }
-      const objectKey = buildS3Key(path, ctx.s3RootPrefix, {
+      // Frontmatter s3_key (if present) overrides the computed object key
+      const objectKey = fmNativeId ?? buildS3Key(path, ctx.s3RootPrefix, {
         maintainHierarchy: ctx.s3MaintainHierarchy,
         matchedFolder: ctx.s3MatchedFolder,
       })

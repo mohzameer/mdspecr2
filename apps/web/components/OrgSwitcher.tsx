@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import type { Organization } from '@/lib/types'
+import { CheckIcon, ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
 
 interface OrgSwitcherProps {
   orgs: Organization[]
@@ -37,7 +38,7 @@ export function OrgSwitcher({ orgs, currentOrg }: OrgSwitcherProps) {
         }
       >
         <span className="truncate">{currentOrg?.name ?? 'Select organization'}</span>
-        <ChevronIcon />
+        <ChevronsUpDownIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
         {orgs.map((org) => (
@@ -46,24 +47,16 @@ export function OrgSwitcher({ orgs, currentOrg }: OrgSwitcherProps) {
             onClick={() => switchOrg(org.id)}
             className="gap-2"
           >
-            {org.id === currentOrg?.id && <span className="text-muted-foreground">✓</span>}
+            {org.id === currentOrg?.id && <CheckIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             <span className="truncate">{org.name}</span>
           </DropdownMenuItem>
         ))}
         {orgs.length > 0 && <DropdownMenuSeparator />}
         <DropdownMenuItem onClick={() => router.push('/onboarding')} className="gap-2">
-          <span className="text-muted-foreground">+</span>
+          <PlusIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span>Create organization</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
-}
-
-function ChevronIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 text-muted-foreground">
-      <path d="M3 4.5L6 7.5L9 4.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   )
 }

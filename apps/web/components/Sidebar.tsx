@@ -11,6 +11,17 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import type { Organization, Project } from '@/lib/types'
+import {
+  ActivityIcon,
+  FolderKanbanIcon,
+  LayoutDashboardIcon,
+  SettingsIcon,
+  UsersIcon,
+  WorkflowIcon,
+} from 'lucide-react'
+import type { ComponentType, SVGProps } from 'react'
+
+type IconType = ComponentType<SVGProps<SVGSVGElement>>
 
 interface SidebarProps {
   orgs: Organization[]
@@ -19,12 +30,12 @@ interface SidebarProps {
   isAdmin?: boolean
 }
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: '⊡' },
-  { href: '/projects', label: 'Projects', icon: '⬡' },
-  { href: '/integrations', label: 'Integrations', icon: '⇄' },
-  { href: '/activity', label: 'Activity', icon: '◎' },
-  { href: '/settings', label: 'Settings', icon: '⚙' },
+const navItems: { href: string; label: string; icon: IconType }[] = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
+  { href: '/projects', label: 'Projects', icon: FolderKanbanIcon },
+  { href: '/integrations', label: 'Integrations', icon: WorkflowIcon },
+  { href: '/activity', label: 'Activity', icon: ActivityIcon },
+  { href: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 
 function Spinner() {
@@ -74,10 +85,10 @@ export function Sidebar({ orgs, currentOrg, projects, isAdmin = false }: Sidebar
   return (
     <aside className="flex h-screen w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       {/* Logo */}
-      <div className="px-4 pt-5 pb-2 flex items-center gap-2">
+      <Link href="/" className="px-4 pt-5 pb-2 flex items-center gap-2 hover:opacity-80 transition-opacity">
         <img src="/icon.svg" alt="" width={20} height={20} className="rounded-[3px]" />
         <span className="text-base font-semibold tracking-tight">mdspec</span>
-      </div>
+      </Link>
 
       {/* Org switcher */}
       <div className="px-2 pb-2">
@@ -98,7 +109,7 @@ export function Sidebar({ orgs, currentOrg, projects, isAdmin = false }: Sidebar
               'w-full justify-start gap-2.5'
             )}
           >
-            <span className="text-base leading-none">⊡</span>
+            <LayoutDashboardIcon className="h-4 w-4 shrink-0" />
             Dashboard
             {pendingHref === '/admin' && pathname !== '/admin' && <Spinner />}
           </Link>
@@ -107,6 +118,7 @@ export function Sidebar({ orgs, currentOrg, projects, isAdmin = false }: Sidebar
           const loading = pendingHref !== null && (
             item.href === '/dashboard' ? pendingHref === '/dashboard' : pendingHref.startsWith(item.href)
           )
+          const Icon = item.icon
           return (
             <div key={item.href}>
               <Link
@@ -117,7 +129,7 @@ export function Sidebar({ orgs, currentOrg, projects, isAdmin = false }: Sidebar
                   'w-full justify-start gap-2.5'
                 )}
               >
-                <span className="text-base leading-none">{item.icon}</span>
+                <Icon className="h-4 w-4 shrink-0" />
                 {item.label}
                 {loading && <Spinner />}
               </Link>
@@ -218,27 +230,10 @@ export function Sidebar({ orgs, currentOrg, projects, isAdmin = false }: Sidebar
               'w-full justify-start gap-2.5'
             )}
           >
-            <span className="text-base leading-none">◉</span>
+            <UsersIcon className="h-4 w-4 shrink-0" />
             Users
             {pendingHref === '/admin/users' && pathname !== '/admin/users' && <Spinner />}
           </Link>
-        )}
-        {/* Admin: Support Tickets */}
-        {mounted && isAdmin && (
-          <div>
-            <Link
-              href="/support-tickets"
-              onClick={() => navigate('/support-tickets')}
-              className={cn(
-                buttonVariants({ variant: isActive('/support-tickets') ? 'secondary' : 'ghost', size: 'default' }),
-                'w-full justify-start gap-2.5'
-              )}
-            >
-              <span className="text-base leading-none">◈</span>
-              Support Tickets
-              {pendingHref === '/support-tickets' && pathname !== '/support-tickets' && <Spinner />}
-            </Link>
-          </div>
         )}
       </nav>
 
