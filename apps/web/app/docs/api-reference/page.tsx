@@ -533,6 +533,41 @@ On transient failures, the checkout service retries up to 3 times...`}</CodeBloc
               <strong>ClickUp task_list mode:</strong> the value can be a custom task ID (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">CU-123</code>) — mdspec resolves it to a native task ID before adoption when the mapping has <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">custom_task_ids: true</code>.
             </p>
 
+            <h3 className="text-base font-semibold pt-2">Copy-paste snippets</h3>
+            <p className="text-sm text-muted-foreground">
+              Drop one of these at the top of your spec file, replace the ID, and publish:
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">ClickUp</p>
+                <CodeBlock>{`---
+title: My Spec
+clickup_id: 86abc123
+---`}</CodeBlock>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Notion</p>
+                <CodeBlock>{`---
+title: My Spec
+notion_page_id: 1a2b3c4d5e6f7890
+---`}</CodeBlock>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Confluence</p>
+                <CodeBlock>{`---
+title: My Spec
+confluence_page_id: "123456789"
+---`}</CodeBlock>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">S3</p>
+                <CodeBlock>{`---
+title: My Spec
+s3_key: docs/specs/my-spec.md
+---`}</CodeBlock>
+              </div>
+            </div>
+
             <h3 className="text-base font-semibold pt-2">Title</h3>
             <p className="text-sm text-muted-foreground">
               <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">title:</code> in frontmatter takes precedence over both <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs[].title</code> in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> and the H1 heading in the body.
