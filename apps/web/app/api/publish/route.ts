@@ -308,8 +308,6 @@ export async function POST(request: Request) {
         }
       }
 
-      const specFrontmatter = spec.frontmatter ?? {}
-
       const { data: upsertedSpec, error: specError } = await supabase
         .from('specs')
         .upsert(
@@ -321,7 +319,7 @@ export async function POST(request: Request) {
             commit_sha,
             content_hash: spec.hash,
             title: spec.title,
-            frontmatter: Object.keys(specFrontmatter).length > 0 ? specFrontmatter : null,
+            frontmatter: null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'project_id,path' }
@@ -441,10 +439,10 @@ export async function POST(request: Request) {
               spec_publish_target_id: target.id,
               path: spec.path,
               title: spec.title,
-              ...(spec.id_ref ? { id_ref: spec.id_ref } : {}),
+              ...(spec.id ? { id: spec.id } : {}),
+              ...(spec.agent ? { agent: spec.agent } : {}),
               content: spec.content,
               content_hash: spec.hash,
-              frontmatter: specFrontmatter,
             })
           }
         }

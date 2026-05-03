@@ -56,15 +56,19 @@ interface PublishOptions {
   skipDiff?: boolean
 }
 
+export type AttrSource = 'frontmatter' | 'mapping' | 'derived'
+
 export interface SpecArtifact {
   path: string
   previous_path?: string
   hash: string
   title: string
-  id_ref?: string
+  title_source: AttrSource
+  id?: string
+  id_source?: 'frontmatter' | 'mapping'
   agent?: string
+  agent_source?: 'frontmatter' | 'mapping'
   content: string
-  frontmatter?: Record<string, unknown>
 }
 
 interface PublishPayload {
@@ -420,6 +424,24 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
     }
   }
 
+  if (config.specs !== undefined) {
+    if (typeof config.specs !== 'object' || Array.isArray(config.specs) || config.specs === null) {
+      errors.push('specs: must be a map keyed by path')
+    } else {
+      for (const [path, entry] of Object.entries(config.specs as Record<string, unknown>)) {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+          errors.push(`specs[${path}]: must be a map`)
+          continue
+        }
+        for (const key of Object.keys(entry as Record<string, unknown>)) {
+          if (!SPEC_ATTR_ALLOWLIST.includes(key)) {
+            errors.push(`specs[${path}]: unknown key '${key}'. Allowed keys: ${SPEC_ATTR_ALLOWLIST.join(', ')}.`)
+          }
+        }
+      }
+    }
+  }
+
   if (errors.length > 0) {
     console.error(`✗ Error   ${filePath} validation failed:`)
     for (const e of errors) {
@@ -430,6 +452,10 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
 
   return config as unknown as MdspecMapConfig
 }
+
+// Allowlist for unified spec attributes — applies to both .mdspecmap specs[path]
+// entries and spec-file frontmatter. Anything outside this set is a hard error.
+export const SPEC_ATTR_ALLOWLIST: string[] = ['id', 'title', 'agent']
 
 // Kept for backwards-compat use in init command and legacy callers.
 export async function readMdspecMap(): Promise<MdspecMapConfig> {
@@ -745,55 +771,109 @@ export async function buildSpecArtifact(
   config: MdspecMapConfig,
   previousPath?: string
 ): Promise<SpecArtifact | null> {
+  let raw: string
   try {
-    const raw = await readFile(filePath, 'utf8')
-    const parsed = matter(raw)
-    const frontmatter = (parsed.data ?? {}) as Record<string, unknown>
-    const content = parsed.content
-    const specConfig = resolveSpecConfig(filePath, config)
-    // Frontmatter title wins, then specs:[].title, then first H1, then filename
-    const fmTitle = typeof frontmatter.title === 'string' ? frontmatter.title : undefined
-    const title = fmTitle
-      ?? (specConfig.title !== deriveTitle(filePath)
-        ? specConfig.title
-        : (extractH1(content) ?? specConfig.title))
-    const hash = 'sha256:' + createHash('sha256').update(content).digest('hex')
-
-    return {
-      path: filePath,
-      ...(previousPath ? { previous_path: previousPath } : {}),
-      hash,
-      title,
-      ...(specConfig.id_ref ? { id_ref: specConfig.id_ref } : {}),
-      ...(specConfig.agent ? { agent: specConfig.agent } : {}),
-      content,
-      ...(Object.keys(frontmatter).length > 0 ? { frontmatter } : {}),
-    }
+    raw = await readFile(filePath, 'utf8')
   } catch (err) {
     console.error(`✗ Failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`)
     return null
   }
+
+  let parsed
+  try {
+    parsed = matter(raw)
+  } catch (err) {
+    console.error(`✗ Failed to parse frontmatter in ${filePath}: ${err instanceof Error ? err.message : String(err)}`)
+    return null
+  }
+
+  const frontmatter = (parsed.data ?? {}) as Record<string, unknown>
+  const content = parsed.content
+
+  // Allowlist enforcement: frontmatter accepts only id, title, agent.
+  // Per-integration keys (clickup_task_id, jira_issue_key, …) and legacy
+  // mdspec keys (mdspec_agent, mdspec_no_agent, …) are hard errors.
+  for (const key of Object.keys(frontmatter)) {
+    if (!SPEC_ATTR_ALLOWLIST.includes(key)) {
+      console.error(`✗ ${filePath}: unknown frontmatter key '${key}'. Allowed keys: ${SPEC_ATTR_ALLOWLIST.join(', ')}.`)
+      return null
+    }
+  }
+
+  const resolved = resolveSpecConfig(filePath, config, frontmatter, content)
+  const hash = 'sha256:' + createHash('sha256').update(content).digest('hex')
+
+  return {
+    path: filePath,
+    ...(previousPath ? { previous_path: previousPath } : {}),
+    hash,
+    title: resolved.title,
+    title_source: resolved.title_source,
+    ...(resolved.id ? { id: resolved.id, id_source: resolved.id_source! } : {}),
+    ...(resolved.agent ? { agent: resolved.agent, agent_source: resolved.agent_source! } : {}),
+    content,
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Spec config resolution — derives ID, title, agent, task_ref from .mdspecmap
+// Spec config resolution — merges .mdspecmap specs[path] and spec frontmatter.
+// Frontmatter wins, field by field, per UNIFIED_ATTRIBUTES_SPEC §3.1.
 // ---------------------------------------------------------------------------
 
-interface ResolvedSpecConfig {
+export interface ResolvedSpecConfig {
   title: string
-  id_ref?: string
+  title_source: AttrSource
+  id?: string
+  id_source?: 'frontmatter' | 'mapping'
   agent?: string
+  agent_source?: 'frontmatter' | 'mapping'
 }
 
-export function resolveSpecConfig(filePath: string, config: MdspecMapConfig): ResolvedSpecConfig {
+export function resolveSpecConfig(
+  filePath: string,
+  config: MdspecMapConfig,
+  frontmatter: Record<string, unknown> = {},
+  content: string = ''
+): ResolvedSpecConfig {
   const basename = filePath.split('/').pop() ?? filePath
   const entry = config.specs?.[filePath] ?? config.specs?.[basename]
 
-  return {
-    title: entry?.title ?? deriveTitle(filePath),
-    ...(entry?.id ? { id_ref: entry.id } : {}),
-    ...(entry?.agent ? { agent: entry.agent } : {}),
+  const fmTitle = typeof frontmatter.title === 'string' ? frontmatter.title : undefined
+  const fmId = typeof frontmatter.id === 'string' ? frontmatter.id : undefined
+  const fmAgent = typeof frontmatter.agent === 'string' ? frontmatter.agent : undefined
+
+  let title: string
+  let title_source: AttrSource
+  if (fmTitle) {
+    title = fmTitle
+    title_source = 'frontmatter'
+  } else if (entry?.title) {
+    title = entry.title
+    title_source = 'mapping'
+  } else {
+    title = extractH1(content) ?? deriveTitle(filePath)
+    title_source = 'derived'
   }
+
+  const result: ResolvedSpecConfig = { title, title_source }
+
+  if (fmId) {
+    result.id = fmId
+    result.id_source = 'frontmatter'
+  } else if (entry?.id) {
+    result.id = entry.id
+    result.id_source = 'mapping'
+  }
+
+  if (fmAgent) {
+    result.agent = fmAgent
+    result.agent_source = 'frontmatter'
+  } else if (entry?.agent) {
+    result.agent = entry.agent
+    result.agent_source = 'mapping'
+  }
+
+  return result
 }
 
 function deriveTitle(filePath: string): string {

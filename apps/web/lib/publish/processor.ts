@@ -13,25 +13,6 @@ export class UnrecoverableError extends Error {
   readonly unrecoverable = true
 }
 
-// Default frontmatter keys per integration for native ID adoption.
-// Overridable via folder_mappings.frontmatter_map.id on a per-mapping basis.
-const DEFAULT_NATIVE_ID_KEY: Record<IntegrationType, string> = {
-  clickup: 'clickup_id',
-  notion: 'notion_page_id',
-  confluence: 'confluence_page_id',
-  s3: 's3_key',
-}
-
-function readFrontmatterNativeId(
-  frontmatter: Record<string, unknown>,
-  targetType: IntegrationType,
-  frontmatterMap: Record<string, string> | null | undefined
-): string | null {
-  const key = frontmatterMap?.id ?? DEFAULT_NATIVE_ID_KEY[targetType]
-  const val = frontmatter[key]
-  return typeof val === 'string' && val.trim() ? val.trim() : null
-}
-
 interface GroupContext {
   supabase: SupabaseClient
   credentials: Record<string, unknown>
@@ -276,11 +257,13 @@ async function setupS3GroupContext(ctx: GroupContext, matchedFolder: string): Pr
 // ---------------------------------------------------------------------------
 async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promise<void> {
   const { supabase, credentials, project_id, target_type } = ctx
-  const { spec_id, spec_publish_target_id, path, frontmatter, content_hash } = spec
+  const { spec_id, spec_publish_target_id, path, content_hash } = spec
   let { content } = spec
 
   // -- Agent routing ---------------------------------------------------------
-  const resolution = await resolveFolderMapping(supabase, project_id, path, frontmatter, ctx.integration_id, ctx.clickupMode)
+  // Unified `spec.agent` (resolved by CLI: frontmatter.agent > specs[path].agent)
+  // wins over folder-mapping templates. `agent: 'none'` opts out entirely.
+  const resolution = await resolveFolderMapping(supabase, project_id, path, spec.agent, ctx.integration_id, ctx.clickupMode)
   if (resolution.shouldRunAgent && resolution.templateId && resolution.trigger) {
     console.log(`[publish] spec ${spec_id} → agent (template ${resolution.templateId})`)
     content = await runAgentInline(
@@ -303,20 +286,19 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   let existingPageId = target?.external_page_id ?? null
   const lastPublishedHash = (target as { content_hash?: string | null } | null)?.content_hash ?? null
 
-  // -- Frontmatter native ID (Option B authoritative) ------------------------
-  // If the user supplies a native ID via frontmatter (e.g. clickup_id, notion_page_id),
-  // it overrides the DB binding on every publish. Editing/removing the key re-points or
-  // unbinds the spec — file is the source of truth.
-  const fmNativeId = readFrontmatterNativeId(frontmatter, target_type, ctx.frontmatterMap)
-  if (fmNativeId) {
-    let resolved: string | null = fmNativeId
+  // -- Unified `id` adoption (UNIFIED_ATTRIBUTES_SPEC §4) -------------------
+  // First publish only: resolve declared `id` to a native record, store in the
+  // ledger, then ignore `id` from then on. Subsequent publishes are ledger-driven.
+  // Integration-agnostic — adapter interprets `spec.id` per its native ID format.
+  if (!existingPageId && spec.id) {
+    let resolved: string | null = spec.id
     if (target_type === 'clickup' && ctx.clickupMode === 'task_list') {
       const clickupCreds = { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string }
-      resolved = await resolveToNativeTaskId(clickupCreds, fmNativeId, ctx.clickupUseCustomTaskIds)
-      console.log(`[publish] frontmatter clickup_id="${fmNativeId}" → native ${resolved ?? 'null'}`)
+      resolved = await resolveToNativeTaskId(clickupCreds, spec.id, ctx.clickupUseCustomTaskIds)
+      console.log(`[publish] unified id="${spec.id}" → native ${resolved ?? 'null'}`)
     }
-    if (resolved && resolved !== existingPageId) {
-      console.log(`[publish] frontmatter native id override: ${existingPageId ?? 'none'} → ${resolved}`)
+    if (resolved) {
+      console.log(`[publish] adopted unified id ${spec.id} → ${resolved}`)
       existingPageId = resolved
       await supabase
         .from('spec_publish_targets')
@@ -388,7 +370,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   }
 
   // Resolve title once here so all adapters use the same value
-  const specPayload = { path, content, frontmatter, resolvedTitle: spec.title }
+  const specPayload = { path, content, resolvedTitle: spec.title }
 
   // -- Dispatch to adapter ---------------------------------------------------
   let result: { page_id?: string; doc_id?: string; page_url?: string; doc_url?: string }
@@ -424,39 +406,18 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
       if (ctx.clickupMode === 'task_list') {
         if (!ctx.clickupListId) throw new Error('clickup_list_id not configured for task_list mode')
 
-        console.log(`[publish:task] spec=${spec_id} path=${path}`)
-        console.log(`[publish:task] id_ref from .mdspecmap specs: ${spec.id_ref ?? '(not set)'}`)
-        console.log(`[publish:task] existingPageId from DB: ${existingPageId ?? '(none)'}`)
-
-        // Adopt task ID from links: section in .mdspecmap (one-time link to a pre-existing task).
-        // Resolve to native ID — one GET call here, never again after the native ID is stored.
-        if (!existingPageId && spec.id_ref) {
-          const nativeId = await resolveToNativeTaskId(clickupCreds, spec.id_ref, ctx.clickupUseCustomTaskIds)
-          console.log(`[publish:task] resolveToNativeTaskId("${spec.id_ref}") → ${nativeId ?? 'null (not found)'}`)
-          if (nativeId) {
-            existingPageId = nativeId
-            await supabase
-              .from('spec_publish_targets')
-              .update({ external_page_id: nativeId })
-              .eq('id', spec_publish_target_id)
-            console.log(`[publish:task] adopted task ${spec.id_ref} → native id ${nativeId}`)
-          } else {
-            console.log(`[publish:task] task ref ${spec.id_ref} not found in ClickUp — will create new task`)
-          }
-        } else if (!existingPageId) {
-          console.log(`[publish:task] no id_ref in specs — will create new task`)
-        }
+        console.log(`[publish:task] spec=${spec_id} path=${path} existingPageId=${existingPageId ?? '(none)'}`)
 
         let taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId, ctx.frontmatterMap)
 
         // Stored ID was stale (task deleted in ClickUp) — try to re-resolve from
-        // links: section before falling through to create a brand new task.
+        // the unified id before falling through to create a brand new task.
         if (taskResult.previousIdStale) {
-          console.log(`[publish:task] stale stored id — re-checking task_ref: ${spec.id_ref ?? '(not set)'}`)
+          console.log(`[publish:task] stale stored id — re-checking unified id: ${spec.id ?? '(not set)'}`)
           let resolvedId: string | null = null
-          if (spec.id_ref) {
-            resolvedId = await resolveToNativeTaskId(clickupCreds, spec.id_ref, ctx.clickupUseCustomTaskIds)
-            console.log(`[publish:task] re-resolve "${spec.id_ref}" → ${resolvedId ?? 'null'}`)
+          if (spec.id) {
+            resolvedId = await resolveToNativeTaskId(clickupCreds, spec.id, ctx.clickupUseCustomTaskIds)
+            console.log(`[publish:task] re-resolve "${spec.id}" → ${resolvedId ?? 'null'}`)
           }
           // Clear stale ID from DB — will be replaced with new one after this publish
           await supabase
@@ -504,8 +465,9 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         bucket: credentials.bucket as string,
         region: credentials.region as string,
       }
-      // Frontmatter s3_key (if present) overrides the computed object key
-      const objectKey = fmNativeId ?? buildS3Key(path, ctx.s3RootPrefix, {
+      // Unified `id` (already adopted into existingPageId upstream) overrides the
+      // computed object key — declared key wins.
+      const objectKey = existingPageId ?? buildS3Key(path, ctx.s3RootPrefix, {
         maintainHierarchy: ctx.s3MaintainHierarchy,
         matchedFolder: ctx.s3MatchedFolder,
       })

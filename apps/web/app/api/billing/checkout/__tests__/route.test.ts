@@ -9,7 +9,7 @@ import { GET } from '../route.js'
 import { createSupabaseServerClient } from '@/lib/db-server'
 
 const USER = { id: 'user-1' }
-const CHECKOUT_URL = 'https://checkout.paddle.com/test-session'
+const TXN_ID = 'txn_test_123'
 
 function makeServerClient(user: typeof USER | null) {
   return {
@@ -18,11 +18,12 @@ function makeServerClient(user: typeof USER | null) {
   }
 }
 
-function mockPaddle(checkoutUrl: string | null) {
+function mockPaddle(transactionId: string | null) {
   global.fetch = vi.fn().mockResolvedValue({
+    status: transactionId ? 200 : 400,
     json: () => Promise.resolve(
-      checkoutUrl
-        ? { data: { checkout: { url: checkoutUrl } } }
+      transactionId
+        ? { data: { id: transactionId } }
         : { data: null }
     ),
   })
@@ -33,7 +34,7 @@ beforeEach(() => {
   process.env.PADDLE_API_KEY = 'test_api_key'
   process.env.PADDLE_PRICE_MONTHLY = 'pri_monthly'
   process.env.PADDLE_PRICE_YEARLY = 'pri_yearly'
-  process.env.PADDLE_ENV = 'sandbox'
+  process.env.NEXT_PUBLIC_PADDLE_ENV = 'sandbox'
   process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000'
 })
 
@@ -47,19 +48,20 @@ describe('GET /api/billing/checkout', () => {
     expect(res.headers.get('location')).toContain('/login')
   })
 
-  it('redirects to Paddle checkout URL on success', async () => {
+  it('returns transactionId JSON on success', async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(makeServerClient(USER) as never)
-    mockPaddle(CHECKOUT_URL)
+    mockPaddle(TXN_ID)
 
     const res = await GET(new Request('http://localhost/api/billing/checkout?period=monthly'))
 
-    expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toBe(CHECKOUT_URL)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.transactionId).toBe(TXN_ID)
   })
 
-  it('uses sandbox API base URL when PADDLE_ENV=sandbox', async () => {
+  it('uses sandbox API base URL when NEXT_PUBLIC_PADDLE_ENV=sandbox', async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(makeServerClient(USER) as never)
-    mockPaddle(CHECKOUT_URL)
+    mockPaddle(TXN_ID)
 
     await GET(new Request('http://localhost/api/billing/checkout?period=monthly'))
 
@@ -67,10 +69,10 @@ describe('GET /api/billing/checkout', () => {
     expect(url).toContain('sandbox-api.paddle.com')
   })
 
-  it('uses production API base URL when PADDLE_ENV is not sandbox', async () => {
-    process.env.PADDLE_ENV = 'production'
+  it('uses production API base URL when NEXT_PUBLIC_PADDLE_ENV is not sandbox', async () => {
+    process.env.NEXT_PUBLIC_PADDLE_ENV = 'production'
     vi.mocked(createSupabaseServerClient).mockResolvedValue(makeServerClient(USER) as never)
-    mockPaddle(CHECKOUT_URL)
+    mockPaddle(TXN_ID)
 
     await GET(new Request('http://localhost/api/billing/checkout?period=monthly'))
 
@@ -81,7 +83,7 @@ describe('GET /api/billing/checkout', () => {
 
   it('sends monthly price ID when period=monthly', async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(makeServerClient(USER) as never)
-    mockPaddle(CHECKOUT_URL)
+    mockPaddle(TXN_ID)
 
     await GET(new Request('http://localhost/api/billing/checkout?period=monthly'))
 
@@ -91,7 +93,7 @@ describe('GET /api/billing/checkout', () => {
 
   it('sends yearly price ID when period=yearly', async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(makeServerClient(USER) as never)
-    mockPaddle(CHECKOUT_URL)
+    mockPaddle(TXN_ID)
 
     await GET(new Request('http://localhost/api/billing/checkout?period=yearly'))
 
@@ -101,7 +103,7 @@ describe('GET /api/billing/checkout', () => {
 
   it('defaults to monthly price ID when period param is missing', async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(makeServerClient(USER) as never)
-    mockPaddle(CHECKOUT_URL)
+    mockPaddle(TXN_ID)
 
     await GET(new Request('http://localhost/api/billing/checkout'))
 
@@ -111,7 +113,7 @@ describe('GET /api/billing/checkout', () => {
 
   it('includes user_id in custom_data', async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(makeServerClient(USER) as never)
-    mockPaddle(CHECKOUT_URL)
+    mockPaddle(TXN_ID)
 
     await GET(new Request('http://localhost/api/billing/checkout?period=monthly'))
 
@@ -119,17 +121,7 @@ describe('GET /api/billing/checkout', () => {
     expect(body.custom_data.user_id).toBe(USER.id)
   })
 
-  it('includes success redirect URL in checkout.url', async () => {
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(makeServerClient(USER) as never)
-    mockPaddle(CHECKOUT_URL)
-
-    await GET(new Request('http://localhost/api/billing/checkout?period=monthly'))
-
-    const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body)
-    expect(body.checkout.url).toContain('/settings/billing?upgraded=1')
-  })
-
-  it('returns 500 when Paddle API does not return a checkout URL', async () => {
+  it('returns 500 when Paddle API does not return a transaction id', async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(makeServerClient(USER) as never)
     mockPaddle(null)
 

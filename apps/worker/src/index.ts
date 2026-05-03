@@ -10,6 +10,15 @@
  *   REDIS_URL
  *   SUPABASE_URL
  *   SUPABASE_SERVICE_KEY
+ *
+ * NOTE: This worker is on the legacy spec contract — it still consumes the
+ * raw `frontmatter` blob and the legacy agent keys (`mdspec_agent`,
+ * `mdspec_no_agent`). The active publish path is the QStash flow in
+ * `apps/web/lib/publish/processor.ts`, which adopts the unified
+ * `{id, title, agent}` contract from UNIFIED_ATTRIBUTES_SPEC.md. Nothing in
+ * `apps/web` currently enqueues to this BullMQ worker — if it is reactivated,
+ * its adapters / resolveFolderMapping / publishProcessor must be ported to
+ * the unified contract before use.
  */
 
 import { Worker } from 'bullmq'

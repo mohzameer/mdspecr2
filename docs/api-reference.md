@@ -44,7 +44,12 @@ The primary endpoint. Receives specs and `.mdspecmap` config from the CLI, resol
       "path": "docs/specs/auth.md",
       "previous_path": "docs/specs/authentication.md",
       "hash": "sha256:...",
-      "frontmatter": { "title": "Auth Spec" },
+      "title": "Auth Spec",
+      "title_source": "frontmatter",
+      "id": "abc123def456",
+      "id_source": "frontmatter",
+      "agent": "task_template",
+      "agent_source": "mapping",
       "content": "# Auth\n..."
     }
   ],
@@ -71,7 +76,10 @@ The primary endpoint. Receives specs and `.mdspecmap` config from the CLI, resol
         "parent": "eng-specs",
         "format": "md"
       }
-    ]
+    ],
+    "specs": {
+      "docs/specs/auth.md": { "id": "abc123", "title": "Auth Spec" }
+    }
   }
 }
 ```
@@ -86,13 +94,27 @@ The primary endpoint. Receives specs and `.mdspecmap` config from the CLI, resol
 | `specs` | SpecArtifact[] | Yes | Array of changed spec files |
 | `specs[].path` | string | Yes | Relative file path from repo root |
 | `specs[].previous_path` | string | No | Set on rename (old path) |
-| `specs[].hash` | string | Yes | `sha256:<hex>` content hash |
-| `specs[].frontmatter` | object | Yes | Parsed YAML frontmatter |
-| `specs[].content` | string | Yes | Markdown content (without frontmatter) |
+| `specs[].hash` | string | Yes | `sha256:<hex>` content hash, computed from frontmatter-stripped content |
+| `specs[].title` | string | Yes | Resolved title — frontmatter > `.mdspecmap` `specs[path].title` > first H1 > derived from filename |
+| `specs[].title_source` | enum | Yes | `frontmatter` \| `mapping` \| `derived` — provenance of `title` |
+| `specs[].id` | string | No | Resolved unified record id, opaque to mdspec. Adapter interprets per integration (e.g. ClickUp custom-task-id, Notion page id, S3 object key). Set only when declared in frontmatter or `.mdspecmap` `specs[path].id`. |
+| `specs[].id_source` | enum | No | `frontmatter` \| `mapping` — provenance of `id`. Omitted when `id` is omitted. |
+| `specs[].agent` | string | No | Resolved agent template name, or `"none"` to opt out. Set only when declared in frontmatter or `.mdspecmap` `specs[path].agent`. |
+| `specs[].agent_source` | enum | No | `frontmatter` \| `mapping` — provenance of `agent`. Omitted when `agent` is omitted. |
+| `specs[].content` | string | Yes | Markdown content with frontmatter block stripped (adapters never see `---`) |
 | `config` | MdspecMapConfig | Yes | Merged config from all discovered `.mdspecmap` files. Always set by CLI — never written directly by users. |
 | `config.mappings[].folder` | string | Yes | Repo-relative scope dir of the `.mdspecmap` file that owns this mapping. Always present in the payload — CLI sets it to the file's location. Users do not write `folder:` in `.mdspecmap` files. |
 | `config.mappings[].format` | string | No | S3 only. `"md"` (default) or `"html"`. Controls file extension and `Content-Type` of uploaded objects. |
+| `config.specs` | object | No | Per-path overrides keyed by repo-relative path. Allowed keys: `id`, `title`, `agent`. Any other key causes the CLI to reject the file. |
 | `config.sub_folders` | boolean | No | Not present in payload — CLI converts `sub_folders: false` to `depth: 1` before sending. |
+
+**Unified spec attributes**
+
+`id`, `title`, and `agent` are the only attributes a spec may declare — both in YAML frontmatter and in `.mdspecmap` `specs[path]`. Frontmatter wins over `.mdspecmap`. Per-integration keys (`clickup_id`, `notion_page_id`, `confluence_page_id`, `s3_key`, `mdspec_agent`, `mdspec_no_agent`, …) are rejected at CLI build time with `unknown frontmatter key '<key>'`; the spec is skipped and the publish proceeds without it. See [`UNIFIED_ATTRIBUTES_SPEC.md`](../UNIFIED_ATTRIBUTES_SPEC.md).
+
+**`id` adoption (adopt-once)**
+
+On a spec's first publish to a target, `specs[].id` (when set) is adopted as the binding stored in `spec_publish_targets.external_page_id`. ClickUp `task_list` mode pipes `id` through `resolveToNativeTaskId` first to handle custom-task-IDs. After adoption, subsequent publishes ignore `specs[].id` and trust the stored binding — editing `id` does not re-point an existing record.
 
 **Responses:**
 

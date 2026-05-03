@@ -320,11 +320,11 @@ describe('mergeConfigs — multi-map specs merging', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 4. buildSpecArtifact — id_ref after full pipeline
+// 4. buildSpecArtifact — id after full pipeline
 // ---------------------------------------------------------------------------
 
 describe('buildSpecArtifact with distributed map config', () => {
-  it('resolves id_ref for spec governed by nested .mdspecmap', async () => {
+  it('resolves id for spec governed by nested .mdspecmap', async () => {
     vi.mocked(fs.readFile).mockResolvedValue('# History\n' as never)
 
     // Simulate the post-pipeline merged config (scopeDir already applied)
@@ -341,11 +341,11 @@ describe('buildSpecArtifact with distributed map config', () => {
 
     const artifact = await buildSpecArtifact('src/hooks/INFO7.md', mergedConfig)
     expect(artifact).not.toBeNull()
-    expect(artifact!.id_ref).toBe('86exam62a')
+    expect(artifact!.id).toBe('86exam62a')
     expect(artifact!.title).toBe('History')
   })
 
-  it('resolves id_ref for spec governed by root .mdspecmap', async () => {
+  it('resolves id for spec governed by root .mdspecmap', async () => {
     vi.mocked(fs.readFile).mockResolvedValue('# Home\n' as never)
 
     const mergedConfig = mergeConfigs([
@@ -360,10 +360,10 @@ describe('buildSpecArtifact with distributed map config', () => {
     ])
 
     const artifact = await buildSpecArtifact('README.md', mergedConfig)
-    expect(artifact!.id_ref).toBe('root-task-1')
+    expect(artifact!.id).toBe('root-task-1')
   })
 
-  it('resolves id_ref for deep nested spec (3 levels)', async () => {
+  it('resolves id for deep nested spec (3 levels)', async () => {
     vi.mocked(fs.readFile).mockResolvedValue('# Deep\n' as never)
 
     const mergedConfig = mergeConfigs([
@@ -378,10 +378,10 @@ describe('buildSpecArtifact with distributed map config', () => {
     ])
 
     const artifact = await buildSpecArtifact('a/b/c/deep.md', mergedConfig)
-    expect(artifact!.id_ref).toBe('deep-task-xyz')
+    expect(artifact!.id).toBe('deep-task-xyz')
   })
 
-  it('does NOT set id_ref for spec that has no entry in any map', async () => {
+  it('does NOT set id for spec that has no entry in any map', async () => {
     vi.mocked(fs.readFile).mockResolvedValue('# Unlisted\n' as never)
 
     const mergedConfig = mergeConfigs([
@@ -396,10 +396,10 @@ describe('buildSpecArtifact with distributed map config', () => {
     ])
 
     const artifact = await buildSpecArtifact('src/unlisted.md', mergedConfig)
-    expect(artifact!.id_ref).toBeUndefined()
+    expect(artifact!.id).toBeUndefined()
   })
 
-  it('correctly resolves id_ref from sub-path key within a scope', async () => {
+  it('correctly resolves id from sub-path key within a scope', async () => {
     vi.mocked(fs.readFile).mockResolvedValue('# Sub\n' as never)
 
     // .mdspecmap at src/ references hooks/INFO7.md (path relative to src/)
@@ -415,7 +415,7 @@ describe('buildSpecArtifact with distributed map config', () => {
     ])
 
     const artifact = await buildSpecArtifact('src/hooks/INFO7.md', mergedConfig)
-    expect(artifact!.id_ref).toBe('86exam62a')
+    expect(artifact!.id).toBe('86exam62a')
   })
 })
 
@@ -490,7 +490,7 @@ function setupMultiMapMocks(fetchResponse: unknown) {
 }
 
 describe('publishCommand payload — distributed maps', () => {
-  it('payload contains id_ref for spec governed by nested .mdspecmap', async () => {
+  it('payload contains id for spec governed by nested .mdspecmap', async () => {
     setupMultiMapMocks({ accepted: true, saved: 2, queued: 2 })
 
     await expect(publishCommand({ project: 'proj', skipDiff: true })).rejects.toThrow('exit:0')
@@ -498,11 +498,11 @@ describe('publishCommand payload — distributed maps', () => {
     const body = JSON.parse((vi.mocked(global.fetch) as ReturnType<typeof vi.fn>).mock.calls[0][1].body)
     const hooksSpec = body.specs.find((s: { path: string }) => s.path === 'src/hooks/INFO7.md')
     expect(hooksSpec).toBeDefined()
-    expect(hooksSpec.id_ref).toBe('86exam62a')
+    expect(hooksSpec.id).toBe('86exam62a')
     expect(hooksSpec.title).toBe('History')
   })
 
-  it('payload contains id_ref for spec governed by root .mdspecmap', async () => {
+  it('payload contains id for spec governed by root .mdspecmap', async () => {
     setupMultiMapMocks({ accepted: true, saved: 2, queued: 2 })
 
     await expect(publishCommand({ project: 'proj', skipDiff: true })).rejects.toThrow('exit:0')
@@ -510,7 +510,7 @@ describe('publishCommand payload — distributed maps', () => {
     const body = JSON.parse((vi.mocked(global.fetch) as ReturnType<typeof vi.fn>).mock.calls[0][1].body)
     const rootSpec = body.specs.find((s: { path: string }) => s.path === 'README.md')
     expect(rootSpec).toBeDefined()
-    expect(rootSpec.id_ref).toBe('root-task-1')
+    expect(rootSpec.id).toBe('root-task-1')
   })
 
   it('payload config.mappings contain folder from each .mdspecmap scopeDir', async () => {
@@ -524,7 +524,7 @@ describe('publishCommand payload — distributed maps', () => {
     expect(folders).toContain('src/hooks')  // nested .mdspecmap
   })
 
-  it('spec without a specs: entry has no id_ref in payload', async () => {
+  it('spec without a specs: entry has no id in payload', async () => {
     // Setup with only one map and no specs: section
     vi.mocked(fs.readFile).mockImplementation((p: unknown) => {
       const path = String(p)
@@ -551,6 +551,6 @@ describe('publishCommand payload — distributed maps', () => {
     const body = JSON.parse((vi.mocked(global.fetch) as ReturnType<typeof vi.fn>).mock.calls[0][1].body)
     const spec = body.specs.find((s: { path: string }) => s.path === 'plain.md')
     expect(spec).toBeDefined()
-    expect(spec.id_ref).toBeUndefined()
+    expect(spec.id).toBeUndefined()
   })
 })

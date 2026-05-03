@@ -49,7 +49,7 @@ export async function s3ObjectExists(
 
 export async function publishToS3(
   credentials: S3Credentials,
-  spec: { path: string; content: string; frontmatter: Record<string, unknown>; resolvedTitle?: string },
+  spec: { path: string; content: string; resolvedTitle?: string },
   objectKey: string
 ): Promise<{ page_id: string; page_url: string }> {
   const client = new S3Client({

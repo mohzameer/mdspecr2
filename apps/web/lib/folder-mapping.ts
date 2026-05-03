@@ -11,17 +11,16 @@ export async function resolveFolderMapping(
   supabase: SupabaseClient,
   projectId: string,
   specPath: string,
-  frontmatter: Record<string, unknown>,
+  unifiedAgent: string | undefined,
   integrationId?: string,
   clickupMode?: string
 ): Promise<MappingResolution> {
-  if (frontmatter.mdspec_no_agent === true) {
+  if (unifiedAgent === 'none') {
     return { shouldRunAgent: false, templateId: null, trigger: null }
   }
 
-  const fmAgent = frontmatter.mdspec_agent
-  if (typeof fmAgent === 'string' && fmAgent.trim()) {
-    return { shouldRunAgent: true, templateId: fmAgent.trim(), trigger: 'frontmatter' }
+  if (typeof unifiedAgent === 'string' && unifiedAgent.trim()) {
+    return { shouldRunAgent: true, templateId: unifiedAgent.trim(), trigger: 'frontmatter' }
   }
 
   const ancestors = getAncestorFolders(specPath).slice().reverse()

@@ -27,7 +27,7 @@ export interface MdspecMapMapping {
   agent?: string                     // agent template name
   parent_dir?: string                // s3 only: bucket key prefix (e.g. "docs/eng-specs")
   maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths under parent_dir (default false = flat)
-  frontmatter_map?: Record<string, string>  // canonical-attr → frontmatter-key override (e.g. { id: 'clickup_id' })
+  frontmatter_map?: Record<string, string>  // ClickUp task field allowlist (status/priority/tags/...). The unified `id` is never mapped here.
 }
 
 export interface MdspecMapSpecEntry {
@@ -56,15 +56,19 @@ export interface MdspecMapConfig {
 // CLI → API publish payload
 // ---------------------------------------------------------------------------
 
+export type AttrSource = 'frontmatter' | 'mapping' | 'derived'
+
 export interface SpecArtifact {
   path: string
   previous_path?: string             // set on rename (git R status)
   hash: string
   title: string                      // resolved by CLI: frontmatter.title > specs[path].title > H1 > filename
-  id_ref?: string                    // resolved from specs[path].id
-  agent?: string                     // resolved from specs[path].agent or folder mapping
+  title_source: AttrSource
+  id?: string                        // unified native ID — frontmatter.id > specs[path].id
+  id_source?: 'frontmatter' | 'mapping'
+  agent?: string                     // unified agent — frontmatter.agent > specs[path].agent > folder mapping
+  agent_source?: 'frontmatter' | 'mapping'
   content: string                    // markdown body with frontmatter stripped
-  frontmatter?: Record<string, unknown>  // parsed YAML frontmatter (omitted if empty)
 }
 
 export interface PublishPayload {
@@ -88,10 +92,10 @@ export interface PublishGroupSpec {
   spec_publish_target_id: string
   path: string
   title: string
-  id_ref?: string
+  id?: string
+  agent?: string
   content: string
   content_hash: string
-  frontmatter: Record<string, unknown>
 }
 
 // All specs in a group share the same (integration_id, immediateParent).
@@ -105,7 +109,7 @@ export interface PublishGroupJobData {
   clickup_mode?: 'doc' | 'task_list'
   matched_folder?: string  // the folder path that was matched for this group (longest-prefix)
   s3_root_prefix?: string | null  // S3 bucket key prefix from mapping's parent_dir field
-  frontmatter_map?: Record<string, string> | null  // canonical-attr → frontmatter-key override (from .mdspecmap mapping)
+  frontmatter_map?: Record<string, string> | null  // ClickUp task field allowlist (status/priority/tags/...). Never used for `id` — that's unified.
 }
 
 // ---------------------------------------------------------------------------

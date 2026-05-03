@@ -1,19 +1,18 @@
 /**
- * Authoritative frontmatter native ID override (Option B)
+ * Unified `id` adoption (UNIFIED_ATTRIBUTES_SPEC §4)
  *
- * Verifies that when a spec's frontmatter contains a native ID (clickup_id,
- * notion_page_id, confluence_page_id, s3_key), that value is used to bind
- * publish on EVERY publish — overriding whatever DB.external_page_id holds.
- * Editing/changing frontmatter re-points the binding; removing it falls
- * back to DB.
+ * Verifies the adopt-once lifecycle:
+ *   - First publish with `spec.id` set and no existing binding → adapter
+ *     receives `spec.id`, DB is updated to record the adopted id.
+ *   - Subsequent publishes ignore `spec.id` and trust DB.external_page_id.
+ *   - ClickUp task_list resolves `spec.id` through resolveToNativeTaskId
+ *     (handles custom-task-IDs).
+ *   - S3 adopts `spec.id` as the object key (existingPageId path).
+ *   - Without `spec.id` or DB binding → adapter creates a new record.
  *
- * Also covers:
- *   - Default key per integration
- *   - Per-mapping `frontmatter_map.id` override of the default key
- *   - DB persistence of new ID after override
- *   - ClickUp task_list goes through resolveToNativeTaskId (custom IDs)
- *   - S3 object key follows the override
- *   - Frontmatter ID takes priority over .mdspecmap specs[].id (id_ref)
+ * `spec.id` is unified and opaque to mdspec. Per-integration frontmatter
+ * keys (clickup_id, notion_page_id, …) are rejected at CLI build time and
+ * never reach the processor.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -50,10 +49,6 @@ import {
 } from '@/lib/publish/adapters/clickup'
 import { publishToS3, buildS3Key, s3ObjectExists } from '@/lib/publish/adapters/s3'
 
-// ---------------------------------------------------------------------------
-// Test fixtures
-// ---------------------------------------------------------------------------
-
 const PROJECT_ID = 'proj-111'
 const INTEGRATION_ID = 'int-222'
 const SPT_ID = 'spt-001'
@@ -70,8 +65,7 @@ function makeSpec(overrides: Partial<{
   title: string
   content: string
   content_hash: string
-  frontmatter: Record<string, unknown>
-  id_ref: string | undefined
+  id: string | undefined
 }> = {}) {
   return {
     spec_id: 'spec-001',
@@ -80,13 +74,11 @@ function makeSpec(overrides: Partial<{
     title: 'Auth',
     content: '# Auth\n',
     content_hash: 'h1',
-    frontmatter: {},
-    id_ref: undefined,
+    id: undefined,
     ...overrides,
   }
 }
 
-// Tracks update calls so tests can assert DB persistence of overrides
 interface UpdateLog { table: string; payload: Record<string, unknown>; rowId?: string }
 
 function makeChain(data: unknown, updateLog: UpdateLog[], table: string) {
@@ -116,7 +108,7 @@ function makeChain(data: unknown, updateLog: UpdateLog[], table: string) {
 
 function makeSupabase(opts: {
   credentials: Record<string, unknown>
-  folderMapping?: Record<string, unknown> | null  // null = no row; undefined = skip table
+  folderMapping?: Record<string, unknown> | null
   existingPageId?: string | null
   storedHash?: string
 }) {
@@ -156,11 +148,11 @@ beforeEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// Notion — default key `notion_page_id`
+// First-publish adoption — adapter receives spec.id as existingPageId
 // ---------------------------------------------------------------------------
-describe('Notion: frontmatter notion_page_id is authoritative', () => {
-  it('uses frontmatter notion_page_id over DB external_page_id', async () => {
-    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'old-db-page' })
+describe('Unified id adoption — first publish', () => {
+  it('Notion: spec.id is adopted when no existing binding', async () => {
+    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: null })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
     vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'fm-page', page_url: 'https://notion.so/fm-page' })
 
@@ -168,90 +160,22 @@ describe('Notion: frontmatter notion_page_id is authoritative', () => {
       project_id: PROJECT_ID,
       integration_id: INTEGRATION_ID,
       target_type: 'notion',
-      specs: [makeSpec({ frontmatter: { notion_page_id: 'fm-page' } })],
+      specs: [makeSpec({ id: 'fm-page' })],
     })
 
-    // Adapter receives frontmatter ID, NOT the DB ID
     expect(publishToNotion).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ path: 'docs/auth.md' }),
       'fm-page'
     )
-    // DB updated to new ID before adapter dispatch
-    const overrideUpdate = supabase.updateLog.find(
+    const adoption = supabase.updateLog.find(
       (u) => u.table === 'spec_publish_targets' && u.payload.external_page_id === 'fm-page'
     )
-    expect(overrideUpdate).toBeDefined()
+    expect(adoption).toBeDefined()
   })
 
-  it('falls back to DB external_page_id when frontmatter has no notion_page_id', async () => {
-    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'db-only' })
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'db-only', page_url: '' })
-
-    await runPublishGroup({
-      project_id: PROJECT_ID,
-      integration_id: INTEGRATION_ID,
-      target_type: 'notion',
-      specs: [makeSpec({ frontmatter: {} })],
-    })
-
-    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'db-only')
-  })
-
-  it('frontmatter_map.id renames the default key (notion_page_id → custom)', async () => {
-    const supabase = makeSupabase({ credentials: NOTION_CREDS })
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'custom-id', page_url: '' })
-
-    await runPublishGroup({
-      project_id: PROJECT_ID,
-      integration_id: INTEGRATION_ID,
-      target_type: 'notion',
-      specs: [makeSpec({ frontmatter: { my_notion_id: 'custom-id', notion_page_id: 'WRONG' } })],
-      frontmatter_map: { id: 'my_notion_id' },
-    })
-
-    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'custom-id')
-  })
-
-  it('non-string frontmatter value is ignored (number falls through to DB)', async () => {
-    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'db-fallback' })
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'db-fallback', page_url: '' })
-
-    await runPublishGroup({
-      project_id: PROJECT_ID,
-      integration_id: INTEGRATION_ID,
-      target_type: 'notion',
-      specs: [makeSpec({ frontmatter: { notion_page_id: 12345 } })],
-    })
-
-    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'db-fallback')
-  })
-
-  it('changing frontmatter ID re-points the binding (DB updated on every publish)', async () => {
-    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'old' })
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'new', page_url: '' })
-
-    await runPublishGroup({
-      project_id: PROJECT_ID,
-      integration_id: INTEGRATION_ID,
-      target_type: 'notion',
-      specs: [makeSpec({ frontmatter: { notion_page_id: 'new' } })],
-    })
-
-    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'new')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Confluence — default key `confluence_page_id`
-// ---------------------------------------------------------------------------
-describe('Confluence: frontmatter confluence_page_id is authoritative', () => {
-  it('uses frontmatter confluence_page_id over DB', async () => {
-    const supabase = makeSupabase({ credentials: CONFLUENCE_CREDS, existingPageId: 'old-conf' })
+  it('Confluence: spec.id is adopted when no existing binding', async () => {
+    const supabase = makeSupabase({ credentials: CONFLUENCE_CREDS, existingPageId: null })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
     vi.mocked(publishToConfluence).mockResolvedValue({ page_id: 'fm-conf', page_url: '' })
 
@@ -259,7 +183,7 @@ describe('Confluence: frontmatter confluence_page_id is authoritative', () => {
       project_id: PROJECT_ID,
       integration_id: INTEGRATION_ID,
       target_type: 'confluence',
-      specs: [makeSpec({ frontmatter: { confluence_page_id: 'fm-conf' } })],
+      specs: [makeSpec({ id: 'fm-conf' })],
     })
 
     expect(publishToConfluence).toHaveBeenCalledWith(
@@ -268,18 +192,12 @@ describe('Confluence: frontmatter confluence_page_id is authoritative', () => {
       'fm-conf'
     )
   })
-})
 
-// ---------------------------------------------------------------------------
-// ClickUp doc mode — default key `clickup_id`
-// ---------------------------------------------------------------------------
-describe('ClickUp doc: frontmatter clickup_id is authoritative', () => {
-  it('uses frontmatter clickup_id for an existing doc', async () => {
-    // Root-folder mapping (no folder_mappings row queried for root specs)
+  it('ClickUp doc: spec.id is adopted as the doc id when no binding', async () => {
     const supabase = makeSupabase({
       credentials: CLICKUP_CREDS,
-      folderMapping: undefined,            // root path → no setupClickup mapping query
-      existingPageId: 'old-doc',
+      folderMapping: undefined,
+      existingPageId: null,
     })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
     vi.mocked(publishSingleSpec).mockResolvedValue({ doc_id: 'fm-doc', doc_url: '' })
@@ -289,38 +207,30 @@ describe('ClickUp doc: frontmatter clickup_id is authoritative', () => {
       integration_id: INTEGRATION_ID,
       target_type: 'clickup',
       clickup_mode: 'doc',
-      matched_folder: '',                  // root → setupClickupGroupContext returns early
-      specs: [makeSpec({
-        path: 'auth.md',
-        frontmatter: { clickup_id: 'fm-doc' },
-      })],
+      matched_folder: '',
+      specs: [makeSpec({ path: 'auth.md', id: 'fm-doc' })],
     })
 
     expect(publishSingleSpec).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      'fm-doc',                            // existingPageId override
-      null                                 // folderMappingTargetId (none for root)
+      'fm-doc',
+      null
     )
   })
 })
 
 // ---------------------------------------------------------------------------
-// ClickUp task_list — frontmatter clickup_id is resolved via resolveToNativeTaskId
+// ClickUp task_list — spec.id flows through resolveToNativeTaskId
 // ---------------------------------------------------------------------------
-describe('ClickUp task_list: frontmatter clickup_id resolves to native task ID', () => {
-  it('passes frontmatter ID through resolveToNativeTaskId before adopting', async () => {
+describe('ClickUp task_list: spec.id resolves to native task ID', () => {
+  it('passes spec.id through resolveToNativeTaskId before adopting', async () => {
     const supabase = makeSupabase({
       credentials: CLICKUP_CREDS,
       folderMapping: {
-        id: 'fm-1',
-        folder_path: 'docs',
-        target_id: null,
-        clickup_list_id: 'list-9',
-        clickup_use_custom_task_ids: false,
-        frontmatter_map: null,
-        clickup_doc_id: null,
-        clickup_page_id: null,
+        id: 'fm-1', folder_path: 'docs', target_id: null,
+        clickup_list_id: 'list-9', clickup_use_custom_task_ids: false,
+        frontmatter_map: null, clickup_doc_id: null, clickup_page_id: null,
       },
       existingPageId: null,
     })
@@ -334,14 +244,10 @@ describe('ClickUp task_list: frontmatter clickup_id resolves to native task ID',
       target_type: 'clickup',
       clickup_mode: 'task_list',
       matched_folder: 'docs',
-      specs: [makeSpec({
-        path: 'docs/auth.md',
-        frontmatter: { clickup_id: 'CUSTOM-1' },     // user pasted a custom-task-ID
-      })],
+      specs: [makeSpec({ path: 'docs/auth.md', id: 'CUSTOM-1' })],
     })
 
     expect(resolveToNativeTaskId).toHaveBeenCalledWith(expect.anything(), 'CUSTOM-1', false)
-    // After resolution, publishAsTask receives the native ID — NOT the custom one
     expect(publishAsTask).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -349,38 +255,6 @@ describe('ClickUp task_list: frontmatter clickup_id resolves to native task ID',
       'list-9',
       null
     )
-  })
-
-  it('frontmatter clickup_id wins over .mdspecmap specs[].id (id_ref)', async () => {
-    const supabase = makeSupabase({
-      credentials: CLICKUP_CREDS,
-      folderMapping: {
-        id: 'fm-1', folder_path: 'docs', target_id: null,
-        clickup_list_id: 'list-9', clickup_use_custom_task_ids: false,
-        frontmatter_map: null, clickup_doc_id: null, clickup_page_id: null,
-      },
-      existingPageId: null,
-    })
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(resolveToNativeTaskId).mockResolvedValue('FROM-FM')
-    vi.mocked(publishAsTask).mockResolvedValue({ task_id: 'FROM-FM', task_url: '' })
-
-    await runPublishGroup({
-      project_id: PROJECT_ID,
-      integration_id: INTEGRATION_ID,
-      target_type: 'clickup',
-      clickup_mode: 'task_list',
-      matched_folder: 'docs',
-      specs: [makeSpec({
-        path: 'docs/auth.md',
-        id_ref: 'FROM-MAP',                          // .mdspecmap specs[].id (lower priority)
-        frontmatter: { clickup_id: 'FROM-FM' },      // frontmatter (higher priority)
-      })],
-    })
-
-    // resolveToNativeTaskId called with frontmatter value, never the id_ref
-    expect(resolveToNativeTaskId).toHaveBeenCalledWith(expect.anything(), 'FROM-FM', false)
-    expect(resolveToNativeTaskId).not.toHaveBeenCalledWith(expect.anything(), 'FROM-MAP', expect.anything())
   })
 
   it('uses clickup_use_custom_task_ids from folder_mappings for resolution', async () => {
@@ -402,7 +276,7 @@ describe('ClickUp task_list: frontmatter clickup_id resolves to native task ID',
       target_type: 'clickup',
       clickup_mode: 'task_list',
       matched_folder: 'docs',
-      specs: [makeSpec({ path: 'docs/auth.md', frontmatter: { clickup_id: 'CU-1' } })],
+      specs: [makeSpec({ path: 'docs/auth.md', id: 'CU-1' })],
     })
 
     expect(resolveToNativeTaskId).toHaveBeenCalledWith(expect.anything(), 'CU-1', true)
@@ -410,13 +284,14 @@ describe('ClickUp task_list: frontmatter clickup_id resolves to native task ID',
 })
 
 // ---------------------------------------------------------------------------
-// S3 — default key `s3_key` overrides computed object key
+// S3 — spec.id becomes the object key on adoption
 // ---------------------------------------------------------------------------
-describe('S3: frontmatter s3_key overrides computed object key', () => {
-  it('publishes to frontmatter s3_key, not buildS3Key result', async () => {
+describe('S3: spec.id is adopted as the object key', () => {
+  it('publishes to spec.id, not buildS3Key result, when adopting', async () => {
     const supabase = makeSupabase({
       credentials: S3_CREDS,
       folderMapping: { id: 'fm-1', target_id: 'docs', s3_maintain_hierarchy: false, frontmatter_map: null },
+      existingPageId: null,
     })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
     vi.mocked(publishToS3).mockResolvedValue({ page_id: 'custom/path.md', page_url: '' })
@@ -427,19 +302,17 @@ describe('S3: frontmatter s3_key overrides computed object key', () => {
       target_type: 's3',
       matched_folder: 'docs',
       s3_root_prefix: 'docs',
-      specs: [makeSpec({
-        path: 'docs/auth.md',
-        frontmatter: { s3_key: 'custom/path.md' },
-      })],
+      specs: [makeSpec({ path: 'docs/auth.md', id: 'custom/path.md' })],
     })
 
     expect(publishToS3).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'custom/path.md')
   })
 
-  it('falls back to buildS3Key when frontmatter has no s3_key', async () => {
+  it('falls back to buildS3Key when no spec.id and no binding', async () => {
     const supabase = makeSupabase({
       credentials: S3_CREDS,
       folderMapping: { id: 'fm-1', target_id: 'docs', s3_maintain_hierarchy: false, frontmatter_map: null },
+      existingPageId: null,
     })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
     vi.mocked(buildS3Key).mockReturnValue('docs/auth.md')
@@ -451,7 +324,7 @@ describe('S3: frontmatter s3_key overrides computed object key', () => {
       target_type: 's3',
       matched_folder: 'docs',
       s3_root_prefix: 'docs',
-      specs: [makeSpec({ path: 'docs/auth.md', frontmatter: {} })],
+      specs: [makeSpec({ path: 'docs/auth.md' })],
     })
 
     expect(buildS3Key).toHaveBeenCalled()
@@ -460,47 +333,86 @@ describe('S3: frontmatter s3_key overrides computed object key', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Persistence: DB external_page_id reflects the frontmatter override
+// Adopt-once — DB binding wins over spec.id on subsequent publishes
 // ---------------------------------------------------------------------------
-describe('DB persistence', () => {
-  it('writes the new ID to spec_publish_targets when frontmatter differs from DB', async () => {
-    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'old' })
+describe('Adopt-once: DB external_page_id wins after first publish', () => {
+  it('Notion: ignores spec.id when DB has a binding', async () => {
+    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'db-page' })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'new', page_url: '' })
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'db-page', page_url: '' })
 
     await runPublishGroup({
       project_id: PROJECT_ID,
       integration_id: INTEGRATION_ID,
       target_type: 'notion',
-      specs: [makeSpec({ frontmatter: { notion_page_id: 'new' } })],
+      specs: [makeSpec({ id: 'NEW-VALUE-IGNORED' })],
     })
 
-    const overrideWrites = supabase.updateLog.filter(
-      (u) => u.table === 'spec_publish_targets'
-        && u.payload.external_page_id === 'new'
-        && u.rowId === SPT_ID
+    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'db-page')
+    const adoption = supabase.updateLog.find(
+      (u) => u.table === 'spec_publish_targets' && u.payload.external_page_id === 'NEW-VALUE-IGNORED'
     )
-    expect(overrideWrites.length).toBeGreaterThanOrEqual(1)
+    expect(adoption).toBeUndefined()
   })
 
-  it('does not write a redundant update when frontmatter ID matches DB', async () => {
-    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'same' })
+  it('ClickUp task_list: does not call resolveToNativeTaskId when DB has binding', async () => {
+    const supabase = makeSupabase({
+      credentials: CLICKUP_CREDS,
+      folderMapping: {
+        id: 'fm-1', folder_path: 'docs', target_id: null,
+        clickup_list_id: 'list-9', clickup_use_custom_task_ids: false,
+        frontmatter_map: null, clickup_doc_id: null, clickup_page_id: null,
+      },
+      existingPageId: 'NATIVE-EXISTING',
+      storedHash: 'h1',
+    })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'same', page_url: '' })
+    vi.mocked(publishAsTask).mockResolvedValue({ task_id: 'NATIVE-EXISTING', task_url: '' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID,
+      integration_id: INTEGRATION_ID,
+      target_type: 'clickup',
+      clickup_mode: 'task_list',
+      matched_folder: 'docs',
+      specs: [makeSpec({ path: 'docs/auth.md', id: 'IGNORED', content_hash: 'h2' })],
+    })
+
+    expect(resolveToNativeTaskId).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// No spec.id — adapter creates a new record
+// ---------------------------------------------------------------------------
+describe('No spec.id', () => {
+  it('Notion: passes existing DB binding when present', async () => {
+    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'db-only' })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'db-only', page_url: '' })
 
     await runPublishGroup({
       project_id: PROJECT_ID,
       integration_id: INTEGRATION_ID,
       target_type: 'notion',
-      specs: [makeSpec({ frontmatter: { notion_page_id: 'same' }, content_hash: 'h1' })],
+      specs: [makeSpec({})],
     })
 
-    // No "override" update (only the normal post-publish status='published' update)
-    const overrideWrites = supabase.updateLog.filter(
-      (u) => u.table === 'spec_publish_targets'
-        && u.payload.external_page_id === 'same'
-        && Object.keys(u.payload).length === 1   // override is JUST {external_page_id}
-    )
-    expect(overrideWrites.length).toBe(0)
+    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'db-only')
+  })
+
+  it('Notion: passes null when no DB binding (adapter creates new page)', async () => {
+    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: null })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'fresh', page_url: '' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID,
+      integration_id: INTEGRATION_ID,
+      target_type: 'notion',
+      specs: [makeSpec({})],
+    })
+
+    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), null)
   })
 })

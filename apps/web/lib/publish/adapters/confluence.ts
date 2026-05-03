@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { getAncestorFolders, getSpecTitle } from '../../folder-hierarchy'
+import { getAncestorFolders } from '../../folder-hierarchy'
 
 export interface ConfluenceCredentials {
   base_url: string
@@ -81,11 +81,11 @@ async function findOrCreatePage(
 
 export async function publishToConfluence(
   credentials: ConfluenceCredentials,
-  spec: { path: string; content: string; frontmatter: Record<string, unknown>; resolvedTitle?: string },
+  spec: { path: string; content: string; resolvedTitle: string },
   existingPageId?: string | null
 ): Promise<{ page_id: string; page_url: string }> {
   const base = credentials.base_url.replace(/\/$/, '')
-  const title = spec.resolvedTitle ?? getSpecTitle(spec.path, spec.frontmatter)
+  const title = spec.resolvedTitle
   const storage = mdToConfluenceStorage(spec.content)
 
   const folders = getAncestorFolders(spec.path)

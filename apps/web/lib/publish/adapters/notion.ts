@@ -1,5 +1,5 @@
 import { Client } from '@notionhq/client'
-import { getAncestorFolders, getSpecTitle } from '../../folder-hierarchy'
+import { getAncestorFolders } from '../../folder-hierarchy'
 
 export interface NotionCredentials {
   token: string
@@ -71,11 +71,11 @@ async function ensureFolderPage(
 
 export async function publishToNotion(
   credentials: NotionCredentials,
-  spec: { path: string; content: string; frontmatter: Record<string, unknown>; resolvedTitle?: string },
+  spec: { path: string; content: string; resolvedTitle: string },
   existingPageId?: string | null
 ): Promise<{ page_id: string; page_url: string }> {
   const notion = new Client({ auth: credentials.token })
-  const title = spec.resolvedTitle ?? getSpecTitle(spec.path, spec.frontmatter)
+  const title = spec.resolvedTitle
   const blocks = mdToNotionBlocks(spec.content)
 
   const folders = getAncestorFolders(spec.path)
