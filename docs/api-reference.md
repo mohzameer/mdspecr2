@@ -112,9 +112,11 @@ The primary endpoint. Receives specs and `.mdspecmap` config from the CLI, resol
 
 `id`, `title`, and `agent` are the only attributes a spec may declare — both in YAML frontmatter and in `.mdspecmap` `specs[path]`. Frontmatter wins over `.mdspecmap`. Per-integration keys (`clickup_id`, `notion_page_id`, `confluence_page_id`, `s3_key`, `mdspec_agent`, `mdspec_no_agent`, …) are rejected at CLI build time with `unknown frontmatter key '<key>'`; the spec is skipped and the publish proceeds without it. See [`UNIFIED_ATTRIBUTES_SPEC.md`](../UNIFIED_ATTRIBUTES_SPEC.md).
 
-**`id` adoption (adopt-once)**
+**`id` is authoritative on every publish**
 
-On a spec's first publish to a target, `specs[].id` (when set) is adopted as the binding stored in `spec_publish_targets.external_page_id`. ClickUp `task_list` mode pipes `id` through `resolveToNativeTaskId` first to handle custom-task-IDs. After adoption, subsequent publishes ignore `specs[].id` and trust the stored binding — editing `id` does not re-point an existing record.
+Resolved `specs[].id` (frontmatter wins over `.mdspecmap` `specs[path].id`) is the source of truth on every publish — there is no adopt-once phase. If `id` differs from the stored `spec_publish_targets.external_page_id`, the server re-points the ledger to the new value and the adapter publishes to that record (a `[publish] re-pointing spec <id> from <old> to <new>` warn-level log is emitted). If it matches, no-op. ClickUp `task_list` mode pipes `id` through `resolveToNativeTaskId` first to handle custom-task-IDs; the resolved native id is what gets compared and stored. Removing `id` from both frontmatter and `.mdspecmap` falls back to the existing binding.
+
+The CLI hashes the *raw* file (frontmatter included), so editing `id`/`title`/`agent` invalidates the spec hash and triggers a republish — the unchanged-content skip would otherwise prevent the re-point from firing.
 
 **Responses:**
 

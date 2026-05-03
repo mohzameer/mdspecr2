@@ -181,15 +181,16 @@ it('FM.2 strips frontmatter from artifact.content (adapters never see ---)', asy
   expect(artifact!.content).toContain('Line two')
 })
 
-// FM.3 — hash from stripped content (frontmatter changes do not invalidate hash)
-it('FM.3 hash is computed from stripped content', async () => {
+// FM.3 — hash from raw file (frontmatter changes invalidate hash so id/title
+// edits trigger a republish)
+it('FM.3 frontmatter changes invalidate hash', async () => {
   mockFile('# Body\nLine two')
   const a1 = await buildSpecArtifact('docs/auth.md', minimalConfig)
 
   mockFile('---\nid: "abc"\n---\n# Body\nLine two')
   const a2 = await buildSpecArtifact('docs/auth.md', minimalConfig)
 
-  expect(a1!.hash).toBe(a2!.hash)
+  expect(a1!.hash).not.toBe(a2!.hash)
 })
 
 // FM.4 — frontmatter title wins over specs[path].title and H1

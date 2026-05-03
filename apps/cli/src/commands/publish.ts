@@ -801,7 +801,7 @@ export async function buildSpecArtifact(
   }
 
   const resolved = resolveSpecConfig(filePath, config, frontmatter, content)
-  const hash = 'sha256:' + createHash('sha256').update(content).digest('hex')
+  const hash = 'sha256:' + createHash('sha256').update(raw).digest('hex')
 
   return {
     path: filePath,

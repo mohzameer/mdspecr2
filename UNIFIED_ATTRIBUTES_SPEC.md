@@ -119,17 +119,48 @@ ledger debugging. Adapters ignore it.
 
 ---
 
-## 4. Adoption Lifecycle (unchanged from `mdspecmap-spec.md` §5.1)
+## 4. `id` is authoritative on every publish
 
-1. First publish: `id` present → server resolves to native record, stores
-   in `spec_publish_targets.external_page_id`, then ignores `id` from then
-   on.
-2. Subsequent publishes: ledger drives updates.
-3. Deleted in tool: ledger entry cleared, re-resolves from `id` if still
-   present, else creates new.
+Resolved `id` (frontmatter wins over `.mdspecmap` `specs[path].id` per
+§3.1) is the source of truth on every publish — there is no "adopt once"
+phase. Behaviour:
 
-This is integration-agnostic by design — the same lifecycle holds whether
-the adapter is ClickUp, JIRA, Confluence, Notion, or S3.
+1. **No DB binding + `id` set** → server resolves to the native record
+   and writes `spec_publish_targets.external_page_id`. Adapter receives
+   the resolved id.
+2. **DB binding present + `id` matches** → no-op. Adapter receives the
+   existing binding.
+3. **DB binding present + `id` differs** → server *re-points* the ledger:
+   updates `external_page_id` to the resolved value and the adapter
+   publishes to the new record. Old record is left untouched (mdspec does
+   not delete native records). A `[publish] re-pointing spec <id> from
+   <old> to <new> (id_source=…)` warn-level log is emitted for auditing.
+4. **No `id` in either source + DB binding present** → falls back to the
+   binding (existing behaviour).
+5. **No `id` and no binding** → adapter creates a new record and the
+   server stores its native id in the ledger.
+6. **Deleted in tool** → ledger entry cleared, re-resolves from `id` if
+   still present, else creates new.
+
+Rationale: authors who paste an existing native id into frontmatter (or
+into `.mdspecmap` `specs[path].id`) expect that to be the binding — not a
+one-shot pointer that quietly stops mattering after first publish. This
+also makes "move spec to a different existing record" a one-line edit
+rather than requiring DB surgery.
+
+Hash invalidation: `buildSpecArtifact` hashes the *raw* file (frontmatter
+included). Editing `id`/`title`/`agent` in frontmatter therefore changes
+the spec hash and triggers a republish — without that, an `id` swap that
+left body content unchanged would short-circuit the unchanged-content
+skip and the re-point would never fire. `id` changes in `.mdspecmap`
+already invalidate via the config payload diff.
+
+ClickUp `task_list` mode: the resolved `id` is passed through
+`resolveToNativeTaskId` on every publish (handles custom-task-IDs), and
+the *native* task id is what gets compared against the ledger and stored.
+
+Integration-agnostic by design — the same lifecycle holds whether the
+adapter is ClickUp, JIRA, Confluence, Notion, or S3.
 
 ---
 

@@ -440,6 +440,7 @@ export async function POST(request: Request) {
               path: spec.path,
               title: spec.title,
               ...(spec.id ? { id: spec.id } : {}),
+              ...(spec.id_source ? { id_source: spec.id_source } : {}),
               ...(spec.agent ? { agent: spec.agent } : {}),
               content: spec.content,
               content_hash: spec.hash,

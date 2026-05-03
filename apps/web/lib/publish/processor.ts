@@ -286,19 +286,21 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   let existingPageId = target?.external_page_id ?? null
   const lastPublishedHash = (target as { content_hash?: string | null } | null)?.content_hash ?? null
 
-  // -- Unified `id` adoption (UNIFIED_ATTRIBUTES_SPEC §4) -------------------
-  // First publish only: resolve declared `id` to a native record, store in the
-  // ledger, then ignore `id` from then on. Subsequent publishes are ledger-driven.
+  // -- Unified `id` is authoritative (UNIFIED_ATTRIBUTES_SPEC §4) -----------
+  // Resolved `id` (frontmatter wins over .mdspecmap specs[path].id) is the
+  // source of truth on every publish. If it differs from the stored binding,
+  // re-point the ledger; if it matches, no-op. Removing `id` from frontmatter
+  // and mapping falls back to the existing binding.
   // Integration-agnostic — adapter interprets `spec.id` per its native ID format.
-  if (!existingPageId && spec.id) {
+  if (spec.id) {
     let resolved: string | null = spec.id
     if (target_type === 'clickup' && ctx.clickupMode === 'task_list') {
       const clickupCreds = { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string }
       resolved = await resolveToNativeTaskId(clickupCreds, spec.id, ctx.clickupUseCustomTaskIds)
       console.log(`[publish] unified id="${spec.id}" → native ${resolved ?? 'null'}`)
     }
-    if (resolved) {
-      console.log(`[publish] adopted unified id ${spec.id} → ${resolved}`)
+    if (resolved && resolved !== existingPageId) {
+      console.warn(`[publish] re-pointing spec ${spec_id} from ${existingPageId ?? '(none)'} to ${resolved} (id_source=${spec.id_source ?? 'unknown'})`)
       existingPageId = resolved
       await supabase
         .from('spec_publish_targets')

@@ -93,6 +93,7 @@ export interface PublishGroupSpec {
   path: string
   title: string
   id?: string
+  id_source?: 'frontmatter' | 'mapping'
   agent?: string
   content: string
   content_hash: string

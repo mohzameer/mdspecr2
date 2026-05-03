@@ -1,14 +1,17 @@
 /**
- * Unified `id` adoption (UNIFIED_ATTRIBUTES_SPEC §4)
+ * Unified `id` is authoritative (UNIFIED_ATTRIBUTES_SPEC §4)
  *
- * Verifies the adopt-once lifecycle:
- *   - First publish with `spec.id` set and no existing binding → adapter
- *     receives `spec.id`, DB is updated to record the adopted id.
- *   - Subsequent publishes ignore `spec.id` and trust DB.external_page_id.
- *   - ClickUp task_list resolves `spec.id` through resolveToNativeTaskId
- *     (handles custom-task-IDs).
- *   - S3 adopts `spec.id` as the object key (existingPageId path).
- *   - Without `spec.id` or DB binding → adapter creates a new record.
+ * Resolved `spec.id` (frontmatter wins over `.mdspecmap` specs[path].id) is
+ * the source of truth on every publish:
+ *   - No DB binding + spec.id set → adapter receives spec.id, DB is bound.
+ *   - DB binding present + spec.id matches → no-op (no re-point).
+ *   - DB binding present + spec.id differs → re-point ledger to spec.id and
+ *     pass the new value to the adapter.
+ *   - ClickUp task_list resolves spec.id through resolveToNativeTaskId on
+ *     every publish (handles custom-task-IDs).
+ *   - S3 uses spec.id as the object key when present.
+ *   - No spec.id → fall back to existing DB binding (or null → adapter
+ *     creates a new record).
  *
  * `spec.id` is unified and opaque to mdspec. Per-integration frontmatter
  * keys (clickup_id, notion_page_id, …) are rejected at CLI build time and
@@ -66,6 +69,7 @@ function makeSpec(overrides: Partial<{
   content: string
   content_hash: string
   id: string | undefined
+  id_source: 'frontmatter' | 'mapping' | undefined
 }> = {}) {
   return {
     spec_id: 'spec-001',
@@ -75,6 +79,7 @@ function makeSpec(overrides: Partial<{
     content: '# Auth\n',
     content_hash: 'h1',
     id: undefined,
+    id_source: undefined,
     ...overrides,
   }
 }
@@ -333,29 +338,80 @@ describe('S3: spec.id is adopted as the object key', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Adopt-once — DB binding wins over spec.id on subsequent publishes
+// Always-authoritative — spec.id re-points the ledger when it differs
 // ---------------------------------------------------------------------------
-describe('Adopt-once: DB external_page_id wins after first publish', () => {
-  it('Notion: ignores spec.id when DB has a binding', async () => {
+describe('Always-authoritative: spec.id re-points binding when it differs', () => {
+  it('Notion: re-points DB binding to spec.id (frontmatter) and adapter receives new value', async () => {
     const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'db-page' })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'db-page', page_url: '' })
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'NEW-PAGE', page_url: '' })
 
     await runPublishGroup({
       project_id: PROJECT_ID,
       integration_id: INTEGRATION_ID,
       target_type: 'notion',
-      specs: [makeSpec({ id: 'NEW-VALUE-IGNORED' })],
+      specs: [makeSpec({ id: 'NEW-PAGE', id_source: 'frontmatter' })],
     })
 
-    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'db-page')
-    const adoption = supabase.updateLog.find(
-      (u) => u.table === 'spec_publish_targets' && u.payload.external_page_id === 'NEW-VALUE-IGNORED'
+    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'NEW-PAGE')
+    // The dedicated re-point write is a `{ external_page_id }`-only payload.
+    const repoint = supabase.updateLog.find(
+      (u) =>
+        u.table === 'spec_publish_targets' &&
+        Object.keys(u.payload).length === 1 &&
+        u.payload.external_page_id === 'NEW-PAGE'
     )
-    expect(adoption).toBeUndefined()
+    expect(repoint).toBeDefined()
   })
 
-  it('ClickUp task_list: does not call resolveToNativeTaskId when DB has binding', async () => {
+  it('Notion: spec.id from mapping (.mdspecmap specs[path].id) also re-points', async () => {
+    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'db-page' })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'MAP-PAGE', page_url: '' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID,
+      integration_id: INTEGRATION_ID,
+      target_type: 'notion',
+      specs: [makeSpec({ id: 'MAP-PAGE', id_source: 'mapping' })],
+    })
+
+    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'MAP-PAGE')
+    const repoint = supabase.updateLog.find(
+      (u) =>
+        u.table === 'spec_publish_targets' &&
+        Object.keys(u.payload).length === 1 &&
+        u.payload.external_page_id === 'MAP-PAGE'
+    )
+    expect(repoint).toBeDefined()
+  })
+
+  it('Notion: spec.id matches existing binding → no re-point (no DB write)', async () => {
+    const supabase = makeSupabase({ credentials: NOTION_CREDS, existingPageId: 'same-page' })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'same-page', page_url: '' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID,
+      integration_id: INTEGRATION_ID,
+      target_type: 'notion',
+      specs: [makeSpec({ id: 'same-page', id_source: 'frontmatter' })],
+    })
+
+    expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'same-page')
+    // A re-point write is the dedicated `{ external_page_id }`-only payload —
+    // the post-publish status update also touches external_page_id but carries
+    // status/external_url/published_at alongside it.
+    const repoint = supabase.updateLog.find(
+      (u) =>
+        u.table === 'spec_publish_targets' &&
+        Object.keys(u.payload).length === 1 &&
+        u.payload.external_page_id === 'same-page'
+    )
+    expect(repoint).toBeUndefined()
+  })
+
+  it('ClickUp task_list: resolves spec.id and re-points to native id when it differs from binding', async () => {
     const supabase = makeSupabase({
       credentials: CLICKUP_CREDS,
       folderMapping: {
@@ -363,11 +419,12 @@ describe('Adopt-once: DB external_page_id wins after first publish', () => {
         clickup_list_id: 'list-9', clickup_use_custom_task_ids: false,
         frontmatter_map: null, clickup_doc_id: null, clickup_page_id: null,
       },
-      existingPageId: 'NATIVE-EXISTING',
+      existingPageId: 'NATIVE-OLD',
       storedHash: 'h1',
     })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
-    vi.mocked(publishAsTask).mockResolvedValue({ task_id: 'NATIVE-EXISTING', task_url: '' })
+    vi.mocked(resolveToNativeTaskId).mockResolvedValue('NATIVE-NEW')
+    vi.mocked(publishAsTask).mockResolvedValue({ task_id: 'NATIVE-NEW', task_url: '' })
 
     await runPublishGroup({
       project_id: PROJECT_ID,
@@ -375,10 +432,24 @@ describe('Adopt-once: DB external_page_id wins after first publish', () => {
       target_type: 'clickup',
       clickup_mode: 'task_list',
       matched_folder: 'docs',
-      specs: [makeSpec({ path: 'docs/auth.md', id: 'IGNORED', content_hash: 'h2' })],
+      specs: [makeSpec({ path: 'docs/auth.md', id: 'CUSTOM-NEW', id_source: 'frontmatter', content_hash: 'h2' })],
     })
 
-    expect(resolveToNativeTaskId).not.toHaveBeenCalled()
+    expect(resolveToNativeTaskId).toHaveBeenCalledWith(expect.anything(), 'CUSTOM-NEW', false)
+    expect(publishAsTask).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      'NATIVE-NEW',
+      'list-9',
+      null
+    )
+    const repoint = supabase.updateLog.find(
+      (u) =>
+        u.table === 'spec_publish_targets' &&
+        Object.keys(u.payload).length === 1 &&
+        u.payload.external_page_id === 'NATIVE-NEW'
+    )
+    expect(repoint).toBeDefined()
   })
 })
 
