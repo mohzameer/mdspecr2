@@ -1,6 +1,6 @@
 {
   "name": "mdspeci",
-  "version": "0.4.26",
+  "version": "0.4.27",
   "description": "CI-first spec publishing CLI",
   "type": "commonjs",
   "bin": {
