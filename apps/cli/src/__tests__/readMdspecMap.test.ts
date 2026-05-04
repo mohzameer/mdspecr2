@@ -256,6 +256,23 @@ describe('readMdspecMapAt', () => {
     expect(cfg.sub_folders).toBe(false)
     expect(mockExit).not.toHaveBeenCalled()
   })
+
+  it('accepts sub_folders as a list of glob strings', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(
+      'version: 1\nsub_folders:\n  - api/**\n  - guides/**\nmappings:\n  - integration: notion\n    parent: docs\n' as never
+    )
+    const cfg = await readMdspecMapAt('/repo/docs/.mdspecmap')
+    expect(cfg.sub_folders).toEqual(['api/**', 'guides/**'])
+    expect(mockExit).not.toHaveBeenCalled()
+  })
+
+  it('rejects sub_folders with non-string entries', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(
+      'version: 1\nsub_folders:\n  - 42\nmappings:\n  - integration: notion\n    parent: docs\n' as never
+    )
+    await expect(readMdspecMapAt('/repo/docs/.mdspecmap')).rejects.toThrow('exit:1')
+    expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('sub_folders'))
+  })
 })
 
 // ---------------------------------------------------------------------------

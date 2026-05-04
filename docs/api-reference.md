@@ -106,7 +106,8 @@ The primary endpoint. Receives specs and `.mdspecmap` config from the CLI, resol
 | `config.mappings[].folder` | string | Yes | Repo-relative scope dir of the `.mdspecmap` file that owns this mapping. Always present in the payload — CLI sets it to the file's location. Users do not write `folder:` in `.mdspecmap` files. |
 | `config.mappings[].format` | string | No | S3 only. `"md"` (default) or `"html"`. Controls file extension and `Content-Type` of uploaded objects. |
 | `config.specs` | object | No | Per-path overrides keyed by repo-relative path. Allowed keys: `id`, `title`, `agent`. Any other key causes the CLI to reject the file. |
-| `config.sub_folders` | boolean | No | Not present in payload — CLI converts `sub_folders: false` to `depth: 1` before sending. |
+| `config.sub_folders` | boolean \| string[] | No | Not present in payload — CLI converts `sub_folders: false` to `depth: 1` and propagates `sub_folders: string[]` to each mapping as `subfolders` before sending. |
+| `config.mappings[].subfolders` | string[] | No | Resolved per-mapping form of top-level `sub_folders` array. Micromatch globs matched against file path relative to the mapping folder. Files at the mapping root are always included. |
 
 **Unified spec attributes**
 

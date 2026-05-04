@@ -207,7 +207,8 @@ specs:
             <h3 className="text-sm font-semibold">sub_folders</h3>
             <p className="text-sm text-muted-foreground">
               By default, a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> syncs its folder and all subfolders recursively.
-              Set <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">sub_folders: false</code> to restrict it to direct children only.
+              Set <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">sub_folders: false</code> to restrict it to direct children only,
+              or pass a list of micromatch globs to allow recursion only into specific subfolders. Globs match the file path relative to the scope; files at the scope root are always included.
             </p>
             <CodeBlock>{`# docs/tasks/.mdspecmap
 version: 1
@@ -218,11 +219,22 @@ mappings:
   - integration: clickup
     parent: alias:sprint-tasks
     target: task`}</CodeBlock>
+            <CodeBlock>{`# docs/.mdspecmap
+version: 1
+
+sub_folders:         # include docs/api/** and docs/guides/** only
+  - api/**
+  - guides/**
+
+mappings:
+  - integration: notion
+    parent: alias:api-docs`}</CodeBlock>
             <Table
               headers={['`sub_folders`', 'What syncs']}
               rows={[
                 ['omitted or `true`', 'This folder and all subfolders recursively'],
                 ['`false`', 'Direct children only — equivalent to depth: 1'],
+                ['`string[]`', 'Scope-root files plus subfolders matching any glob (e.g. `api/**`)'],
               ]}
             />
             <h3 className="text-sm font-semibold">No folder: key</h3>

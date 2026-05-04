@@ -20,6 +20,8 @@ export interface MdspecMapMapping {
   parent?: string                    // alias:<name> | id:<nativeId> | bare
   skip?: string[]
   depth?: number                     // max folder depth to sync (1 = direct children only)
+  subfolders?: string[]              // resolved per-mapping form of MdspecMapConfig.sub_folders array — micromatch globs against file path relative to mapping folder
+
   list_id?: string                   // id:<clickupListId> — task_list mode
   parent_doc?: string                // id:<clickupDocId> — specs publish as pages inside this doc
   space_id?: string                  // id:<clickupSpaceOrFolderId> — target space/folder (omit for workspace root)
@@ -46,7 +48,7 @@ export interface MdspecMapDefault {
 export interface MdspecMapConfig {
   version: 1
   sync_all_on_first_run?: boolean    // default false
-  sub_folders?: boolean              // default true — false restricts scope to immediate folder only
+  sub_folders?: boolean | string[]   // default true. false = root only (depth: 1). string[] = micromatch globs against file path relative to scope; matching subfolders included, root files always included.
   default?: MdspecMapDefault         // fallback for mappings missing integration/parent
   mappings: MdspecMapMapping[]
   specs?: Record<string, MdspecMapSpecEntry>   // keyed by file path

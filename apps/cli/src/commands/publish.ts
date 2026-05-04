@@ -18,6 +18,7 @@ export interface MdspecMapMapping {
   parent?: string                    // alias:<name> | id:<nativeId> | bare
   skip?: string[]
   depth?: number
+  subfolders?: string[]              // resolved per-mapping form of MdspecMapConfig.sub_folders array. Globs matched against file path relative to mapping folder. Files at mapping root are always included.
   list_id?: string                   // id:<clickupListId> — task_list mode
   parent_doc?: string                // id:<clickupDocId> — specs publish as pages inside this doc
   space_id?: string                  // id:<clickupSpaceOrFolderId> — omit for workspace root
@@ -44,7 +45,7 @@ export interface MdspecMapDefault {
 export interface MdspecMapConfig {
   version: 1
   sync_all_on_first_run?: boolean
-  sub_folders?: boolean              // default true — false restricts scope to immediate folder only
+  sub_folders?: boolean | string[]   // default true. false = root only (depth: 1). string[] = micromatch globs against file path relative to scope; matching subfolders are included, root files always included.
   default?: MdspecMapDefault
   mappings: MdspecMapMapping[]
   specs?: Record<string, MdspecMapSpecEntry>   // keyed by file path
@@ -205,8 +206,9 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
   const beforeSkip = specsToPublish.length
   specsToPublish = applySkipPatterns(specsToPublish, globalSkips, folderSkips)
   specsToPublish = applyDepthFilter(specsToPublish, config)
+  specsToPublish = applySubfolderFilter(specsToPublish, config)
   const skippedByPattern = beforeSkip - specsToPublish.length
-  if (skippedByPattern > 0) console.log(`— Skipped ${skippedByPattern} file(s) matching skip patterns or depth limit`)
+  if (skippedByPattern > 0) console.log(`— Skipped ${skippedByPattern} file(s) matching skip patterns, depth, or sub_folders limit`)
 
   // -------------------------------------------------------------------------
   // 7. Build artifacts
@@ -376,6 +378,15 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
     errors.push('version: must be 1')
   }
 
+  if (config.sub_folders !== undefined) {
+    const sf = config.sub_folders
+    const isBool = typeof sf === 'boolean'
+    const isStringArr = Array.isArray(sf) && sf.every((e) => typeof e === 'string' && e.length > 0)
+    if (!isBool && !isStringArr) {
+      errors.push('sub_folders: must be true, false, or a non-empty array of glob strings')
+    }
+  }
+
   if (config.default !== undefined) {
     const d = config.default as Record<string, unknown>
     if (d.integration && !['notion', 'confluence', 'clickup', 's3'].includes(d.integration as string)) {
@@ -475,14 +486,18 @@ export async function readMdspecMap(): Promise<MdspecMapConfig> {
  * Resolves all folder paths in a config to repo-relative paths.
  * Mappings without a folder default to scopeDir.
  * sub_folders: false is converted to depth: 1 on all mappings that don't already have depth set.
+ * sub_folders: string[] is propagated as `subfolders` on each mapping that doesn't already have one.
  */
 export function resolveConfigPaths(config: MdspecMapConfig, scopeDir: string): MdspecMapConfig {
+  const subFoldersList = Array.isArray(config.sub_folders) ? config.sub_folders : undefined
   const mappings = config.mappings.map((m) => {
     const depth = config.sub_folders === false && m.depth === undefined ? 1 : m.depth
+    const subfolders = m.subfolders ?? subFoldersList
     return {
       ...m,
       folder: scopeDir,
       ...(depth !== undefined ? { depth } : {}),
+      ...(subfolders !== undefined ? { subfolders } : {}),
     }
   })
 
@@ -557,6 +572,35 @@ export function applyDepthFilter(files: string[], config: MdspecMapConfig): stri
       if (!inFolder) continue
       if (mapping.depth === undefined) return true
       if (isWithinDepth(filePath, normalizedFolder, mapping.depth)) return true
+    }
+    return false
+  })
+}
+
+/**
+ * Filters out specs whose subfolder (relative to the owning mapping) is not
+ * matched by any glob in that mapping's `subfolders` list. Files at the mapping
+ * root (no subfolder) are always kept. If a file is covered by at least one
+ * mapping with no `subfolders` restriction, it is kept.
+ */
+export function applySubfolderFilter(files: string[], config: MdspecMapConfig): string[] {
+  const hasSubfolderLimits = config.mappings.some((m) => m.subfolders !== undefined)
+  if (!hasSubfolderLimits) return files
+
+  return files.filter((filePath) => {
+    for (const mapping of config.mappings) {
+      const normalizedFolder = normalizeFolder(mapping.folder ?? '')
+      const inFolder = normalizedFolder === '' ||
+        filePath.startsWith(normalizedFolder + '/') ||
+        filePath === normalizedFolder
+
+      if (!inFolder) continue
+      if (mapping.subfolders === undefined) return true
+
+      const relPath = normalizedFolder === '' ? filePath : filePath.slice(normalizedFolder.length + 1)
+      // Files directly in the mapping root (no subfolder) are always allowed.
+      if (!relPath.includes('/')) return true
+      if (micromatch.isMatch(relPath, mapping.subfolders)) return true
     }
     return false
   })

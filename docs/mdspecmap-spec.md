@@ -94,7 +94,7 @@ No `folder:` key is written in `.mdspecmap` files. The CLI sets it from the file
 |---|---|---|---|
 | `version` | Yes | — | File format version. Currently `1`. |
 | `sync_all_on_first_run` | No | `false` | Publish all in-scope files on the first run for this scope. |
-| `sub_folders` | No | `true` | `false` restricts scope to files directly in this folder only — no recursion. |
+| `sub_folders` | No | `true` | `false` restricts scope to files directly in this folder only. A list of glob strings restricts recursion to subfolders matching any glob; files at the scope root are always included. |
 | `mappings` | Yes | — | Array of integration routing entries. |
 | `mappings[].integration` | No | — | Integration type. Omit to create a skip-only entry. |
 | `mappings[].target` | No | `document` | `document` or `task`. |
@@ -179,12 +179,30 @@ mappings:
 
 Files in `marketing/copy/archive/` or any other subfolder are ignored by this file.
 
+To allow recursion into specific subfolders only, set `sub_folders` to a list of micromatch glob strings. Globs are matched against each file's path relative to the `.mdspecmap` scope. Files directly in the scope folder are always included; the list filters which subfolders count.
+
+```yaml
+# docs/.mdspecmap
+version: 1
+
+sub_folders:
+  - api/**         # include everything under docs/api/
+  - guides/**      # include everything under docs/guides/
+
+mappings:
+  - integration: notion
+    parent: api-docs
+```
+
+In this example, `docs/readme.md` is included (root of scope), `docs/api/auth.md` is included, but `docs/internal/secret.md` is dropped. To include a subfolder and its contents, use the `<name>/**` form — the same convention used by `skip` patterns (e.g. `**/scratch/**`).
+
 | `sub_folders` | Behaviour |
 |---|---|
 | `true` (default) | Sync this folder and all subfolders recursively. |
 | `false` | Sync only files directly in this folder. |
+| `string[]` | Sync files at the scope root plus subfolders matching any of the supplied micromatch globs. |
 
-The CLI converts `sub_folders: false` to `depth: 1` before building the payload. The `sub_folders` key is never sent to the server.
+The CLI converts `sub_folders: false` to `depth: 1` and propagates `sub_folders: string[]` to each mapping as `subfolders` before building the payload. The top-level `sub_folders` key is never sent to the server.
 
 ---
 
