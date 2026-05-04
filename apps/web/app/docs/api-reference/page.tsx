@@ -80,6 +80,7 @@ const NAV = [
   { label: 'Depth limiting', href: '#depth' },
   { label: 'Multiple integrations', href: '#multi' },
   { label: 'S3 integration', href: '#s3' },
+  { label: 'Example scenarios', href: '#scenarios' },
   { label: 'Tell your agent', href: '#agent-prompt' },
 ]
 
@@ -265,8 +266,8 @@ mappings:
                 ['`integration`', 'No', 'Target: notion, confluence, clickup, or s3.'],
                 ['`parent`', 'No', 'Target container. Three forms: alias:<name> (dashboard alias), id:<nativeId> (raw ID directly), or bare value (tries alias first, falls back to raw ID). For S3, the alias resolves to a key prefix (the "parent directory").'],
                 ['`target`', 'No', 'For ClickUp only: document (default) or task. task publishes specs as ClickUp tasks.'],
-                ['`format`', 'No', 'S3 only: md (default) or html. md uploads raw markdown; html converts and wraps in a minimal HTML shell. Controls the file extension and Content-Type of the uploaded object.'],
                 ['`depth`', 'No', 'Max subfolder depth. 1 = direct children only. Omit for unlimited depth.'],
+                ['`maintain_hierarchy`', 'No', 'S3 only. true preserves the spec\'s subfolder path under the alias prefix; false (default) flattens to the basename only.'],
                 ['`skip`', 'No', 'Glob patterns for files to exclude. Matched against filename and path relative to this file\'s location.'],
                 ['`list_id`', 'No', 'ClickUp list ID for task_list mode. Use id:<listId> prefix. Required when target: task.'],
                 ['`parent_doc`', 'No', 'ClickUp doc that specs publish inside as pages. Use id:<docId> prefix. Doc mode only.'],
@@ -687,8 +688,7 @@ mappings:
 
   - folder: docs/architecture
     integration: s3
-    parent: alias:eng-specs
-    format: md`}</CodeBlock>
+    parent: alias:eng-specs`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
               Each spec is published independently to all three. Failure on one does not block the others.
             </p>
@@ -737,21 +737,20 @@ mappings:
             </p>
             <CodeBlock>{`# Alias eng-specs → prefix: content/
 # Spec: docs/specs/payments/checkout-retry.md
-# Format: md
+# maintain_hierarchy: true
 
 → S3 key: content/docs/specs/payments/checkout-retry.md
 → URL:    https://acme-specs.s3.us-east-1.amazonaws.com/content/docs/specs/payments/checkout-retry.md`}</CodeBlock>
+            <p className="text-sm text-muted-foreground">
+              By default mdspec flattens to the basename — <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">content/checkout-retry.md</code>. Set <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">maintain_hierarchy: true</code> on the mapping to preserve the spec&apos;s subfolder path under the alias prefix as shown above.
+            </p>
 
             <h3 className="text-sm font-semibold">Example .mdspecmap</h3>
             <CodeBlock>{`# docs/specs/.mdspecmap
 mappings:
   - integration: s3
-    parent: alias:eng-specs   # resolves to prefix: content/
-    format: md                # md (default) or html
-
-  - integration: s3
-    parent: alias:eng-specs   # same alias — co-located under content/
-    format: html              # second copy as rendered HTML`}</CodeBlock>
+    parent: alias:eng-specs        # resolves to prefix: content/
+    maintain_hierarchy: true       # preserve subfolder paths under content/`}</CodeBlock>
 
             <h3 className="text-sm font-semibold">Publish behaviour</h3>
             <Table
@@ -837,6 +836,212 @@ mappings:
 
           <Separator />
 
+          {/* Example scenarios */}
+          <section id="scenarios" className="scroll-mt-20 space-y-6">
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold tracking-tight">Example scenarios</h2>
+              <p className="text-sm text-muted-foreground">
+                Worked examples for the two integrations with the most configuration surface — ClickUp and S3.
+                Each scenario lists the repo layout, the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> file(s), and the resulting routing.
+              </p>
+            </div>
+
+            {/* Scenario 1 — ClickUp doc pages */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">1. ClickUp — specs as nested doc pages</h3>
+              <p className="text-sm text-muted-foreground">
+                Engineering specs publish as pages inside an existing ClickUp doc. Folder hierarchy is preserved — subfolders become nested page groups. Use this when you want long-form review, comments, and threaded discussion against your specs.
+              </p>
+              <CodeBlock>{`repo/
+└── eng/
+    └── specs/
+        ├── .mdspecmap
+        ├── overview.md
+        ├── auth.md
+        └── billing/
+            ├── plans.md
+            └── refunds.md`}</CodeBlock>
+              <CodeBlock>{`# eng/specs/.mdspecmap
+version: 1
+
+mappings:
+  - integration: clickup
+    parent_doc: id:2kzm3ftx-5278   # the ClickUp doc all specs publish into
+    skip:
+      - DRAFT_*.md`}</CodeBlock>
+              <p className="text-sm text-muted-foreground">
+                <strong>Result:</strong> each <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.md</code> file becomes a page inside the configured doc. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">billing/plans.md</code> and <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">billing/refunds.md</code> publish under a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">billing</code> page group. Drafts are skipped at the CLI before being uploaded.
+              </p>
+            </div>
+
+            {/* Scenario 2 — ClickUp tasks (sprint board) */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">2. ClickUp — sprint markdown as tasks with custom IDs</h3>
+              <p className="text-sm text-muted-foreground">
+                A sprint folder where every <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.md</code> file represents one work item. Each file becomes a ClickUp task in a configured list, with custom task IDs and an agent template that fills in status, priority, and tags from the markdown body.
+              </p>
+              <CodeBlock>{`repo/
+└── eng/
+    └── sprints/
+        ├── .mdspecmap
+        ├── 2026-W18-checkout-retries.md
+        ├── 2026-W18-payment-webhook.md
+        └── 2026-W18-flaky-test-cleanup.md`}</CodeBlock>
+              <CodeBlock>{`# eng/sprints/.mdspecmap
+version: 1
+
+sub_folders: false              # sprint files are flat — never recurse
+
+mappings:
+  - integration: clickup
+    target: task
+    list_id: id:901812098656    # ClickUp list these tasks land in
+    space_id: id:90185234       # space/folder containing the list
+    custom_task_ids: true       # use ClickUp custom-task-id (e.g. ENG-1234)
+    agent: Sprint Task Template # parses status/priority/tags from the body`}</CodeBlock>
+              <p className="text-sm text-muted-foreground">
+                <strong>Result:</strong> three tasks land in the configured ClickUp list. The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">Sprint Task Template</code> agent runs first and populates structured fields (status, priority, due date, tags) from the markdown — those fields then flow into ClickUp via the task adapter. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">sub_folders: false</code> keeps the sprint folder strictly flat.
+              </p>
+            </div>
+
+            {/* Scenario 3 — Adopting existing ClickUp tasks */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">3. ClickUp — adopting existing tasks via specs[]</h3>
+              <p className="text-sm text-muted-foreground">
+                You already have ClickUp tasks for some of your specs and want mdspec to start updating them instead of creating duplicates. Use the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs:</code> block to bind specific files to native task IDs on first publish.
+              </p>
+              <CodeBlock>{`repo/
+└── eng/
+    └── tasks/
+        ├── .mdspecmap
+        ├── checkout-retry-policy.md      ← adopt CU-182
+        ├── sla-policy.md                 ← adopt CU-305
+        └── new-payment-flow.md           ← create new task`}</CodeBlock>
+              <CodeBlock>{`# eng/tasks/.mdspecmap
+version: 1
+
+mappings:
+  - integration: clickup
+    target: task
+    list_id: id:901812098656
+    custom_task_ids: true
+
+specs:
+  checkout-retry-policy.md:
+    title: Checkout Retry Policy   # overrides the body H1
+    id: CU-182                     # bind to existing custom task ID
+    agent: Task Template
+
+  sla-policy.md:
+    id: CU-305                     # bind only — no title override needed`}</CodeBlock>
+              <p className="text-sm text-muted-foreground">
+                <strong>Result:</strong> on first publish, mdspec resolves <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">CU-182</code> and <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">CU-305</code> to the existing tasks and stores the binding in the ledger. Subsequent edits update those tasks. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">new-payment-flow.md</code> has no <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id</code> — it creates a fresh task in the configured list.
+              </p>
+            </div>
+
+            {/* Scenario 4 — ClickUp docs + tasks split */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">4. ClickUp — docs and tasks side by side</h3>
+              <p className="text-sm text-muted-foreground">
+                One repo, two ClickUp modes. Long-form specs publish as doc pages for review; tracked work items publish as tasks. Two map files keep the routing isolated.
+              </p>
+              <CodeBlock>{`repo/
+└── eng/
+    ├── specs/
+    │   ├── .mdspecmap        ← doc-page mode
+    │   ├── auth.md
+    │   └── billing/
+    │       └── plans.md
+    └── sprints/
+        ├── .mdspecmap        ← task mode
+        └── 2026-W18.md`}</CodeBlock>
+              <CodeBlock>{`# eng/specs/.mdspecmap
+version: 1
+mappings:
+  - integration: clickup
+    parent_doc: id:2kzm3ftx-5278
+
+---
+
+# eng/sprints/.mdspecmap
+version: 1
+sub_folders: false
+mappings:
+  - integration: clickup
+    target: task
+    list_id: id:901812098656
+    custom_task_ids: true
+    agent: Sprint Task Template`}</CodeBlock>
+              <p className="text-sm text-muted-foreground">
+                <strong>Result:</strong> spec markdown becomes nested doc pages; sprint markdown becomes tasks. The same ClickUp connection serves both — the difference is purely in the mapping config (<code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">parent_doc</code> vs. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">target: task</code> with <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">list_id</code>).
+              </p>
+            </div>
+
+            {/* Scenario 5 — S3 flat markdown bucket */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">5. S3 — flat markdown archive</h3>
+              <p className="text-sm text-muted-foreground">
+                Push raw markdown to an S3 prefix for long-term storage or downstream consumption (search indexing, mirroring, etc.). With the default <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">maintain_hierarchy: false</code>, every spec lands as a flat object at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">{'<alias-prefix>/<basename>.md'}</code>.
+              </p>
+              <CodeBlock>{`repo/
+└── docs/
+    ├── .mdspecmap
+    ├── auth.md
+    ├── billing.md
+    └── api/
+        └── ratelimit.md`}</CodeBlock>
+              <CodeBlock>{`# docs/.mdspecmap
+version: 1
+
+mappings:
+  - integration: s3
+    parent: alias:docs-archive   # alias → bucket key prefix, e.g. "docs/"
+    skip:
+      - DRAFT_*.md`}</CodeBlock>
+              <CodeBlock>{`# resulting S3 keys (alias resolves to "docs/")
+docs/auth.md
+docs/billing.md
+docs/ratelimit.md          ← flattened: no api/ prefix`}</CodeBlock>
+              <p className="text-sm text-muted-foreground">
+                <strong>Result:</strong> filenames are deduplicated against the alias prefix and uploaded flat — folder hierarchy is dropped by default. Use this when you want a simple, predictable file list at one prefix. To preserve subfolder structure, see scenario 6.
+              </p>
+            </div>
+
+            {/* Scenario 6 — S3 with maintained hierarchy */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">6. S3 — preserve folder hierarchy under the alias prefix</h3>
+              <p className="text-sm text-muted-foreground">
+                A handbook with nested topics. You want the S3 layout to mirror the repo so downstream consumers (a static-site renderer, a search indexer, a cross-link crawler) can navigate by path. Set <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">maintain_hierarchy: true</code> on the mapping.
+              </p>
+              <CodeBlock>{`repo/
+└── handbook/
+    ├── .mdspecmap
+    ├── index.md
+    ├── engineering/
+    │   ├── onboarding.md
+    │   └── oncall.md
+    └── people/
+        └── benefits.md`}</CodeBlock>
+              <CodeBlock>{`# handbook/.mdspecmap
+version: 1
+
+mappings:
+  - integration: s3
+    parent: alias:handbook-site   # alias → "handbook/" key prefix
+    maintain_hierarchy: true`}</CodeBlock>
+              <CodeBlock>{`# resulting S3 keys (alias resolves to "handbook/")
+handbook/index.md
+handbook/engineering/onboarding.md
+handbook/engineering/oncall.md
+handbook/people/benefits.md`}</CodeBlock>
+              <p className="text-sm text-muted-foreground">
+                <strong>Result:</strong> the subfolder path under the mapping&apos;s scope (<code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">handbook/</code>) is appended to the alias prefix, preserving the tree. Compare with scenario 5 where the same files would all collapse into <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">handbook/onboarding.md</code>, <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">handbook/oncall.md</code>, etc. — and basename collisions across folders would clobber each other.
+              </p>
+            </div>
+          </section>
+
+          <Separator />
+
           {/* Tell your agent */}
           <section id="agent-prompt" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">Tell your agent</h2>
@@ -865,7 +1070,8 @@ Rules for working with spec files:
      parent: <bare>            # tries alias first, falls back to raw ID
 
    For S3 integrations, the parent alias resolves to an S3 key prefix (the "parent directory").
-   The format: field controls the file extension: md (default) or html.
+   Set maintain_hierarchy: true on an S3 mapping to preserve subfolder paths under that prefix
+   (default false flattens to the basename).
 
 3. When you CREATE a new spec file:
    - If it needs a custom title (different from the H1 heading or filename), add an entry:

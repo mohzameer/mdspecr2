@@ -364,6 +364,96 @@ describe('resolveConfigPaths', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Payload round-trip — YAML → readMdspecMapAt → resolveConfigPaths → mergeConfigs
+//
+// Asserts that mapping fields documented in api-reference scenarios survive
+// every stage of CLI processing and land on the merged config that the CLI
+// posts to /api/publish.
+// ---------------------------------------------------------------------------
+
+describe('payload round-trip', () => {
+  async function roundTrip(yaml: string, scopeDir: string) {
+    vi.mocked(fs.readFile).mockResolvedValue(yaml as never)
+    const parsed = await readMdspecMapAt(`/repo/${scopeDir || ''}/.mdspecmap`)
+    const resolved = resolveConfigPaths(parsed, scopeDir)
+    return mergeConfigs([resolved])
+  }
+
+  it('S3 with maintain_hierarchy: true survives parse → resolve → merge', async () => {
+    const yaml = [
+      'version: 1',
+      'mappings:',
+      '  - integration: s3',
+      '    parent: alias:handbook-site',
+      '    maintain_hierarchy: true',
+      '',
+    ].join('\n')
+
+    const merged = await roundTrip(yaml, 'handbook')
+
+    expect(merged.mappings).toHaveLength(1)
+    const m = merged.mappings[0]
+    expect(m.integration).toBe('s3')
+    expect(m.parent).toBe('alias:handbook-site')
+    expect(m.maintain_hierarchy).toBe(true)
+    expect(m.folder).toBe('handbook')
+  })
+
+  it('S3 flat-mode mapping (default maintain_hierarchy) survives round-trip', async () => {
+    const yaml = [
+      'version: 1',
+      'mappings:',
+      '  - integration: s3',
+      '    parent: alias:docs-archive',
+      '    skip:',
+      '      - DRAFT_*.md',
+      '',
+    ].join('\n')
+
+    const merged = await roundTrip(yaml, 'docs')
+
+    expect(merged.mappings).toHaveLength(1)
+    const m = merged.mappings[0]
+    expect(m.integration).toBe('s3')
+    expect(m.parent).toBe('alias:docs-archive')
+    expect(m.maintain_hierarchy).toBeUndefined()  // default flat — no field set
+    expect(m.skip).toEqual(['DRAFT_*.md'])
+    expect(m.folder).toBe('docs')
+  })
+
+  it('ClickUp task-mode mapping (target/list_id/space_id/custom_task_ids/agent) survives round-trip', async () => {
+    const yaml = [
+      'version: 1',
+      'sub_folders: false',
+      'mappings:',
+      '  - integration: clickup',
+      '    target: task',
+      '    list_id: id:901812098656',
+      '    space_id: id:90185234',
+      '    custom_task_ids: true',
+      '    agent: Sprint Task Template',
+      '',
+    ].join('\n')
+
+    const merged = await roundTrip(yaml, 'eng/sprints')
+
+    expect(merged.mappings).toHaveLength(1)
+    const m = merged.mappings[0]
+    expect(m.integration).toBe('clickup')
+    expect(m.target).toBe('task')
+    expect(m.list_id).toBe('id:901812098656')
+    expect(m.space_id).toBe('id:90185234')
+    expect(m.custom_task_ids).toBe(true)
+    expect(m.agent).toBe('Sprint Task Template')
+    expect(m.folder).toBe('eng/sprints')
+    // sub_folders: false should have been lowered to depth: 1 on the mapping
+    expect(m.depth).toBe(1)
+    // top-level sub_folders is dropped from the merged config
+    expect((merged as unknown as Record<string, unknown>).sub_folders).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // mergeConfigs
 // ---------------------------------------------------------------------------
 
