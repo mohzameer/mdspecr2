@@ -600,7 +600,9 @@ export function applySubfolderFilter(files: string[], config: MdspecMapConfig): 
       const relPath = normalizedFolder === '' ? filePath : filePath.slice(normalizedFolder.length + 1)
       // Files directly in the mapping root (no subfolder) are always allowed.
       if (!relPath.includes('/')) return true
-      if (micromatch.isMatch(relPath, mapping.subfolders)) return true
+      // Use micromatch() (not isMatch) so negation patterns combine correctly
+      // with positive ones — e.g. ['api/**', '!api/private/**'].
+      if (micromatch([relPath], mapping.subfolders).length > 0) return true
     }
     return false
   })
@@ -779,8 +781,7 @@ async function discoverSpecFiles(specDirs: string[]): Promise<string[]> {
   const results: string[] = []
   const cwd = process.cwd()
 
-  const hasRoot = specDirs.includes('')
-  const dirsToScan = hasRoot ? [''] : specDirs
+  const dirsToScan = pruneNestedDirs(specDirs)
 
   for (const dir of dirsToScan) {
     const absDir = dir === '' ? cwd : join(cwd, dir)
@@ -792,6 +793,22 @@ async function discoverSpecFiles(specDirs: string[]): Promise<string[]> {
   }
 
   return results
+}
+
+/**
+ * Drop any dir whose ancestor is already in the set, since collectMdFiles
+ * recurses. Without this, nested mappings (e.g. `src` + `src/hooks`) cause
+ * files in the deeper dir to be discovered twice.
+ */
+export function pruneNestedDirs(dirs: string[]): string[] {
+  if (dirs.includes('')) return ['']
+  const sorted = [...new Set(dirs)].sort()
+  const out: string[] = []
+  for (const d of sorted) {
+    if (out.some((p) => d === p || d.startsWith(p + '/'))) continue
+    out.push(d)
+  }
+  return out
 }
 
 async function collectMdFiles(dir: string, cwd: string, results: string[]): Promise<void> {

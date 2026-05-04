@@ -83,6 +83,70 @@ describe('applySubfolderFilter', () => {
     const files = ['docs/api/x.md', 'src/foo.md']
     expect(applySubfolderFilter(files, config)).toEqual(['docs/api/x.md'])
   })
+
+  it('pure negation: ["!internal/**"] excludes internal, keeps everything else', () => {
+    const config: MdspecMapConfig = {
+      version: 1,
+      mappings: [{
+        folder: 'docs',
+        integration: 'notion',
+        parent: 'p',
+        subfolders: ['!internal/**'],
+      }],
+    }
+    const files = [
+      'docs/api/auth.md',         // not internal → kept
+      'docs/guides/setup.md',     // not internal → kept
+      'docs/internal/secret.md',  // matches !internal/** → dropped
+    ]
+    expect(applySubfolderFilter(files, config)).toEqual([
+      'docs/api/auth.md',
+      'docs/guides/setup.md',
+    ])
+  })
+
+  it('mixed include + exclude: ["api/**", "!api/private/**"] keeps api but not api/private', () => {
+    const config: MdspecMapConfig = {
+      version: 1,
+      mappings: [{
+        folder: 'docs',
+        integration: 'notion',
+        parent: 'p',
+        subfolders: ['api/**', '!api/private/**'],
+      }],
+    }
+    const files = [
+      'docs/api/public.md',       // api/** ∧ ¬api/private/** → kept
+      'docs/api/v2/tokens.md',    // api/** ∧ ¬api/private/** → kept
+      'docs/api/private/key.md',  // matches negation → dropped
+      'docs/guides/x.md',         // doesn't match api/** → dropped
+    ]
+    expect(applySubfolderFilter(files, config)).toEqual([
+      'docs/api/public.md',
+      'docs/api/v2/tokens.md',
+    ])
+  })
+
+  it('mixed include-all + exclude: ["**", "!internal/**"] keeps all subfolders except internal', () => {
+    const config: MdspecMapConfig = {
+      version: 1,
+      mappings: [{
+        folder: 'docs',
+        integration: 'notion',
+        parent: 'p',
+        subfolders: ['**', '!internal/**'],
+      }],
+    }
+    const files = [
+      'docs/api/x.md',
+      'docs/guides/y.md',
+      'docs/internal/secret.md',
+    ]
+    expect(applySubfolderFilter(files, config)).toEqual([
+      'docs/api/x.md',
+      'docs/guides/y.md',
+    ])
+  })
 })
 
 // ---------------------------------------------------------------------------
