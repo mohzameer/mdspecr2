@@ -94,6 +94,37 @@ export default function IntegrationsPage() {
   const [notionShared, setNotionShared] = useState<NotionShared | null>(null)
   const [loadingShared, setLoadingShared] = useState(false)
   const [sharedError, setSharedError] = useState<string | null>(null)
+  const [notionChildren, setNotionChildren] = useState<NotionSharedItem[] | null>(null)
+  const [loadingChildren, setLoadingChildren] = useState(false)
+  const [childrenError, setChildrenError] = useState<string | null>(null)
+  const [notionSubPageId, setNotionSubPageId] = useState<string>('')
+
+  async function loadNotionChildren() {
+    const parsed = parseNotionInput(form.notion.root_page_id)
+    if (!form.notion.token || !parsed) return
+    setLoadingChildren(true)
+    setChildrenError(null)
+    setNotionChildren(null)
+    setNotionSubPageId('')
+    const res = await fetch('/api/integrations/notion/children', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: form.notion.token, parent_id: parsed.id }),
+    })
+    const body = await res.json()
+    if (!body.ok) {
+      setChildrenError(body.error ?? 'Could not load sub-pages.')
+    } else {
+      setNotionChildren(body.pages)
+    }
+    setLoadingChildren(false)
+  }
+
+  function resetNotionChildren() {
+    setNotionChildren(null)
+    setChildrenError(null)
+    setNotionSubPageId('')
+  }
 
   async function loadNotionShared() {
     if (!form.notion.token) return
@@ -150,7 +181,7 @@ export default function IntegrationsPage() {
         setSaving(false)
         return
       }
-      const resolvedRootId = parsedRoot?.id
+      const resolvedRootId = notionSubPageId || parsedRoot?.id
       const resolvedDatabaseId = parsedDb?.id
       const validateRes = await fetch('/api/integrations/notion/validate', {
         method: 'POST',
@@ -307,7 +338,7 @@ export default function IntegrationsPage() {
                 <form onSubmit={(e) => connect(type, e)} className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
                   {type === 'notion' && (
                     <>
-                      <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v, root_page_id: '', database_id: '', data_source_id: '' } }); setNotionValidateError(null); setNotionShared(null); setSharedError(null); setNotionDataSources(null) }} placeholder="ntn_... or secret_..." />
+                      <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v, root_page_id: '', database_id: '', data_source_id: '' } }); setNotionValidateError(null); setNotionShared(null); setSharedError(null); setNotionDataSources(null); resetNotionChildren() }} placeholder="ntn_... or secret_..." />
                       {form.notion.token && !notionShared && (
                         <div>
                           <button
@@ -320,21 +351,6 @@ export default function IntegrationsPage() {
                           </button>
                           {sharedError && <p className="text-xs text-red-500 mt-1">{sharedError}</p>}
                           <p className="text-xs text-zinc-400 mt-1">In Notion, open a page → ••• → Connections → add this integration. Then click above to pick from a list.</p>
-                        </div>
-                      )}
-                      {notionShared && notionShared.pages.length > 0 && (
-                        <div>
-                          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Pick a shared page</label>
-                          <select
-                            value={form.notion.root_page_id}
-                            onChange={(e) => { setForm({ ...form, notion: { ...form.notion, root_page_id: e.target.value } }); setNotionValidateError(null) }}
-                            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                          >
-                            <option value="">Select a page…</option>
-                            {notionShared.pages.map((p) => (
-                              <option key={p.id} value={p.id}>{p.title}</option>
-                            ))}
-                          </select>
                         </div>
                       )}
                       {notionShared && notionShared.pages.length === 0 && notionShared.databases.length === 0 && (
@@ -354,7 +370,7 @@ export default function IntegrationsPage() {
                               } else {
                                 setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: id, database_id: '', data_source_id: '' } })
                               }
-                              setNotionValidateError(null); setNotionDataSources(null)
+                              setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren()
                             }}
                             className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
                           >
@@ -390,7 +406,7 @@ export default function IntegrationsPage() {
                           } else {
                             setForm({ ...form, notion: { ...form.notion, root_page_id: v } })
                           }
-                          setNotionValidateError(null); setNotionDataSources(null)
+                          setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren()
                         }}
                         placeholder="Paste a Notion page or database link"
                       />
@@ -407,6 +423,37 @@ export default function IntegrationsPage() {
                           </p>
                         )
                       })()}
+                      {form.notion.mode === 'page' && parseNotionInput(form.notion.root_page_id) && !notionChildren && (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={loadNotionChildren}
+                            disabled={loadingChildren}
+                            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 disabled:opacity-50"
+                          >
+                            {loadingChildren ? 'Loading…' : 'Browse sub-pages'}
+                          </button>
+                          {childrenError && <p className="text-xs text-red-500 mt-1">{childrenError}</p>}
+                        </div>
+                      )}
+                      {form.notion.mode === 'page' && notionChildren && notionChildren.length > 0 && (
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Sub-page (optional)</label>
+                          <select
+                            value={notionSubPageId}
+                            onChange={(e) => { setNotionSubPageId(e.target.value); setNotionValidateError(null) }}
+                            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                          >
+                            <option value="">Use parent page</option>
+                            {notionChildren.map((p) => (
+                              <option key={p.id} value={p.id}>{p.title}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      {form.notion.mode === 'page' && notionChildren && notionChildren.length === 0 && (
+                        <p className="text-xs text-zinc-400">No sub-pages found under this parent.</p>
+                      )}
                       {form.notion.mode === 'database' && notionDataSources && notionDataSources.length > 0 && (
                         <div>
                           <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Data source</label>
@@ -474,7 +521,7 @@ export default function IntegrationsPage() {
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                       {saving ? (type === 's3' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setNotionShared(null); setSharedError(null); setNotionDataSources(null) }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setNotionShared(null); setSharedError(null); setNotionDataSources(null); resetNotionChildren() }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>

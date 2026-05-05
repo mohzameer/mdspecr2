@@ -266,6 +266,39 @@ function parentPageId(item: unknown): string | null {
   return null
 }
 
+export async function listNotionChildPages(
+  token: string,
+  parentId: string
+): Promise<{ ok: true; pages: NotionSharedItem[] } | { ok: false; error: string }> {
+  if (!token) return { ok: false, error: 'token is required' }
+  if (!parentId) return { ok: false, error: 'parent_id is required' }
+  const notion = new Client({ auth: token, notionVersion: NOTION_API_VERSION })
+
+  const pages: NotionSharedItem[] = []
+  try {
+    let cursor: string | undefined
+    do {
+      const res = (await notion.blocks.children.list({
+        block_id: parentId,
+        page_size: 100,
+        start_cursor: cursor,
+      } as never)) as { results: Array<Record<string, unknown>>; next_cursor?: string | null; has_more?: boolean }
+      for (const block of res.results) {
+        if ((block as { type?: string }).type !== 'child_page') continue
+        const id = block.id as string
+        const title = (block as { child_page?: { title?: string } }).child_page?.title?.trim() || 'Untitled'
+        const url = `https://notion.so/${id.replace(/-/g, '')}`
+        pages.push({ id, title, url })
+      }
+      cursor = res.has_more ? (res.next_cursor ?? undefined) : undefined
+    } while (cursor)
+  } catch (err) {
+    return { ok: false, error: notionErrorMessage(err, 'Could not list sub-pages.') }
+  }
+
+  return { ok: true, pages }
+}
+
 export async function searchNotionShared(token: string): Promise<NotionSharedResult | { ok: false; error: string }> {
   if (!token) return { ok: false, error: 'token is required' }
   const notion = new Client({ auth: token, notionVersion: NOTION_API_VERSION })
