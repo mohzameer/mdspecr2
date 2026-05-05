@@ -25,6 +25,8 @@ function resolveUrlError(code: string): { message: string; isSuccess?: boolean }
       return { message: 'That sign-in link has expired. Request a new one below.' }
     case 'access_denied':
       return { message: 'Sign-in was cancelled or denied. Please try again.' }
+    case 'missing_email':
+      return { message: 'Your GitHub account has no verified email — add one on GitHub and try again.' }
     case 'confirmed_sign_in':
       return { message: 'Your email has been confirmed. Sign in below to continue.', isSuccess: true }
     case 'auth_error':
@@ -153,6 +155,27 @@ function LoginForm() {
     }
   }
 
+  async function handleGitHubSignIn() {
+    setLoading(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: { redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
+      })
+      if (error) {
+        console.error('[auth] github oauth error', { code: error.status, message: error.message })
+        setError(error.message)
+        setLoading(false)
+      }
+    } catch (err) {
+      console.error('[auth] github oauth network error', err)
+      setError('Could not reach the server. Check your connection and try again.')
+      setLoading(false)
+    }
+  }
+
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
@@ -235,7 +258,7 @@ function LoginForm() {
       )}
 
 
-      {/* Google sign-in */}
+      {/* OAuth sign-in */}
       <div className="space-y-2">
         <Button
           type="button"
@@ -246,6 +269,16 @@ function LoginForm() {
         >
           {loading ? <Spinner /> : <GoogleIcon />}
           Continue with Google
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full gap-2"
+          disabled={loading}
+          onClick={handleGitHubSignIn}
+        >
+          {loading ? <Spinner /> : <GitHubIcon />}
+          Continue with GitHub
         </Button>
         <p className="text-center text-[11px] text-muted-foreground leading-snug">
           By continuing you agree to our{' '}
@@ -363,6 +396,17 @@ function Spinner() {
     <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  )
+}
+
+function GitHubIcon() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 1.5A10.5 10.5 0 0 0 1.5 12c0 4.64 3.01 8.57 7.18 9.96.53.1.72-.23.72-.51v-1.78c-2.92.63-3.54-1.41-3.54-1.41-.48-1.21-1.17-1.53-1.17-1.53-.96-.65.07-.64.07-.64 1.06.07 1.62 1.09 1.62 1.09.94 1.61 2.47 1.15 3.07.88.1-.69.37-1.15.67-1.41-2.33-.27-4.78-1.16-4.78-5.18 0-1.14.41-2.08 1.08-2.81-.11-.27-.47-1.34.1-2.79 0 0 .88-.28 2.88 1.07a10 10 0 0 1 5.24 0c2-1.35 2.88-1.07 2.88-1.07.57 1.45.21 2.52.1 2.79.67.73 1.08 1.67 1.08 2.81 0 4.03-2.45 4.91-4.79 5.17.38.33.71.97.71 1.96v2.91c0 .28.19.62.73.51A10.5 10.5 0 0 0 22.5 12 10.5 10.5 0 0 0 12 1.5Z"
+      />
     </svg>
   )
 }
