@@ -197,26 +197,26 @@ async function openNotionForm() {
   fireEvent.click(notionCard.querySelector('button.rounded-md.bg-zinc-900') as HTMLElement)
 }
 
+// 32-char hex with ?v= → parses as database
+const DB_URL = 'https://www.notion.so/aaaa1111aaaa1111aaaa1111aaaa1111?v=bbb'
+const DB_ID = 'aaaa1111-aaaa-1111-aaaa-1111aaaa1111'
+
 describe('4.2 Integrations Page — Notion connect form', () => {
-  it('4.2.1 shows token + root_page_id fields with page mode selected by default', async () => {
+  it('4.2.1 shows token + Notion link fields', async () => {
     mockIntegrationsFetch()
     await openNotionForm()
 
     expect(screen.getByPlaceholderText(/ntn_/i)).toBeInTheDocument()
-    expect(screen.getByPlaceholderText(/Notion page ID/i)).toBeInTheDocument()
-    const pageRadio = screen.getByLabelText(/^Pages$/) as HTMLInputElement
-    const dbRadio = screen.getByLabelText(/^Database rows$/) as HTMLInputElement
-    expect(pageRadio.checked).toBe(true)
-    expect(dbRadio.checked).toBe(false)
+    expect(screen.getByPlaceholderText(/Paste a Notion/i)).toBeInTheDocument()
   })
 
-  it('4.2.2 selecting database mode reveals the Database ID field', async () => {
+  it('4.2.2 pasting a database URL is detected as Database', async () => {
     mockIntegrationsFetch()
     await openNotionForm()
 
-    expect(screen.queryByPlaceholderText(/Notion database ID/i)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText(/^Database rows$/))
-    expect(screen.getByPlaceholderText(/Notion database ID/i)).toBeInTheDocument()
+    await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'secret_abc')
+    fireEvent.change(screen.getByPlaceholderText(/Paste a Notion/i), { target: { value: DB_URL } })
+    expect(screen.getByText(/Detected:/i).textContent).toMatch(/Database/i)
   })
 
   it('4.2.3 valid page-mode submit calls validate then connect', async () => {
@@ -224,7 +224,7 @@ describe('4.2 Integrations Page — Notion connect form', () => {
     await openNotionForm()
 
     await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'secret_abc')
-    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
+    await userEvent.type(screen.getByPlaceholderText(/Paste a Notion/i), 'page-root-1')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
@@ -246,7 +246,7 @@ describe('4.2 Integrations Page — Notion connect form', () => {
     await openNotionForm()
 
     await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'bad')
-    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
+    await userEvent.type(screen.getByPlaceholderText(/Paste a Notion/i), 'page-root-1')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
@@ -265,9 +265,7 @@ describe('4.2 Integrations Page — Notion connect form', () => {
     await openNotionForm()
 
     await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'secret_abc')
-    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
-    fireEvent.click(screen.getByLabelText(/^Database rows$/))
-    await userEvent.type(screen.getByPlaceholderText(/Notion database ID/i), 'db-1')
+    fireEvent.change(screen.getByPlaceholderText(/Paste a Notion/i), { target: { value: DB_URL } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
@@ -290,9 +288,7 @@ describe('4.2 Integrations Page — Notion connect form', () => {
     await openNotionForm()
 
     await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'secret_abc')
-    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
-    fireEvent.click(screen.getByLabelText(/^Database rows$/))
-    await userEvent.type(screen.getByPlaceholderText(/Notion database ID/i), 'db-1')
+    fireEvent.change(screen.getByPlaceholderText(/Paste a Notion/i), { target: { value: DB_URL } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument())
@@ -306,9 +302,8 @@ describe('4.2 Integrations Page — Notion connect form', () => {
       const credentials = JSON.parse(body.credentials)
       expect(credentials).toEqual({
         token: 'secret_abc',
-        root_page_id: 'page-root-1',
         mode: 'database',
-        database_id: 'db-1',
+        database_id: DB_ID,
         data_source_id: 'ds-2',
       })
     })
@@ -321,9 +316,7 @@ describe('4.2 Integrations Page — Notion connect form', () => {
     await openNotionForm()
 
     await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'secret_abc')
-    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
-    fireEvent.click(screen.getByLabelText(/^Database rows$/))
-    await userEvent.type(screen.getByPlaceholderText(/Notion database ID/i), 'db-1')
+    fireEvent.change(screen.getByPlaceholderText(/Paste a Notion/i), { target: { value: DB_URL } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {

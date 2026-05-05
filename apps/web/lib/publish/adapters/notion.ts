@@ -7,7 +7,7 @@ const BLOCK_BATCH = 100
 
 export interface NotionCredentials {
   token: string
-  root_page_id: string
+  root_page_id?: string
   mode?: 'page' | 'database'
   database_id?: string
   data_source_id?: string
@@ -121,6 +121,9 @@ async function publishAsPage(
 ): Promise<PublishResult> {
   const blocks = mdToNotionBlocks(spec.content)
 
+  if (!credentials.root_page_id) {
+    throw new Error('Notion page mode requires root_page_id in credentials')
+  }
   const folders = getAncestorFolders(spec.path)
   let parentPageId = credentials.root_page_id
   for (const folder of folders) {
@@ -195,7 +198,7 @@ export async function publishToNotion(
 
 export interface NotionValidateInput {
   token: string
-  root_page_id: string
+  root_page_id?: string
   mode?: 'page' | 'database'
   database_id?: string
   data_source_id?: string
@@ -308,19 +311,21 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
 }
 
 export async function validateNotionCredentials(input: NotionValidateInput): Promise<NotionValidateResult> {
-  if (!input.token || !input.root_page_id) {
-    return { ok: false, error: 'token and root_page_id are required' }
+  if (!input.token) {
+    return { ok: false, error: 'token is required' }
+  }
+  if (input.mode !== 'database' && !input.root_page_id) {
+    return { ok: false, error: 'root_page_id is required for page mode' }
   }
 
   const notion = new Client({ auth: input.token, notionVersion: NOTION_API_VERSION })
 
-  try {
-    await notion.pages.retrieve({ page_id: input.root_page_id })
-  } catch (err) {
-    return { ok: false, error: notionErrorMessage(err, 'Could not reach Notion.') }
-  }
-
   if (input.mode !== 'database') {
+    try {
+      await notion.pages.retrieve({ page_id: input.root_page_id! })
+    } catch (err) {
+      return { ok: false, error: notionErrorMessage(err, 'Could not reach Notion.') }
+    }
     return { ok: true, mode: 'page' }
   }
 

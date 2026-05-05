@@ -33,6 +33,30 @@ function parseClickUpWorkspaceId(url: string): string | null {
   return match ? match[1] : null
 }
 
+function formatNotionUuid(hex: string): string {
+  const h = hex.toLowerCase()
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+}
+
+function parseNotionInput(input: string): { id: string; isDatabase: boolean } | null {
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
+    return { id: trimmed.toLowerCase(), isDatabase: false }
+  }
+  if (/^[0-9a-f]{32}$/i.test(trimmed)) {
+    return { id: formatNotionUuid(trimmed), isDatabase: false }
+  }
+  if (/^https?:\/\//i.test(trimmed) || trimmed.includes('notion.so')) {
+    const urlMatch = trimmed.match(/([0-9a-f]{32})(?:[^0-9a-f]|$)/i)
+    if (urlMatch) {
+      return { id: formatNotionUuid(urlMatch[1]), isDatabase: /[?&]v=/.test(trimmed) }
+    }
+    return null
+  }
+  return { id: trimmed, isDatabase: false }
+}
+
 const integrationMeta: Record<IntegrationType, { label: string; description: string }> = {
   notion: { label: 'Notion', description: 'Publish specs as nested sub-pages in a Notion workspace.' },
   confluence: { label: 'Confluence', description: 'Publish specs as a page tree in a Confluence space.' },
@@ -114,10 +138,24 @@ export default function IntegrationsPage() {
     if (type === 'notion') {
       setSaving(true)
       const { token, root_page_id, mode, database_id, data_source_id } = form.notion
+      const parsedRoot = root_page_id ? parseNotionInput(root_page_id) : null
+      if (mode !== 'database' && !parsedRoot) {
+        setNotionValidateError('Could not extract a Notion page ID. Paste the page URL or its ID.')
+        setSaving(false)
+        return
+      }
+      const parsedDb = mode === 'database' ? parseNotionInput(database_id) : null
+      if (mode === 'database' && !parsedDb) {
+        setNotionValidateError('Could not extract a Notion database ID.')
+        setSaving(false)
+        return
+      }
+      const resolvedRootId = parsedRoot?.id
+      const resolvedDatabaseId = parsedDb?.id
       const validateRes = await fetch('/api/integrations/notion/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, root_page_id, mode, database_id: mode === 'database' ? database_id : undefined, data_source_id: mode === 'database' ? data_source_id || undefined : undefined }),
+        body: JSON.stringify({ token, root_page_id: resolvedRootId, mode, database_id: mode === 'database' ? resolvedDatabaseId : undefined, data_source_id: mode === 'database' ? data_source_id || undefined : undefined }),
       })
       const validateBody = await validateRes.json()
       if (!validateBody.ok) {
@@ -133,8 +171,8 @@ export default function IntegrationsPage() {
       }
       const resolvedDataSourceId = validateBody.mode === 'database' ? validateBody.data_source_id : undefined
       const credentials = mode === 'database'
-        ? { token, root_page_id, mode, database_id, data_source_id: resolvedDataSourceId }
-        : { token, root_page_id, mode }
+        ? { token, mode, database_id: resolvedDatabaseId, data_source_id: resolvedDataSourceId }
+        : { token, root_page_id: resolvedRootId, mode }
       await fetch('/api/integrations/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -299,68 +337,91 @@ export default function IntegrationsPage() {
                           </select>
                         </div>
                       )}
-                      {notionShared && notionShared.pages.length === 0 && (
-                        <p className="text-xs text-yellow-600">No pages shared with this integration yet. In Notion, open a page → ••• → Connections → add this integration, then enter the ID manually.</p>
+                      {notionShared && notionShared.pages.length === 0 && notionShared.databases.length === 0 && (
+                        <p className="text-xs text-yellow-600">No pages shared with this integration yet. In Notion, open a page → ••• → Connections → add this integration, then paste the link below.</p>
                       )}
-                      <Field label="Root page ID" value={form.notion.root_page_id} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, root_page_id: v } }); setNotionValidateError(null) }} placeholder="Notion page ID" />
-                      <div>
-                        <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Publish mode</label>
-                        <div className="flex gap-4">
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="radio"
-                              name="notion-mode"
-                              checked={form.notion.mode === 'page'}
-                              onChange={() => { setForm({ ...form, notion: { ...form.notion, mode: 'page' } }); setNotionValidateError(null); setNotionDataSources(null) }}
-                            />
-                            Pages
-                          </label>
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="radio"
-                              name="notion-mode"
-                              checked={form.notion.mode === 'database'}
-                              onChange={() => { setForm({ ...form, notion: { ...form.notion, mode: 'database' } }); setNotionValidateError(null) }}
-                            />
-                            Database rows
-                          </label>
-                        </div>
-                      </div>
-                      {form.notion.mode === 'database' && (
-                        <>
-                          {notionShared && notionShared.databases.length > 0 && (
-                            <div>
-                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Pick a shared database</label>
-                              <select
-                                value={form.notion.database_id}
-                                onChange={(e) => { setForm({ ...form, notion: { ...form.notion, database_id: e.target.value, data_source_id: '' } }); setNotionValidateError(null); setNotionDataSources(null) }}
-                                className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                              >
-                                <option value="">Select a database…</option>
+                      {notionShared && (notionShared.pages.length > 0 || notionShared.databases.length > 0) && (
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Pick a shared page or database</label>
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const v = e.target.value
+                              if (!v) return
+                              const [kind, id] = v.split(':')
+                              if (kind === 'db') {
+                                setForm({ ...form, notion: { ...form.notion, mode: 'database', database_id: id, root_page_id: '', data_source_id: '' } })
+                              } else {
+                                setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: id, database_id: '', data_source_id: '' } })
+                              }
+                              setNotionValidateError(null); setNotionDataSources(null)
+                            }}
+                            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                          >
+                            <option value="">Select…</option>
+                            {notionShared.pages.length > 0 && (
+                              <optgroup label="Pages">
+                                {notionShared.pages.map((p) => (
+                                  <option key={p.id} value={`page:${p.id}`}>{p.title}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {notionShared.databases.length > 0 && (
+                              <optgroup label="Databases">
                                 {notionShared.databases.map((d) => (
-                                  <option key={d.id} value={d.id}>{d.title}</option>
+                                  <option key={d.id} value={`db:${d.id}`}>{d.title}</option>
                                 ))}
-                              </select>
-                            </div>
-                          )}
-                          <Field label="Database ID" value={form.notion.database_id} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, database_id: v, data_source_id: '' } }); setNotionValidateError(null); setNotionDataSources(null) }} placeholder="Notion database ID" />
-                          {notionDataSources && notionDataSources.length > 0 && (
-                            <div>
-                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Data source</label>
-                              <select
-                                value={form.notion.data_source_id}
-                                onChange={(e) => { setForm({ ...form, notion: { ...form.notion, data_source_id: e.target.value } }); setNotionValidateError(null) }}
-                                required
-                                className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                              >
-                                <option value="">Select a data source…</option>
-                                {notionDataSources.map((ds) => (
-                                  <option key={ds.id} value={ds.id}>{ds.name}</option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-                        </>
+                              </optgroup>
+                            )}
+                          </select>
+                        </div>
+                      )}
+                      <Field
+                        label="Notion link or ID"
+                        value={form.notion.mode === 'database' ? form.notion.database_id : form.notion.root_page_id}
+                        onChange={(v) => {
+                          const parsed = parseNotionInput(v)
+                          if (parsed?.isDatabase) {
+                            setForm({ ...form, notion: { ...form.notion, mode: 'database', database_id: v, root_page_id: '', data_source_id: '' } })
+                          } else if (parsed) {
+                            setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: v, database_id: '', data_source_id: '' } })
+                          } else if (form.notion.mode === 'database') {
+                            setForm({ ...form, notion: { ...form.notion, database_id: v } })
+                          } else {
+                            setForm({ ...form, notion: { ...form.notion, root_page_id: v } })
+                          }
+                          setNotionValidateError(null); setNotionDataSources(null)
+                        }}
+                        placeholder="Paste a Notion page or database link"
+                      />
+                      {(() => {
+                        const v = form.notion.mode === 'database' ? form.notion.database_id : form.notion.root_page_id
+                        if (!v) return null
+                        const parsed = parseNotionInput(v)
+                        if (!parsed) return <p className="text-xs text-yellow-600">Could not extract an ID. Paste the page URL or its 32-char ID.</p>
+                        return (
+                          <p className="text-xs text-zinc-400">
+                            Detected: <span className="text-zinc-600 dark:text-zinc-300">{parsed.isDatabase ? 'Database' : 'Page'}</span>
+                            {' · ID: '}
+                            <span className="font-mono text-zinc-600 dark:text-zinc-300">{parsed.id}</span>
+                          </p>
+                        )
+                      })()}
+                      {form.notion.mode === 'database' && notionDataSources && notionDataSources.length > 0 && (
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Data source</label>
+                          <select
+                            value={form.notion.data_source_id}
+                            onChange={(e) => { setForm({ ...form, notion: { ...form.notion, data_source_id: e.target.value } }); setNotionValidateError(null) }}
+                            required
+                            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                          >
+                            <option value="">Select a data source…</option>
+                            {notionDataSources.map((ds) => (
+                              <option key={ds.id} value={ds.id}>{ds.name}</option>
+                            ))}
+                          </select>
+                        </div>
                       )}
                       {notionValidateError && <p className="text-xs text-red-500">{notionValidateError}</p>}
                       <p className="text-xs text-zinc-400">Credentials are verified against the Notion API before saving.</p>
