@@ -248,12 +248,19 @@ function extractDatabaseTitle(db: unknown): string {
   return 'Untitled'
 }
 
+function parentPageId(item: unknown): string | null {
+  const parent = (item as { parent?: { type?: string; page_id?: string } }).parent
+  if (parent?.type === 'page_id' && parent.page_id) return parent.page_id
+  return null
+}
+
 export async function searchNotionShared(token: string): Promise<NotionSharedResult | { ok: false; error: string }> {
   if (!token) return { ok: false, error: 'token is required' }
   const notion = new Client({ auth: token, notionVersion: NOTION_API_VERSION })
 
-  const pages: NotionSharedItem[] = []
+  const pageMap = new Map<string, NotionSharedItem>()
   const databases: NotionSharedItem[] = []
+  const ancestorQueue: string[] = []
 
   try {
     let cursor: string | undefined
@@ -266,14 +273,36 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
         const obj = item.object as string
         const id = item.id as string
         const url = item.url as string | undefined
-        if (obj === 'page') pages.push({ id, title: extractPageTitle(item), url })
-        else if (obj === 'database') databases.push({ id, title: extractDatabaseTitle(item), url })
+        if (obj === 'page') {
+          if (!pageMap.has(id)) pageMap.set(id, { id, title: extractPageTitle(item), url })
+          const parentId = parentPageId(item)
+          if (parentId && !pageMap.has(parentId)) ancestorQueue.push(parentId)
+        } else if (obj === 'database') {
+          databases.push({ id, title: extractDatabaseTitle(item), url })
+        }
       }
       cursor = res.has_more ? (res.next_cursor ?? undefined) : undefined
     } while (cursor)
   } catch (err) {
     return { ok: false, error: notionErrorMessage(err, 'Could not search Notion.') }
   }
+
+  const visited = new Set<string>()
+  while (ancestorQueue.length > 0) {
+    const id = ancestorQueue.shift()!
+    if (visited.has(id) || pageMap.has(id)) continue
+    visited.add(id)
+    try {
+      const page = (await notion.pages.retrieve({ page_id: id })) as Record<string, unknown>
+      pageMap.set(id, { id, title: extractPageTitle(page), url: page.url as string | undefined })
+      const grandparent = parentPageId(page)
+      if (grandparent && !pageMap.has(grandparent)) ancestorQueue.push(grandparent)
+    } catch {
+      // ancestor not accessible to integration — skip silently
+    }
+  }
+
+  const pages = Array.from(pageMap.values())
 
   return { ok: true, pages, databases }
 }
