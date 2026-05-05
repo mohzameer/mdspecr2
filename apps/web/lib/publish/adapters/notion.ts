@@ -146,6 +146,15 @@ async function publishAsPage(
   return { page_id: page.id, page_url: (page as any).url ?? `https://notion.so/${page.id}` }
 }
 
+async function findTitlePropertyName(notion: Client, dataSourceId: string): Promise<string> {
+  const dataSource = (await notion.request({ path: `data_sources/${dataSourceId}`, method: 'get' })) as { properties?: Record<string, { type?: string }> }
+  const props = dataSource.properties ?? {}
+  for (const key of Object.keys(props)) {
+    if (props[key]?.type === 'title') return key
+  }
+  throw new Error('Notion database has no title property')
+}
+
 async function publishAsDatabaseRow(
   notion: Client,
   credentials: NotionCredentials,
@@ -157,9 +166,9 @@ async function publishAsDatabaseRow(
   }
 
   const blocks = mdToNotionBlocks(spec.content)
+  const titleKey = await findTitlePropertyName(notion, credentials.data_source_id)
   const properties = {
-    Name: { title: [{ type: 'text', text: { content: spec.resolvedTitle } }] },
-    Content: { rich_text: richText(spec.content) },
+    [titleKey]: { title: [{ type: 'text', text: { content: spec.resolvedTitle } }] },
   }
 
   if (existingPageId) {
@@ -365,11 +374,9 @@ export async function validateNotionCredentials(input: NotionValidateInput): Pro
   }
 
   const properties = dataSource.properties ?? {}
-  if (properties.Name?.type !== 'title') {
-    return { ok: false, error: 'Data source must have a `Name` property of type `title`.' }
-  }
-  if (properties.Content?.type !== 'rich_text') {
-    return { ok: false, error: 'Data source must have a `Content` property of type `rich_text`.' }
+  const hasTitle = Object.values(properties).some((p) => p?.type === 'title')
+  if (!hasTitle) {
+    return { ok: false, error: 'Database has no title property.' }
   }
 
   return { ok: true, mode: 'database', data_source_id: resolvedId }

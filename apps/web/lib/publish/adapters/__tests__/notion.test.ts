@@ -19,6 +19,7 @@ const mockPagesRetrieve = vi.fn()
 const mockBlocksList = vi.fn()
 const mockBlocksAppend = vi.fn()
 const mockBlocksDelete = vi.fn()
+const mockRequest = vi.fn()
 const mockClientCtor = vi.fn()
 
 vi.mock('@notionhq/client', () => ({
@@ -37,6 +38,7 @@ vi.mock('@notionhq/client', () => ({
           append: mockBlocksAppend,
         },
       },
+      request: mockRequest,
     }
   }),
 }))
@@ -69,6 +71,7 @@ beforeEach(() => {
   mockBlocksList.mockReset()
   mockBlocksAppend.mockReset()
   mockBlocksDelete.mockReset()
+  mockRequest.mockReset()
   mockClientCtor.mockReset()
 
   // Sensible defaults
@@ -78,6 +81,7 @@ beforeEach(() => {
   mockBlocksList.mockResolvedValue({ results: [] })
   mockBlocksAppend.mockResolvedValue({})
   mockBlocksDelete.mockResolvedValue({})
+  mockRequest.mockResolvedValue({ properties: { Name: { type: 'title' } } })
 })
 
 // ---------------------------------------------------------------------------
@@ -156,15 +160,23 @@ describe('Page mode — update', () => {
 // Database mode
 // ---------------------------------------------------------------------------
 describe('Database mode — create', () => {
-  it('creates a row using parent.data_source_id with Name + Content properties', async () => {
+  it('creates a row using parent.data_source_id with the database title property', async () => {
     const result = await publishToNotion(DB_CREDS, SPEC, null)
 
     expect(mockPagesCreate).toHaveBeenCalledTimes(1)
     const call = mockPagesCreate.mock.calls[0][0]
     expect(call.parent).toEqual({ type: 'data_source_id', data_source_id: 'data-source-id' })
     expect(call.properties.Name.title[0].text.content).toBe('Auth Spec')
-    expect(call.properties.Content.rich_text[0].text.content).toBe(SPEC.content)
+    expect(call.properties.Content).toBeUndefined()
     expect(result).toEqual({ page_id: 'created-page-id', page_url: 'https://notion.so/created-page-id' })
+  })
+
+  it('uses the auto-detected title property name (custom column name)', async () => {
+    mockRequest.mockResolvedValueOnce({ properties: { 'Task name': { type: 'title' }, Status: { type: 'select' } } })
+    await publishToNotion(DB_CREDS, SPEC, null)
+    const call = mockPagesCreate.mock.calls[0][0]
+    expect(call.properties['Task name'].title[0].text.content).toBe('Auth Spec')
+    expect(call.properties.Name).toBeUndefined()
   })
 
   it('throws when data_source_id is missing', async () => {
@@ -198,12 +210,14 @@ describe('Database mode — update', () => {
 // rich_text chunking and block batching
 // ---------------------------------------------------------------------------
 describe('rich_text chunking', () => {
-  it('splits Content > 2000 chars into multiple rich_text segments in database mode', async () => {
-    const longContent = 'x'.repeat(5500) // → 3 chunks (2000 + 2000 + 1500)
-    await publishToNotion(DB_CREDS, { ...SPEC, content: longContent }, null)
+  it('splits paragraph text > 2000 chars into multiple rich_text segments', async () => {
+    const longLine = 'x'.repeat(5500) // → 3 chunks (2000 + 2000 + 1500)
+    await publishToNotion(PAGE_CREDS, { ...SPEC, content: longLine }, null)
 
     const call = mockPagesCreate.mock.calls[0][0]
-    const segments = call.properties.Content.rich_text
+    const paragraph = call.children[0]
+    expect(paragraph.type).toBe('paragraph')
+    const segments = paragraph.paragraph.rich_text
     expect(segments).toHaveLength(3)
     expect(segments[0].text.content.length).toBe(2000)
     expect(segments[1].text.content.length).toBe(2000)
