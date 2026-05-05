@@ -215,6 +215,69 @@ function notionErrorMessage(err: unknown, fallback: string): string {
   return e?.message ?? fallback
 }
 
+export interface NotionSharedItem {
+  id: string
+  title: string
+  url?: string
+}
+
+export interface NotionSharedResult {
+  ok: true
+  pages: NotionSharedItem[]
+  databases: NotionSharedItem[]
+}
+
+function extractPageTitle(page: unknown): string {
+  const props = (page as { properties?: Record<string, { type?: string; title?: Array<{ plain_text?: string }> }> }).properties ?? {}
+  for (const key of Object.keys(props)) {
+    const prop = props[key]
+    if (prop?.type === 'title' && Array.isArray(prop.title)) {
+      const text = prop.title.map((t) => t.plain_text ?? '').join('').trim()
+      if (text) return text
+    }
+  }
+  return 'Untitled'
+}
+
+function extractDatabaseTitle(db: unknown): string {
+  const title = (db as { title?: Array<{ plain_text?: string }> }).title
+  if (Array.isArray(title)) {
+    const text = title.map((t) => t.plain_text ?? '').join('').trim()
+    if (text) return text
+  }
+  return 'Untitled'
+}
+
+export async function searchNotionShared(token: string): Promise<NotionSharedResult | { ok: false; error: string }> {
+  if (!token) return { ok: false, error: 'token is required' }
+  const notion = new Client({ auth: token, notionVersion: NOTION_API_VERSION })
+
+  const pages: NotionSharedItem[] = []
+  const databases: NotionSharedItem[] = []
+
+  try {
+    let cursor: string | undefined
+    do {
+      const res = (await notion.search({
+        page_size: 100,
+        start_cursor: cursor,
+      } as never)) as { results: Array<Record<string, unknown>>; next_cursor?: string | null; has_more?: boolean }
+      for (const item of res.results) {
+        const obj = item.object as string
+        const id = item.id as string
+        const url = item.url as string | undefined
+        if (obj === 'page') pages.push({ id, title: extractPageTitle(item), url })
+        else if (obj === 'database') databases.push({ id, title: extractDatabaseTitle(item), url })
+      }
+      cursor = res.has_more ? (res.next_cursor ?? undefined) : undefined
+    } while (cursor)
+  } catch (err) {
+    return { ok: false, error: notionErrorMessage(err, 'Could not search Notion.') }
+  }
+
+  return { ok: true, pages, databases }
+}
+
 export async function validateNotionCredentials(input: NotionValidateInput): Promise<NotionValidateResult> {
   if (!input.token || !input.root_page_id) {
     return { ok: false, error: 'token and root_page_id are required' }
