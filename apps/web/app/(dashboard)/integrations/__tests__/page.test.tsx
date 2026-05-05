@@ -1,10 +1,12 @@
 /**
  * Section 4.1 — Aliases tab (AliasesTab component)
+ * Section 4.2 — Notion connect form (IntegrationsPage)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AliasesTab } from '../../projects/[projectId]/map/AliasesTab.js'
+import IntegrationsPage from '../page.js'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -153,5 +155,182 @@ describe('4.1 Integrations Page — Aliases section', () => {
     fireEvent.click(screen.getByText('Delete'))
 
     expect(window.confirm).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 4.2 Notion connect form
+// ---------------------------------------------------------------------------
+
+/**
+ * Mock fetch for the integrations page. Routes:
+ *   GET  /api/integrations/list           → []  (no integrations connected)
+ *   POST /api/integrations/notion/validate → opts.validateResponse
+ *   POST /api/integrations/connect        → { ok: true }
+ */
+function mockIntegrationsFetch(opts: {
+  validateResponse?: { status: number; body: Record<string, unknown> }
+  validateResponses?: Array<{ status: number; body: Record<string, unknown> }>
+} = {}) {
+  let validateCallCount = 0
+  const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+    if (url === '/api/integrations/list') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+    }
+    if (url === '/api/integrations/notion/validate' && options?.method === 'POST') {
+      const r = opts.validateResponses?.[validateCallCount++] ?? opts.validateResponse ?? { status: 200, body: { ok: true, mode: 'page' } }
+      return Promise.resolve({ ok: r.status === 200, status: r.status, json: () => Promise.resolve(r.body) })
+    }
+    if (url === '/api/integrations/connect' && options?.method === 'POST') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) })
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+  })
+  global.fetch = fetchMock
+  return fetchMock
+}
+
+async function openNotionForm() {
+  render(<IntegrationsPage />)
+  await waitFor(() => expect(screen.getAllByRole('button', { name: /Connect/i }).length).toBeGreaterThan(0))
+  const notionCard = screen.getByText('Notion').closest('div')!.parentElement!.parentElement!
+  fireEvent.click(notionCard.querySelector('button.rounded-md.bg-zinc-900') as HTMLElement)
+}
+
+describe('4.2 Integrations Page — Notion connect form', () => {
+  it('4.2.1 shows token + root_page_id fields with page mode selected by default', async () => {
+    mockIntegrationsFetch()
+    await openNotionForm()
+
+    expect(screen.getByPlaceholderText(/ntn_/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/Notion page ID/i)).toBeInTheDocument()
+    const pageRadio = screen.getByLabelText(/^Pages$/) as HTMLInputElement
+    const dbRadio = screen.getByLabelText(/^Database rows$/) as HTMLInputElement
+    expect(pageRadio.checked).toBe(true)
+    expect(dbRadio.checked).toBe(false)
+  })
+
+  it('4.2.2 selecting database mode reveals the Database ID field', async () => {
+    mockIntegrationsFetch()
+    await openNotionForm()
+
+    expect(screen.queryByPlaceholderText(/Notion database ID/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText(/^Database rows$/))
+    expect(screen.getByPlaceholderText(/Notion database ID/i)).toBeInTheDocument()
+  })
+
+  it('4.2.3 valid page-mode submit calls validate then connect', async () => {
+    const fetchMock = mockIntegrationsFetch()
+    await openNotionForm()
+
+    await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'secret_abc')
+    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      const validateCall = fetchMock.mock.calls.find(c => c[0] === '/api/integrations/notion/validate')
+      expect(validateCall).toBeDefined()
+      const body = JSON.parse((validateCall![1] as RequestInit).body as string)
+      expect(body).toEqual({ token: 'secret_abc', root_page_id: 'page-root-1', mode: 'page', database_id: undefined, data_source_id: undefined })
+    })
+    await waitFor(() => {
+      const connectCall = fetchMock.mock.calls.find(c => c[0] === '/api/integrations/connect')
+      expect(connectCall).toBeDefined()
+    })
+  })
+
+  it('4.2.4 surfaces validate error and does NOT call connect', async () => {
+    const fetchMock = mockIntegrationsFetch({
+      validateResponse: { status: 400, body: { ok: false, error: 'Token rejected. Check the integration token.' } },
+    })
+    await openNotionForm()
+
+    await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'bad')
+    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Token rejected/i)).toBeInTheDocument()
+    })
+    expect(fetchMock.mock.calls.find(c => c[0] === '/api/integrations/connect')).toBeUndefined()
+  })
+
+  it('4.2.5 needs_pick response renders data source picker without calling connect', async () => {
+    const fetchMock = mockIntegrationsFetch({
+      validateResponse: {
+        status: 200,
+        body: { ok: true, mode: 'database', needs_pick: true, data_sources: [{ id: 'ds-1', name: 'Specs' }, { id: 'ds-2', name: 'Drafts' }] },
+      },
+    })
+    await openNotionForm()
+
+    await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'secret_abc')
+    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
+    fireEvent.click(screen.getByLabelText(/^Database rows$/))
+    await userEvent.type(screen.getByPlaceholderText(/Notion database ID/i), 'db-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/multiple data sources/i)).toBeInTheDocument()
+    })
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    expect(select.options.length).toBe(3) // placeholder + 2 sources
+    expect(screen.getByRole('option', { name: 'Specs' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Drafts' })).toBeInTheDocument()
+    expect(fetchMock.mock.calls.find(c => c[0] === '/api/integrations/connect')).toBeUndefined()
+  })
+
+  it('4.2.6 after needs_pick, picking a source and resubmitting forwards data_source_id', async () => {
+    const fetchMock = mockIntegrationsFetch({
+      validateResponses: [
+        { status: 200, body: { ok: true, mode: 'database', needs_pick: true, data_sources: [{ id: 'ds-1', name: 'Specs' }, { id: 'ds-2', name: 'Drafts' }] } },
+        { status: 200, body: { ok: true, mode: 'database', data_source_id: 'ds-2' } },
+      ],
+    })
+    await openNotionForm()
+
+    await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'secret_abc')
+    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
+    fireEvent.click(screen.getByLabelText(/^Database rows$/))
+    await userEvent.type(screen.getByPlaceholderText(/Notion database ID/i), 'db-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument())
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'ds-2')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      const connectCall = fetchMock.mock.calls.find(c => c[0] === '/api/integrations/connect')
+      expect(connectCall).toBeDefined()
+      const body = JSON.parse((connectCall![1] as RequestInit).body as string)
+      const credentials = JSON.parse(body.credentials)
+      expect(credentials).toEqual({
+        token: 'secret_abc',
+        root_page_id: 'page-root-1',
+        mode: 'database',
+        database_id: 'db-1',
+        data_source_id: 'ds-2',
+      })
+    })
+  })
+
+  it('4.2.7 successful database-mode validate forwards resolved data_source_id', async () => {
+    const fetchMock = mockIntegrationsFetch({
+      validateResponse: { status: 200, body: { ok: true, mode: 'database', data_source_id: 'ds-only' } },
+    })
+    await openNotionForm()
+
+    await userEvent.type(screen.getByPlaceholderText(/ntn_/i), 'secret_abc')
+    await userEvent.type(screen.getByPlaceholderText(/Notion page ID/i), 'page-root-1')
+    fireEvent.click(screen.getByLabelText(/^Database rows$/))
+    await userEvent.type(screen.getByPlaceholderText(/Notion database ID/i), 'db-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      const connectCall = fetchMock.mock.calls.find(c => c[0] === '/api/integrations/connect')
+      expect(connectCall).toBeDefined()
+      const credentials = JSON.parse(JSON.parse((connectCall![1] as RequestInit).body as string).credentials)
+      expect(credentials.data_source_id).toBe('ds-only')
+    })
   })
 })

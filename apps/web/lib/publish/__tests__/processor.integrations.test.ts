@@ -242,6 +242,31 @@ describe('Notion dispatch', () => {
     await expect(runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion', specs, matched_folder: 'docs' })).resolves.toBeUndefined()
     expect(publishToNotion).toHaveBeenCalledTimes(2)
   })
+
+  it('forwards database-mode credentials (mode, database_id, data_source_id) to adapter', async () => {
+    const dbCreds = {
+      ...NOTION_CREDS,
+      mode: 'database',
+      database_id: 'db-id',
+      data_source_id: 'data-source-id',
+    }
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(makeSimpleSupabase(dbCreds) as never)
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'row-id', page_url: 'https://notion.so/row-id' })
+
+    await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion', specs: [makeSpec()], matched_folder: 'docs/specs' })
+
+    expect(publishToNotion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: dbCreds.token,
+        root_page_id: dbCreds.root_page_id,
+        mode: 'database',
+        database_id: 'db-id',
+        data_source_id: 'data-source-id',
+      }),
+      expect.anything(),
+      null
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

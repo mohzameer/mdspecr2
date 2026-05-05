@@ -80,6 +80,7 @@ const NAV = [
   { label: 'Depth limiting', href: '#depth' },
   { label: 'Multiple integrations', href: '#multi' },
   { label: 'S3 integration', href: '#s3' },
+  { label: 'Notion integration', href: '#notion' },
   { label: 'Example scenarios', href: '#scenarios' },
   { label: 'Tell your agent', href: '#agent-prompt' },
 ]
@@ -831,6 +832,55 @@ mappings:
               <li>Click <strong>Connect S3</strong>. mdspec runs a health check and saves the credentials if it succeeds.</li>
               <li>Go to the integration&apos;s <strong>Aliases</strong> tab and create an alias with a key prefix (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs/</code>) or leave it blank to publish at the bucket root.</li>
               <li>Reference the alias in your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> as <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">parent: alias:&lt;name&gt;</code>.</li>
+            </ol>
+          </section>
+
+          <Separator />
+
+          {/* Notion integration */}
+          <section id="notion" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">Notion integration</h2>
+            <p className="text-sm text-muted-foreground">
+              Notion has two publish modes — <strong>pages</strong> (the default) and <strong>database rows</strong>. The mode is configured on the integration in the dashboard, not in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code>. A given integration uses one mode; create a second integration to publish to a different target.
+            </p>
+
+            <h3 className="text-sm font-semibold">API version</h3>
+            <p className="text-sm text-muted-foreground">
+              mdspec pins <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">Notion-Version: 2025-09-03</code> on every request. This adopts Notion&apos;s data sources model — databases are containers that hold one or more <em>data sources</em> (the actual tables of rows). Pages in a database are created under a data source, not directly under the database.
+            </p>
+
+            <h3 className="text-sm font-semibold">Page mode (default)</h3>
+            <p className="text-sm text-muted-foreground">
+              Each spec is published as a child page under a configured root page. Repo folder structure is mirrored as intermediate pages: a spec at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">specs/payments/checkout-retry.md</code> lands at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">&lt;root&gt; / specs / payments / Checkout Retry</code>. Connect requires the integration token and the root page ID.
+            </p>
+
+            <h3 className="text-sm font-semibold">Database mode</h3>
+            <p className="text-sm text-muted-foreground">
+              Each spec is published as a row in a configured Notion data source — useful when teams manage specs through table, board, or filter views. Connect requires the integration token, the database ID, and (for multi-source databases) a picked data source.
+            </p>
+            <p className="text-sm text-muted-foreground">The target data source must have at minimum:</p>
+            <Table
+              headers={['Property', 'Type', 'Required']}
+              rows={[
+                ['`Name`', 'title', 'yes'],
+                ['`Content`', 'rich_text', 'yes'],
+              ]}
+            />
+            <p className="text-sm text-muted-foreground">
+              <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">Name</code> receives the spec title; <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">Content</code> holds the spec body, chunked into 2000-character segments to fit Notion&apos;s rich_text limit. The full structured content (headings, code blocks, lists) is also appended as child blocks on the row&apos;s underlying page. mdspec does <strong>not</strong> create or modify database schemas — Connect-time validation rejects the integration if either property is missing or has the wrong type.
+            </p>
+
+            <h3 className="text-sm font-semibold">Frontmatter</h3>
+            <p className="text-sm text-muted-foreground">
+              Both modes use the same <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">notion_page_id</code> frontmatter key to link a spec to an existing Notion page or row. See <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a>.
+            </p>
+
+            <h3 className="text-sm font-semibold">Connect a Notion integration</h3>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>Create an internal integration at <a href="https://www.notion.so/my-integrations" target="_blank" rel="noreferrer" className="underline hover:text-foreground">notion.so/my-integrations</a> and grant it access to the page or database you want to publish under.</li>
+              <li>Go to <strong>Dashboard → Integrations → Connect → Notion</strong>.</li>
+              <li>Paste the integration token, choose <strong>Pages</strong> or <strong>Database rows</strong>, and provide the root page ID (Pages) or database ID (Database rows).</li>
+              <li>Click <strong>Connect Notion</strong>. mdspec runs a health check — for database mode, it resolves the data sources on the database and validates the required schema before saving credentials.</li>
             </ol>
           </section>
 

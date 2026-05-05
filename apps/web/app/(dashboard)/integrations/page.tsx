@@ -12,11 +12,19 @@ interface Integration {
 }
 
 type ConnectForm = {
-  notion: { token: string; root_page_id: string }
+  notion: {
+    token: string
+    root_page_id: string
+    mode: 'page' | 'database'
+    database_id: string
+    data_source_id: string
+  }
   confluence: { base_url: string; email: string; token: string; space_key: string }
   clickup: { api_token: string; workspace_url: string }
   s3: { access_key_id: string; secret_access_key: string; bucket: string; region: string }
 }
+
+type NotionDataSource = { id: string; name: string }
 
 function parseClickUpWorkspaceId(url: string): string | null {
   const match = url.match(/app\.clickup\.com\/(\d+)/)
@@ -38,7 +46,7 @@ const statusColors: Record<string, string> = {
 
 const INTEGRATION_ORDER: IntegrationType[] = ['clickup', 's3', 'notion', 'confluence']
 
-const DISABLED_INTEGRATIONS = new Set<IntegrationType>(['notion', 'confluence'])
+const DISABLED_INTEGRATIONS = new Set<IntegrationType>(['confluence'])
 
 export default function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<Record<IntegrationType, Integration | null>>({
@@ -47,7 +55,7 @@ export default function IntegrationsPage() {
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState<IntegrationType | null>(null)
   const [form, setForm] = useState<ConnectForm>({
-    notion: { token: '', root_page_id: '' },
+    notion: { token: '', root_page_id: '', mode: 'page', database_id: '', data_source_id: '' },
     confluence: { base_url: '', email: '', token: '', space_key: '' },
     clickup: { api_token: '', workspace_url: '' },
     s3: { access_key_id: '', secret_access_key: '', bucket: '', region: '' },
@@ -55,6 +63,8 @@ export default function IntegrationsPage() {
   const [saving, setSaving] = useState(false)
   const [urlError, setUrlError] = useState<string | null>(null)
   const [s3ValidateError, setS3ValidateError] = useState<string | null>(null)
+  const [notionValidateError, setNotionValidateError] = useState<string | null>(null)
+  const [notionDataSources, setNotionDataSources] = useState<NotionDataSource[] | null>(null)
 
   async function fetchIntegrations() {
     setLoading(true)
@@ -75,6 +85,43 @@ export default function IntegrationsPage() {
   async function connect(type: IntegrationType, e: React.FormEvent) {
     e.preventDefault()
     setS3ValidateError(null)
+    setNotionValidateError(null)
+
+    if (type === 'notion') {
+      setSaving(true)
+      const { token, root_page_id, mode, database_id, data_source_id } = form.notion
+      const validateRes = await fetch('/api/integrations/notion/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, root_page_id, mode, database_id: mode === 'database' ? database_id : undefined, data_source_id: mode === 'database' ? data_source_id || undefined : undefined }),
+      })
+      const validateBody = await validateRes.json()
+      if (!validateBody.ok) {
+        setNotionValidateError(validateBody.error ?? 'Could not validate Notion credentials.')
+        setSaving(false)
+        return
+      }
+      if (validateBody.needs_pick) {
+        setNotionDataSources(validateBody.data_sources)
+        setNotionValidateError('This database has multiple data sources. Pick one and click Save again.')
+        setSaving(false)
+        return
+      }
+      const resolvedDataSourceId = validateBody.mode === 'database' ? validateBody.data_source_id : undefined
+      const credentials = mode === 'database'
+        ? { token, root_page_id, mode, database_id, data_source_id: resolvedDataSourceId }
+        : { token, root_page_id, mode }
+      await fetch('/api/integrations/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, credentials: JSON.stringify(credentials), config: credentials }),
+      })
+      await fetchIntegrations()
+      setConnecting(null)
+      setSaving(false)
+      setNotionDataSources(null)
+      return
+    }
 
     if (type === 'clickup') {
       const workspaceId = parseClickUpWorkspaceId(form.clickup.workspace_url)
@@ -198,8 +245,54 @@ export default function IntegrationsPage() {
                 <form onSubmit={(e) => connect(type, e)} className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
                   {type === 'notion' && (
                     <>
-                      <Field label="Integration token" value={form.notion.token} onChange={(v) => setForm({ ...form, notion: { ...form.notion, token: v } })} placeholder="secret_..." />
-                      <Field label="Root page ID" value={form.notion.root_page_id} onChange={(v) => setForm({ ...form, notion: { ...form.notion, root_page_id: v } })} placeholder="Notion page ID" />
+                      <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v } }); setNotionValidateError(null) }} placeholder="ntn_... or secret_..." />
+                      <Field label="Root page ID" value={form.notion.root_page_id} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, root_page_id: v } }); setNotionValidateError(null) }} placeholder="Notion page ID" />
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Publish mode</label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="radio"
+                              name="notion-mode"
+                              checked={form.notion.mode === 'page'}
+                              onChange={() => { setForm({ ...form, notion: { ...form.notion, mode: 'page' } }); setNotionValidateError(null); setNotionDataSources(null) }}
+                            />
+                            Pages
+                          </label>
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="radio"
+                              name="notion-mode"
+                              checked={form.notion.mode === 'database'}
+                              onChange={() => { setForm({ ...form, notion: { ...form.notion, mode: 'database' } }); setNotionValidateError(null) }}
+                            />
+                            Database rows
+                          </label>
+                        </div>
+                      </div>
+                      {form.notion.mode === 'database' && (
+                        <>
+                          <Field label="Database ID" value={form.notion.database_id} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, database_id: v, data_source_id: '' } }); setNotionValidateError(null); setNotionDataSources(null) }} placeholder="Notion database ID" />
+                          {notionDataSources && notionDataSources.length > 0 && (
+                            <div>
+                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Data source</label>
+                              <select
+                                value={form.notion.data_source_id}
+                                onChange={(e) => { setForm({ ...form, notion: { ...form.notion, data_source_id: e.target.value } }); setNotionValidateError(null) }}
+                                required
+                                className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                              >
+                                <option value="">Select a data source…</option>
+                                {notionDataSources.map((ds) => (
+                                  <option key={ds.id} value={ds.id}>{ds.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {notionValidateError && <p className="text-xs text-red-500">{notionValidateError}</p>}
+                      <p className="text-xs text-zinc-400">Credentials are verified against the Notion API before saving.</p>
                     </>
                   )}
                   {type === 'confluence' && (
