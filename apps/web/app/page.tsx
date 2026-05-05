@@ -148,7 +148,7 @@ export default async function LandingPage() {
           <p className="text-center text-sm text-muted-foreground mb-8">
             mdspec runs on Vercel — SOC 2 Type II certified and ISO 27001 compliant infrastructure.
           </p>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <Card>
               <CardContent className="p-5">
                 <h3 className="text-sm font-semibold mb-1">SOC 2 Type II</h3>
@@ -159,6 +159,12 @@ export default async function LandingPage() {
               <CardContent className="p-5">
                 <h3 className="text-sm font-semibold mb-1">ISO 27001</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">Vercel&apos;s infrastructure is ISO 27001 certified, meeting the international standard for information security management.</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <h3 className="text-sm font-semibold mb-1">Encrypted credentials</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">Integration credentials are encrypted at rest with authenticated encryption (XChaCha20-Poly1305) and keys held outside the application database — aligned with the cryptographic controls expected under SOC 2 and ISO 27001.</p>
               </CardContent>
             </Card>
             <Card>
