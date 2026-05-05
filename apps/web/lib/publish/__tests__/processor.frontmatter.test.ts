@@ -126,7 +126,7 @@ function makeSupabase(opts: {
   const fromMock = vi.fn((table: string) => {
     if (table === 'integrations' && !integrationDone) {
       integrationDone = true
-      return makeChain({ credentials: JSON.stringify(credentials), status: 'connected' }, updateLog, table)
+      return makeChain({ credentials_secret_id: 'sec-xyz', status: 'connected' }, updateLog, table)
     }
     if (table === 'folder_mappings' && !mappingDone && folderMapping !== undefined) {
       mappingDone = true
@@ -142,7 +142,8 @@ function makeSupabase(opts: {
     return makeChain(null, updateLog, table)
   })
 
-  return { from: fromMock, updateLog }
+  const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(credentials), error: null })
+  return { from: fromMock, rpc: rpcMock, updateLog }
 }
 
 beforeEach(() => {

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
+import { readCredentials } from '@/lib/credentials'
 
 const CLICKUP_API_V3 = 'https://api.clickup.com/api/v3'
 
@@ -14,7 +15,7 @@ export async function GET(
 
   const { data: integration } = await supabase
     .from('integrations')
-    .select('id, type, status, credentials, org_id')
+    .select('id, type, status, credentials_secret_id, org_id')
     .eq('id', integrationId)
     .single()
 
@@ -30,10 +31,12 @@ export async function GET(
   if (!membership) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   if (integration.type !== 'clickup') return NextResponse.json({ error: 'not_clickup' }, { status: 400 })
   if (integration.status !== 'connected') return NextResponse.json({ error: 'not_connected' }, { status: 400 })
+  if (!integration.credentials_secret_id) return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
 
   let credentials: { api_token: string; workspace_id: string }
   try {
-    credentials = JSON.parse(integration.credentials)
+    const plaintext = await readCredentials(createSupabaseServiceClient(), integration.credentials_secret_id)
+    credentials = JSON.parse(plaintext)
   } catch {
     return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
   }
@@ -84,7 +87,7 @@ export async function POST(
 
   const { data: integration } = await supabase
     .from('integrations')
-    .select('id, type, status, credentials, org_id')
+    .select('id, type, status, credentials_secret_id, org_id')
     .eq('id', integrationId)
     .single()
 
@@ -99,10 +102,12 @@ export async function POST(
 
   if (!membership) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   if (integration.type !== 'clickup') return NextResponse.json({ error: 'not_clickup' }, { status: 400 })
+  if (!integration.credentials_secret_id) return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
 
   let credentials: { api_token: string; workspace_id: string }
   try {
-    credentials = JSON.parse(integration.credentials)
+    const plaintext = await readCredentials(createSupabaseServiceClient(), integration.credentials_secret_id)
+    credentials = JSON.parse(plaintext)
   } catch {
     return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
   }

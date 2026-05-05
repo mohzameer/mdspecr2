@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
+import { readCredentials } from '@/lib/credentials'
 
 export async function GET(
   req: Request,
@@ -13,7 +14,7 @@ export async function GET(
 
   const { data: integration } = await supabase
     .from('integrations')
-    .select('id, type, status, credentials, org_id')
+    .select('id, type, status, credentials_secret_id, org_id')
     .eq('id', integrationId)
     .single()
 
@@ -29,10 +30,12 @@ export async function GET(
   if (!membership) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   if (integration.type !== 's3') return NextResponse.json({ error: 'not_s3' }, { status: 400 })
   if (integration.status !== 'connected') return NextResponse.json({ error: 'not_connected' }, { status: 400 })
+  if (!integration.credentials_secret_id) return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
 
   let credentials: { access_key_id: string; secret_access_key: string; bucket: string; region: string }
   try {
-    credentials = JSON.parse(integration.credentials)
+    const plaintext = await readCredentials(createSupabaseServiceClient(), integration.credentials_secret_id)
+    credentials = JSON.parse(plaintext)
   } catch {
     return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
   }

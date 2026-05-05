@@ -6,6 +6,7 @@ import { publishToConfluence } from '../adapters/confluence.js'
 import { publishSingleSpec, publishSpecAsPage, clickUpDocExists } from '../adapters/clickup.js'
 import { resolveFolderMapping } from '../lib/resolveFolderMapping.js'
 import { agentsQueue } from '../lib/queue.js'
+import { readCredentials } from '../lib/credentials.js'
 
 interface PublishSpecJobData {
   spec_id: string
@@ -66,12 +67,16 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
   // Fetch integration credentials
   const { data: integration, error: integrationError } = await supabase
     .from('integrations')
-    .select('credentials, config, status')
+    .select('credentials_secret_id, config, status')
     .eq('id', integration_id)
     .single()
 
   if (integrationError || !integration) {
     throw new UnrecoverableError(`Integration ${integration_id} not found`)
+  }
+
+  if (!integration.credentials_secret_id) {
+    throw new UnrecoverableError('Integration credentials missing — reconnect required')
   }
 
   // Fetch existing external_page_id if any (for updates)
@@ -84,9 +89,10 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
   let existingPageId = target?.external_page_id ?? null
   let credentials: Record<string, unknown>
   try {
-    credentials = JSON.parse(integration.credentials)
-  } catch {
-    throw new UnrecoverableError('Invalid integration credentials JSON')
+    const plaintext = await readCredentials(supabase, integration.credentials_secret_id)
+    credentials = JSON.parse(plaintext)
+  } catch (err) {
+    throw new UnrecoverableError(`Invalid integration credentials: ${(err as Error).message}`)
   }
 
   // For ClickUp: if we have an existing doc ID, verify it still exists remotely.

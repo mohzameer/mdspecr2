@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/db-server', () => ({
   createSupabaseServerClient: vi.fn(),
+  createSupabaseServiceClient: vi.fn(),
 }))
 
 const mockSend = vi.fn()
@@ -11,7 +12,7 @@ vi.mock('@aws-sdk/client-s3', () => ({
 }))
 
 import { GET } from '../route.js'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
 
 const CREDENTIALS = {
   access_key_id: 'AKIAIOSFODNN7EXAMPLE',
@@ -45,7 +46,7 @@ const S3_INTEGRATION = {
   id: 'int1',
   type: 's3',
   status: 'connected',
-  credentials: JSON.stringify(CREDENTIALS),
+  credentials_secret_id: 'sec-xyz',
   org_id: 'org1',
 }
 
@@ -55,8 +56,13 @@ function makeReq(path = '/api/integrations/int1/s3-folders', searchParams = '') 
 
 const PARAMS = Promise.resolve({ integrationId: 'int1' })
 
+function makeServiceClient(plaintext: string = JSON.stringify(CREDENTIALS)) {
+  return { rpc: vi.fn().mockResolvedValue({ data: plaintext, error: null }) }
+}
+
 beforeEach(() => {
   vi.mocked(createSupabaseServerClient).mockResolvedValue(makeSupabase({ integration: S3_INTEGRATION }) as never)
+  vi.mocked(createSupabaseServiceClient).mockReturnValue(makeServiceClient() as never)
   mockSend.mockReset()
 })
 
@@ -105,9 +111,7 @@ describe('GET /api/integrations/[integrationId]/s3-folders', () => {
   })
 
   it('returns 500 when credentials are invalid JSON', async () => {
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(
-      makeSupabase({ integration: { ...S3_INTEGRATION, credentials: 'not-json' } }) as never
-    )
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(makeServiceClient('not-json') as never)
     const res = await GET(makeReq() as never, { params: PARAMS })
     expect(res.status).toBe(500)
   })

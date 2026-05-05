@@ -136,7 +136,7 @@ function makeSupabase({
     const n = calls.length
 
     if (n === 1 && table === 'integrations') {
-      return chain({ credentials: JSON.stringify(credentials), status: 'connected' })
+      return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' })
     }
     if (n === 2 && table === 'folder_mappings') {
       return chain(folderMapping)
@@ -150,7 +150,8 @@ function makeSupabase({
     return chain(null)
   })
 
-  return { from: fromMock, _calls: calls }
+  const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(credentials), error: null })
+  return { from: fromMock, rpc: rpcMock, _calls: calls }
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +363,7 @@ describe('S3 key composition — hierarchy mode', () => {
     const fromMock = vi.fn((table: string) => {
       if (table === 'integrations' && !integrationDone) {
         integrationDone = true
-        return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' })
+        return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' })
       }
       if (table === 'folder_mappings' && !mappingDone) {
         mappingDone = true
@@ -374,7 +375,8 @@ describe('S3 key composition — hierarchy mode', () => {
       }
       return chain(null)
     })
-    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
+    const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(S3_CREDENTIALS), error: null })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock, rpc: rpcMock } as never)
     vi.mocked(publishToS3)
       .mockResolvedValueOnce({ page_id: 'content/auth.md', page_url: '' })
       .mockResolvedValueOnce({ page_id: 'content/payments/checkout.md', page_url: '' })
@@ -500,7 +502,7 @@ describe('post-publish content_hash write', () => {
   it('writes content_hash to spec_publish_targets after successful publish', async () => {
     const sptChains: ReturnType<typeof chain>[] = []
     const fromMock = vi.fn((table: string) => {
-      if (table === 'integrations') return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' })
+      if (table === 'integrations') return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' })
       if (table === 'folder_mappings') return chain({ id: 'fm-1', target_id: null, s3_maintain_hierarchy: false })
       if (table === 'spec_publish_targets') {
         const c = chain({ external_page_id: null, retry_count: 0, content_hash: null })
@@ -509,7 +511,8 @@ describe('post-publish content_hash write', () => {
       }
       return chain(null)
     })
-    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
+    const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(S3_CREDENTIALS), error: null })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock, rpc: rpcMock } as never)
     vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
 
     await runPublishGroup(makeJobData())
@@ -555,7 +558,7 @@ describe('multiple specs in one group', () => {
     const fromMock = vi.fn((table: string) => {
       if (table === 'integrations' && !integrationDone) {
         integrationDone = true
-        return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' })
+        return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' })
       }
       if (table === 'folder_mappings' && !mappingDone) {
         mappingDone = true
@@ -567,7 +570,8 @@ describe('multiple specs in one group', () => {
       }
       return chain(null)
     })
-    return { from: fromMock }
+    const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(S3_CREDENTIALS), error: null })
+    return { from: fromMock, rpc: rpcMock }
   }
 
   it('flat mode: specs in subfolders land flat — only filename used', async () => {
@@ -691,12 +695,13 @@ describe('error handling', () => {
   it('records failure and continues when publishToS3 throws on one spec', async () => {
     let integrationDone = false; let mappingDone = false; let sptCount = 0
     const fromMock = vi.fn((table: string) => {
-      if (table === 'integrations' && !integrationDone) { integrationDone = true; return chain({ credentials: JSON.stringify(S3_CREDENTIALS), status: 'connected' }) }
+      if (table === 'integrations' && !integrationDone) { integrationDone = true; return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' }) }
       if (table === 'folder_mappings' && !mappingDone) { mappingDone = true; return chain({ id: 'fm-1', target_id: null, s3_maintain_hierarchy: false }) }
       if (table === 'spec_publish_targets') { sptCount++; return sptCount % 2 === 1 ? chain({ external_page_id: null, retry_count: 0 }) : chain(null) }
       return chain(null)
     })
-    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
+    const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(S3_CREDENTIALS), error: null })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock, rpc: rpcMock } as never)
     vi.mocked(publishToS3)
       .mockRejectedValueOnce(new Error('S3 timeout'))
       .mockResolvedValueOnce({ page_id: 'payments.md', page_url: '' })
@@ -718,8 +723,9 @@ describe('error handling', () => {
   })
 
   it('throws UnrecoverableError when credentials JSON is malformed', async () => {
-    const fromMock = vi.fn(() => chain({ credentials: 'not-valid-json', status: 'connected' }))
-    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
+    const fromMock = vi.fn(() => chain({ credentials_secret_id: 'sec-xyz', status: 'connected' }))
+    const rpcMock = vi.fn().mockResolvedValue({ data: 'not-valid-json', error: null })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock, rpc: rpcMock } as never)
 
     await expect(runPublishGroup(makeJobData())).rejects.toThrow(UnrecoverableError)
   })

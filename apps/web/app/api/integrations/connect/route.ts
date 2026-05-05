@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
+import { storeCredentials, deleteCredentials } from '@/lib/credentials'
 
 export async function POST(request: NextRequest) {
   const supabase = await createSupabaseServerClient()
@@ -13,15 +14,41 @@ export async function POST(request: NextRequest) {
 
   const { type, credentials, config } = await request.json()
 
-  // TODO: Encrypt credentials via Supabase Vault before storing
-  const { error } = await supabase
+  const service = createSupabaseServiceClient()
+
+  // Look up existing integration to know if we need to delete the prior secret
+  const { data: existing } = await service
+    .from('integrations')
+    .select('credentials_secret_id')
+    .eq('org_id', orgId)
+    .eq('type', type)
+    .maybeSingle()
+
+  const secretId = await storeCredentials(service, credentials, `integration:${orgId}:${type}`)
+
+  const { error } = await service
     .from('integrations')
     .upsert(
-      { org_id: orgId, type, status: 'connected', credentials, config, updated_at: new Date().toISOString() },
+      {
+        org_id: orgId,
+        type,
+        status: 'connected',
+        credentials_secret_id: secretId,
+        credentials: '',
+        config,
+        updated_at: new Date().toISOString(),
+      },
       { onConflict: 'org_id,type' }
     )
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    await deleteCredentials(service, secretId).catch(() => {})
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  if (existing?.credentials_secret_id) {
+    await deleteCredentials(service, existing.credentials_secret_id).catch(() => {})
+  }
 
   return NextResponse.json({ ok: true })
 }

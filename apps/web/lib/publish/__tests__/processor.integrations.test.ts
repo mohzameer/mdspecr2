@@ -116,7 +116,7 @@ function makeSimpleSupabase(credentials: Record<string, unknown>, existingPageId
   const fromMock = vi.fn((table: string) => {
     if (table === 'integrations' && !integrationDone) {
       integrationDone = true
-      return chain({ credentials: JSON.stringify(credentials), status: 'connected' })
+      return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' })
     }
     if (table === 'spec_publish_targets') {
       sptCount++
@@ -126,7 +126,8 @@ function makeSimpleSupabase(credentials: Record<string, unknown>, existingPageId
     return chain(null)
   })
 
-  return { from: fromMock }
+  const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(credentials), error: null })
+  return { from: fromMock, rpc: rpcMock }
 }
 
 /**
@@ -145,7 +146,7 @@ function makeClickUpSupabase(
   const fromMock = vi.fn((table: string) => {
     if (table === 'integrations' && !integrationDone) {
       integrationDone = true
-      return chain({ credentials: JSON.stringify(credentials), status: 'connected' })
+      return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' })
     }
     if (table === 'folder_mappings' && !mappingDone) {
       mappingDone = true
@@ -160,7 +161,8 @@ function makeClickUpSupabase(
     return chain(null)
   })
 
-  return { from: fromMock }
+  const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(credentials), error: null })
+  return { from: fromMock, rpc: rpcMock }
 }
 
 const NOTION_CREDS = { token: 'secret_abc', root_page_id: 'page-root-123' }
@@ -232,11 +234,12 @@ describe('Notion dispatch', () => {
     ]
     let integrationDone = false; let sptCount = 0
     const fromMock = vi.fn((table: string) => {
-      if (table === 'integrations' && !integrationDone) { integrationDone = true; return chain({ credentials: JSON.stringify(NOTION_CREDS), status: 'connected' }) }
+      if (table === 'integrations' && !integrationDone) { integrationDone = true; return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' }) }
       if (table === 'spec_publish_targets') { sptCount++; return sptCount % 2 === 1 ? chain({ external_page_id: null, retry_count: 0 }) : chain(null) }
       return chain(null)
     })
-    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock } as never)
+    const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(NOTION_CREDS), error: null })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock, rpc: rpcMock } as never)
     vi.mocked(publishToNotion).mockRejectedValueOnce(new Error('Notion API error')).mockResolvedValueOnce({ page_id: 'p2', page_url: '' })
 
     await expect(runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion', specs, matched_folder: 'docs' })).resolves.toBeUndefined()

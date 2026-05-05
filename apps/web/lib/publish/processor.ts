@@ -6,6 +6,7 @@ import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, 
 import { publishToS3, buildS3Key, s3ObjectExists } from './adapters/s3'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
+import { readCredentials } from '@/lib/credentials'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
 
 // Terminal error — QStash should not retry
@@ -58,7 +59,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
   // -- Fetch integration credentials once ------------------------------------
   const { data: integration, error: integrationError } = await supabase
     .from('integrations')
-    .select('credentials, status')
+    .select('credentials_secret_id, status')
     .eq('id', integration_id)
     .single()
 
@@ -66,11 +67,16 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     throw new UnrecoverableError(`Integration ${integration_id} not found`)
   }
 
+  if (!integration.credentials_secret_id) {
+    throw new UnrecoverableError('Integration credentials missing — reconnect required')
+  }
+
   let credentials: Record<string, unknown>
   try {
-    credentials = JSON.parse(integration.credentials)
-  } catch {
-    throw new UnrecoverableError('Invalid integration credentials JSON')
+    const plaintext = await readCredentials(supabase, integration.credentials_secret_id)
+    credentials = JSON.parse(plaintext)
+  } catch (err) {
+    throw new UnrecoverableError(`Invalid integration credentials: ${(err as Error).message}`)
   }
 
   // -- Resolve folder mapping for the group (all specs share immediateParent) -

@@ -194,25 +194,39 @@ describe('2.7 Integrations', () => {
     })
   }
 
-  it('2.7.1 connect integration upserts with status connected', async () => {
-    const sb = makeServerMock(USER, {
-      integrations: { data: null, error: null },
+  function makeConnectServiceMock(existingSecretId: string | null = null) {
+    const svc = makeServiceMock({
+      integrations: { data: existingSecretId ? { credentials_secret_id: existingSecretId } : null, error: null },
     })
+    svc.rpc = vi.fn().mockImplementation((fn: string) => {
+      if (fn === 'create_integration_secret') return Promise.resolve({ data: 'sec-new', error: null })
+      if (fn === 'delete_integration_secret') return Promise.resolve({ data: null, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    return svc
+  }
+
+  it('2.7.1 connect integration upserts with status connected', async () => {
+    const sb = makeServerMock(USER)
     vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+    const svc = makeConnectServiceMock(null)
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(svc as never)
 
     const res = await connectIntegration(connectReq({ type: 'notion', credentials: '{}', config: {} }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
+    expect(svc.rpc).toHaveBeenCalledWith('create_integration_secret', expect.objectContaining({ secret_text: '{}' }))
   })
 
-  it('2.7.2 reconnect same type upserts (no error)', async () => {
-    const sb = makeServerMock(USER, {
-      integrations: { data: null, error: null },
-    })
+  it('2.7.2 reconnect same type upserts and deletes prior secret', async () => {
+    const sb = makeServerMock(USER)
     vi.mocked(createSupabaseServerClient).mockResolvedValue(sb as never)
+    const svc = makeConnectServiceMock('sec-old')
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(svc as never)
 
     const res = await connectIntegration(connectReq({ type: 'notion', credentials: '{}', config: {} }))
     expect(res.status).toBe(200)
+    expect(svc.rpc).toHaveBeenCalledWith('delete_integration_secret', { secret_id: 'sec-old' })
   })
 })
