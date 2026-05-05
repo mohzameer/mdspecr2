@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/db'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,19 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 type Mode = 'signin' | 'signup' | 'magic'
+type LastProvider = 'google' | 'github' | 'email' | 'magic'
+
+const LAST_PROVIDER_KEY = 'mdspec:last-auth-provider'
+
+function readLastProvider(): LastProvider | null {
+  if (typeof window === 'undefined') return null
+  const v = window.localStorage.getItem(LAST_PROVIDER_KEY)
+  return v === 'google' || v === 'github' || v === 'email' || v === 'magic' ? v : null
+}
+
+function writeLastProvider(p: LastProvider) {
+  try { window.localStorage.setItem(LAST_PROVIDER_KEY, p) } catch {}
+}
 
 export default function LoginPage() {
   return (
@@ -50,6 +63,11 @@ function LoginForm() {
   const [message, setMessage] = useState<string | null>(urlResolved?.isSuccess ? urlResolved.message : null)
   const [needsConfirmation, setNeedsConfirmation] = useState(false)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
+  const [lastProvider, setLastProvider] = useState<LastProvider | null>(null)
+
+  useEffect(() => {
+    setLastProvider(readLastProvider())
+  }, [])
 
   const supabase = createSupabaseBrowserClient()
 
@@ -90,6 +108,7 @@ function LoginForm() {
             setError(error.message)
           }
         } else {
+          writeLastProvider('email')
           await fetch('/api/auth/setup', { method: 'POST' })
           router.push(next)
           router.refresh()
@@ -138,6 +157,7 @@ function LoginForm() {
     setError(null)
     setMessage(null)
     try {
+      writeLastProvider('google')
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
@@ -160,6 +180,7 @@ function LoginForm() {
     setError(null)
     setMessage(null)
     try {
+      writeLastProvider('github')
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'github',
         options: { redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
@@ -190,6 +211,7 @@ function LoginForm() {
       if (error) {
         setError(error.message)
       } else {
+        writeLastProvider('magic')
         setMessage('Check your email for the magic link.')
       }
     } catch {
@@ -269,6 +291,7 @@ function LoginForm() {
         >
           {loading ? <Spinner /> : <GoogleIcon />}
           Continue with Google
+          {lastProvider === 'google' && <LastUsedBadge />}
         </Button>
         <Button
           type="button"
@@ -279,6 +302,7 @@ function LoginForm() {
         >
           {loading ? <Spinner /> : <GitHubIcon />}
           Continue with GitHub
+          {lastProvider === 'github' && <LastUsedBadge />}
         </Button>
         <p className="text-center text-[11px] text-muted-foreground leading-snug">
           By continuing you agree to our{' '}
@@ -300,19 +324,23 @@ function LoginForm() {
 
       {/* Mode tabs */}
       <div className="flex rounded-lg border p-0.5 gap-0.5 bg-muted">
-        {(['signin', 'signup', 'magic'] as Mode[]).map((m) => (
-          <button
-            key={m}
-            onClick={() => { setMode(m); setError(null); setMessage(null); setNeedsConfirmation(false); setAgreedToTerms(false) }}
-            className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
-              mode === m
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {m === 'signin' ? 'Sign in' : m === 'signup' ? 'Sign up' : 'Magic link'}
-          </button>
-        ))}
+        {(['signin', 'signup', 'magic'] as Mode[]).map((m) => {
+          const showBadge = (m === 'signin' && lastProvider === 'email') || (m === 'magic' && lastProvider === 'magic')
+          return (
+            <button
+              key={m}
+              onClick={() => { setMode(m); setError(null); setMessage(null); setNeedsConfirmation(false); setAgreedToTerms(false) }}
+              className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors inline-flex items-center justify-center gap-1.5 ${
+                mode === m
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {m === 'signin' ? 'Sign in' : m === 'signup' ? 'Sign up' : 'Magic link'}
+              {showBadge && <LastUsedBadge />}
+            </button>
+          )
+        })}
       </div>
 
       {/* Email + password form */}
@@ -397,6 +425,14 @@ function Spinner() {
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
     </svg>
+  )
+}
+
+function LastUsedBadge() {
+  return (
+    <span className="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-primary">
+      Last used
+    </span>
   )
 }
 
