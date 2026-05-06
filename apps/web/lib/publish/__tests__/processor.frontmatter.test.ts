@@ -20,7 +20,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/db-server', () => ({ createSupabaseServiceClient: vi.fn() }))
-vi.mock('@/lib/publish/adapters/notion', () => ({ publishToNotion: vi.fn() }))
+vi.mock('@/lib/publish/adapters/notion', () => ({
+  publishToNotion: vi.fn(),
+  // Default: stored page sits under the integration's root_page_id ('root-page'
+  // in NOTION_CREDS for this file). Keeps existingPageId-reuse tests passing
+  // through the parent-verification gate the processor runs before publishing.
+  getNotionPageParentId: vi.fn().mockResolvedValue({ ok: true, parentId: 'root-page' }),
+}))
 vi.mock('@/lib/publish/adapters/confluence', () => ({ publishToConfluence: vi.fn() }))
 vi.mock('@/lib/publish/adapters/clickup', () => ({
   publishSingleSpec: vi.fn(),
@@ -29,6 +35,10 @@ vi.mock('@/lib/publish/adapters/clickup', () => ({
   clickUpDocExists: vi.fn(),
   clickUpPageExists: vi.fn(),
   resolveToNativeTaskId: vi.fn(),
+  // task_list tests use clickup_list_id 'list-9' — default the mock so the
+  // processor's task list_id self-heal gate doesn't redirect to recreate.
+  getClickUpDocParent: vi.fn().mockResolvedValue({ ok: true, parent: null }),
+  getClickUpTaskListId: vi.fn().mockResolvedValue({ ok: true, listId: 'list-9' }),
 }))
 vi.mock('@/lib/publish/adapters/s3', () => ({
   publishToS3: vi.fn(),

@@ -72,6 +72,62 @@ export async function clickUpDocExists(credentials: ClickUpCredentials, docId: s
   }
 }
 
+// Fetch a doc's parent in the same encoded form we accept on writes
+// (`space:<id>` / `folder:<id>`). Used by the publish processor to detect
+// when a stored doc lives under a different parent than the .mdspecmap
+// authoritative target — in that case we abandon the stored doc id and
+// recreate under the correct parent (Notion-parity self-healing).
+//
+// Returns:
+//   - { ok: true, parent: 'space:...' | 'folder:...' | null } — parent (or null if neither)
+//   - { ok: false, missing: true } — doc was deleted (404)
+export async function getClickUpDocParent(
+  credentials: ClickUpCredentials,
+  docId: string
+): Promise<{ ok: true; parent: string | null } | { ok: false; missing: true }> {
+  try {
+    const res = await axios.get(
+      `${CLICKUP_API_V3}/workspaces/${credentials.workspace_id}/docs/${docId}`,
+      { headers: authHeaders(credentials.api_token) }
+    )
+    const doc = res.data?.data ?? res.data ?? {}
+    const parent = doc.parent ?? null
+    if (parent && typeof parent.id === 'string') {
+      // ClickUp parent.type — 4 = space, 5 = folder
+      if (parent.type === 4) return { ok: true, parent: `space:${parent.id}` }
+      if (parent.type === 5) return { ok: true, parent: `folder:${parent.id}` }
+    }
+    return { ok: true, parent: null }
+  } catch (err) {
+    const status = (err as { response?: { status?: number } }).response?.status
+    if (status === 404) return { ok: false, missing: true }
+    throw err
+  }
+}
+
+// Fetch a task's list_id so the processor can detect when a stored task
+// lives in a different list than the current folder mapping. ClickUp's
+// task PUT endpoint cannot move a task between lists, so a mismatch
+// means we must abandon the stored task id and create fresh.
+export async function getClickUpTaskListId(
+  credentials: ClickUpCredentials,
+  taskId: string,
+  useCustomTaskIds = false
+): Promise<{ ok: true; listId: string | null } | { ok: false; missing: true }> {
+  const url = useCustomTaskIds
+    ? `${CLICKUP_API}/task/${taskId}?custom_task_ids=true&team_id=${credentials.workspace_id}`
+    : `${CLICKUP_API}/task/${taskId}`
+  try {
+    const res = await axios.get(url, { headers: authHeaders(credentials.api_token) })
+    const listId = (res.data?.list?.id ?? null) as string | null
+    return { ok: true, listId }
+  } catch (err) {
+    const status = (err as { response?: { status?: number } }).response?.status
+    if (status === 404 || status === 400) return { ok: false, missing: true }
+    throw err
+  }
+}
+
 export async function clickUpPageExists(credentials: ClickUpCredentials, docId: string, pageId: string): Promise<boolean> {
   try {
     await axios.get(

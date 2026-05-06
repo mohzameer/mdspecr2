@@ -1,5 +1,4 @@
 import { Client } from '@notionhq/client'
-import { getAncestorFolders } from '../../folder-hierarchy'
 
 const NOTION_API_VERSION = '2025-09-03'
 const RICH_TEXT_CHUNK = 2000
@@ -23,8 +22,6 @@ interface PublishResult {
   page_id: string
   page_url: string
 }
-
-const folderCache = new Map<string, string>()
 
 function chunkText(text: string, max = RICH_TEXT_CHUNK): string[] {
   if (text.length <= max) return [text]
@@ -84,35 +81,6 @@ async function clearChildren(notion: Client, blockId: string): Promise<void> {
   }
 }
 
-async function ensureFolderPage(
-  notion: Client,
-  folderPath: string,
-  folderName: string,
-  parentPageId: string,
-  cachePrefix: string
-): Promise<string> {
-  const cacheKey = `${cachePrefix}:${folderPath}`
-  if (folderCache.has(cacheKey)) return folderCache.get(cacheKey)!
-
-  try {
-    const { results } = await notion.blocks.children.list({ block_id: parentPageId })
-    const existing = results.find(
-      (b) => (b as any).type === 'child_page' && (b as any).child_page?.title === folderName
-    )
-    if (existing) {
-      folderCache.set(cacheKey, existing.id)
-      return existing.id
-    }
-  } catch {}
-
-  const page = await notion.pages.create({
-    parent: { type: 'page_id', page_id: parentPageId } as any,
-    properties: { title: { title: [{ type: 'text', text: { content: folderName } }] } },
-  })
-  folderCache.set(cacheKey, page.id)
-  return page.id
-}
-
 async function publishAsPage(
   notion: Client,
   credentials: NotionCredentials,
@@ -124,11 +92,11 @@ async function publishAsPage(
   if (!credentials.root_page_id) {
     throw new Error('Notion page mode requires root_page_id in credentials')
   }
-  const folders = getAncestorFolders(spec.path)
-  let parentPageId = credentials.root_page_id
-  for (const folder of folders) {
-    parentPageId = await ensureFolderPage(notion, folder.path, folder.name, parentPageId, credentials.root_page_id)
-  }
+
+  // Notion publishes are flat: the .mdspecmap parent (or integration default
+  // root_page_id) is authoritative — every spec lands directly under it. We
+  // do NOT mirror the repo folder hierarchy as nested Notion pages.
+  const parentPageId = credentials.root_page_id
 
   if (existingPageId) {
     await clearChildren(notion, existingPageId)
@@ -144,6 +112,40 @@ async function publishAsPage(
   })
   await appendInChunks(notion, page.id, blocks, BLOCK_BATCH)
   return { page_id: page.id, page_url: (page as any).url ?? `https://notion.so/${page.id}` }
+}
+
+/**
+ * Returns the parent page_id of a Notion page, or null if the page lives
+ * under a database / workspace / is missing. Used by the publish processor
+ * to detect when a stored external_page_id points to a page under a parent
+ * that no longer matches the .mdspecmap-authoritative root — in which case
+ * we abandon the existing page (it stays orphaned in Notion) and create a
+ * fresh one under the correct parent. The .mdspecmap is authoritative; we
+ * never get stuck on iterative state.
+ */
+export async function getNotionPageParentId(
+  token: string,
+  pageId: string
+): Promise<{ ok: true; parentId: string | null } | { ok: false; missing: boolean }> {
+  const notion = new Client({ auth: token, notionVersion: NOTION_API_VERSION })
+  try {
+    const page = (await notion.pages.retrieve({ page_id: pageId })) as {
+      parent?: { type?: string; page_id?: string }
+      archived?: boolean
+      in_trash?: boolean
+    }
+    if (page.archived || page.in_trash) {
+      return { ok: false, missing: true }
+    }
+    if (page.parent?.type === 'page_id' && page.parent.page_id) {
+      return { ok: true, parentId: page.parent.page_id }
+    }
+    return { ok: true, parentId: null }
+  } catch (err) {
+    const code = (err as { code?: string }).code
+    if (code === 'object_not_found') return { ok: false, missing: true }
+    throw err
+  }
 }
 
 async function findTitlePropertyName(notion: Client, dataSourceId: string): Promise<string> {

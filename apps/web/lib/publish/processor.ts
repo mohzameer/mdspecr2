@@ -1,8 +1,8 @@
 import { createSupabaseServiceClient } from '@/lib/db-server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { publishToNotion } from './adapters/notion'
+import { publishToNotion, getNotionPageParentId } from './adapters/notion'
 import { publishToConfluence } from './adapters/confluence'
-import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, clickUpPageExists, resolveToNativeTaskId } from './adapters/clickup'
+import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, clickUpPageExists, resolveToNativeTaskId, getClickUpDocParent, getClickUpTaskListId } from './adapters/clickup'
 import { publishToS3, buildS3Key, s3ObjectExists } from './adapters/s3'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
@@ -215,16 +215,30 @@ async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string
     ctx.groupingPath = rootFolder
     ctx.groupFolderName = rootFolder
 
-    // Verify the selected doc still exists in ClickUp
+    // Verify the selected doc still exists in ClickUp, AND that it lives
+    // under the current folder mapping target. If the user re-pointed the
+    // mapping to a different space/folder, the old shared doc is now in
+    // the wrong place — abandon it so a fresh one gets created under the
+    // correct parent (Notion-parity self-healing).
     const clickupCreds = {
       api_token: credentials.api_token as string,
       workspace_id: credentials.workspace_id as string,
     }
-    const stillExists = await clickUpDocExists(clickupCreds, ctx.sharedSubDocId)
-    if (!stillExists) {
+    const parentRes = await getClickUpDocParent(clickupCreds, ctx.sharedSubDocId)
+    if (!parentRes.ok) {
       console.log(`[publish] selected parent doc ${ctx.sharedSubDocId} missing — falling back to flat mode`)
       ctx.sharedSubDocId = null
       ctx.isMultiMode = false
+    } else if (ctx.folderMappingTargetId && parentRes.parent !== ctx.folderMappingTargetId) {
+      console.log(`[publish] shared doc ${ctx.sharedSubDocId} parent=${parentRes.parent ?? '(none)'} != expected=${ctx.folderMappingTargetId} — abandoning, will recreate under correct parent`)
+      ctx.sharedSubDocId = null
+      // Clear bookkeeping so the first spec creates a new shared doc.
+      if (ctx.sharedSubRowId) {
+        await supabase
+          .from('folder_mappings')
+          .update({ clickup_doc_id: null })
+          .eq('id', ctx.sharedSubRowId)
+      }
     }
   }
 
@@ -363,6 +377,54 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
     }
   }
 
+  // ClickUp doc mode (single/flat) self-heal: the .mdspecmap parent is
+  // authoritative. If the stored doc lives under a different parent than
+  // the current folder mapping target, abandon it and create fresh — the
+  // ClickUp API can't move docs between spaces/folders, and we never want
+  // to keep updating a doc in the wrong place.
+  if (target_type === 'clickup' && existingPageId && !ctx.isMultiMode && ctx.clickupMode !== 'task_list' && ctx.folderMappingTargetId) {
+    const parentRes = await getClickUpDocParent(
+      { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string },
+      existingPageId
+    )
+    if (parentRes.ok && parentRes.parent !== ctx.folderMappingTargetId) {
+      console.log(`[publish] clickup doc ${existingPageId} parent=${parentRes.parent ?? '(none)'} != expected=${ctx.folderMappingTargetId} — recreating spec ${spec_id} under correct parent`)
+      existingPageId = null
+      await supabase
+        .from('spec_publish_targets')
+        .update({ external_page_id: null, external_url: null })
+        .eq('id', spec_publish_target_id)
+    }
+  }
+
+  // ClickUp task mode self-heal: if the stored task lives in a different
+  // list than the current folder mapping (user re-pointed the list, or a
+  // previous publish raced ahead of a destination cascade), abandon it
+  // and create fresh in the correct list. ClickUp can't move tasks
+  // between lists via the task PUT endpoint.
+  if (target_type === 'clickup' && existingPageId && ctx.clickupMode === 'task_list' && ctx.clickupListId) {
+    const listRes = await getClickUpTaskListId(
+      { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string },
+      existingPageId,
+      ctx.clickupUseCustomTaskIds
+    )
+    if (!listRes.ok) {
+      console.log(`[publish] clickup task ${existingPageId} missing — recreating spec ${spec_id}`)
+      existingPageId = null
+      await supabase
+        .from('spec_publish_targets')
+        .update({ external_page_id: null, external_url: null })
+        .eq('id', spec_publish_target_id)
+    } else if (listRes.listId !== ctx.clickupListId) {
+      console.log(`[publish] clickup task ${existingPageId} list=${listRes.listId ?? '(none)'} != expected=${ctx.clickupListId} — recreating spec ${spec_id} in correct list`)
+      existingPageId = null
+      await supabase
+        .from('spec_publish_targets')
+        .update({ external_page_id: null, external_url: null })
+        .eq('id', spec_publish_target_id)
+    }
+  }
+
   // In multi-mode, the stored page ID may be a stale flat-mode doc ID — verify it
   // actually exists as a page inside the current parent doc before allowing a skip.
   if (ctx.isMultiMode && existingPageId && ctx.sharedSubDocId) {
@@ -370,6 +432,59 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
     const pageExists = await clickUpPageExists(clickupCreds, ctx.sharedSubDocId, existingPageId)
     if (!pageExists) {
       console.log(`[publish] page ${existingPageId} not found in doc ${ctx.sharedSubDocId} — will republish spec ${spec_id}`)
+      existingPageId = null
+      await supabase
+        .from('spec_publish_targets')
+        .update({ external_page_id: null, external_url: null })
+        .eq('id', spec_publish_target_id)
+    }
+  }
+
+  // For Notion (page mode only): the .mdspecmap parent is authoritative. If
+  // the stored page lives under a different parent than the current
+  // target_id (because the user re-pointed the mapping, or a previous
+  // publish raced ahead of a destination cascade), abandon it and create
+  // fresh under the new parent. Notion's API can't move pages, and we
+  // never want to be stuck updating a page in the wrong place. Database
+  // mode is exempt: rows are parented by data_source, not page, and the
+  // page-id parent check doesn't apply.
+  if (target_type === 'notion' && existingPageId && credentials.mode !== 'database') {
+    const expectedParentId = ctx.folderMappingTargetId ?? (credentials.root_page_id as string | undefined) ?? null
+    if (expectedParentId) {
+      const parentRes = await getNotionPageParentId(credentials.token as string, existingPageId)
+      if (!parentRes.ok) {
+        console.log(`[publish] notion page ${existingPageId} missing/archived — recreating spec ${spec_id}`)
+        existingPageId = null
+        await supabase
+          .from('spec_publish_targets')
+          .update({ external_page_id: null, external_url: null })
+          .eq('id', spec_publish_target_id)
+      } else if (parentRes.parentId !== expectedParentId) {
+        console.log(`[publish] notion page ${existingPageId} parent=${parentRes.parentId ?? '(none)'} != expected=${expectedParentId} — recreating spec ${spec_id} under correct parent`)
+        existingPageId = null
+        await supabase
+          .from('spec_publish_targets')
+          .update({ external_page_id: null, external_url: null })
+          .eq('id', spec_publish_target_id)
+      }
+    }
+  }
+
+  // S3 self-heal: the .mdspecmap-driven config (root prefix +
+  // maintain-hierarchy) is authoritative. If the stored object key no
+  // longer matches what we'd compute now (because the user re-pointed
+  // parent_dir or toggled hierarchy), abandon it locally so the next
+  // publishToS3 writes at the correct key. The previous object will be
+  // orphaned at its old key — that's fine; we never want to keep
+  // updating the wrong location. Skip when spec.id is declared: that's
+  // an explicit user-chosen key and wins over the computed key.
+  if (target_type === 's3' && existingPageId && !spec.id) {
+    const expectedKey = buildS3Key(path, ctx.s3RootPrefix, {
+      maintainHierarchy: ctx.s3MaintainHierarchy,
+      matchedFolder: ctx.s3MatchedFolder,
+    })
+    if (existingPageId !== expectedKey) {
+      console.log(`[publish] s3 stored key=${existingPageId} != expected=${expectedKey} — republishing spec ${spec_id} at correct key`)
       existingPageId = null
       await supabase
         .from('spec_publish_targets')

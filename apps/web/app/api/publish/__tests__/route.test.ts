@@ -742,13 +742,14 @@ describe('2.1 reconcileFolderMappings', () => {
   })
 
   // -------------------------------------------------------------------------
-  // S3 destination-change cascade — the publish route reconciles
-  // folder_mappings when the CLI re-pushes .mdspecmap. If the new config
-  // changes a destination-defining field (S3 prefix, hierarchy toggle), the
-  // dependent spec_publish_targets MUST be invalidated. Without that, the
-  // publish processor's "skip when content unchanged" branch keeps writing
-  // to the old S3 keys forever — the operator sees no effect from changing
-  // parent_dir or maintain_hierarchy in their .mdspecmap.
+  // Reconcile is the single source of truth for folder_mappings.target_id.
+  // When the operator changes a destination in .mdspecmap, reconcile updates
+  // folder_mappings — and that's all. It does NOT clear
+  // spec_publish_targets.external_page_id; the adapter-side self-heal at
+  // publish time verifies the stored remote ID's parent and recreates under
+  // the new destination if it diverges. One mechanism, one source of truth —
+  // we previously had both an eager cascade-clear and a lazy self-heal,
+  // which was redundant and made the system harder to reason about.
   // -------------------------------------------------------------------------
   function makeReconcileCascadeMock(
     existingMappings: Array<Record<string, unknown>>,
@@ -764,15 +765,15 @@ describe('2.1 reconcileFolderMappings', () => {
 
     supabase.from.mockImplementation((table: string) => {
       if (table === 'folder_mappings') {
-        // SELECT (fetch existing before delete), DELETE, and UPSERT all
-        // resolve to this same chain. Only the SELECT result is used.
+        // DELETE and UPSERT both resolve to this chain. Reconcile no longer
+        // reads existing rows (no cascade), but `existingMappings` still
+        // documents the test scenario — i.e. "a row used to exist, then
+        // .mdspecmap changed the destination."
         return makeChain({ data: existingMappings, error: null })
       }
-      if (table === 'specs') {
-        // Cascade query: list spec ids in the folder.
-        return makeChain({ data: [{ id: 'spec1' }], error: null })
-      }
       if (table === 'spec_publish_targets') {
+        // Captures any reconcile-time write to spec_publish_targets so tests
+        // can assert it stays untouched (self-heal owns invalidation).
         const chain = makeChain({ data: null, error: null })
         ;(chain.update as ReturnType<typeof vi.fn>).mockImplementation((patch: Record<string, unknown>) => {
           sptUpdates.push({ patch })
@@ -786,7 +787,7 @@ describe('2.1 reconcileFolderMappings', () => {
     return supabase
   }
 
-  it('cascades to spec_publish_targets when S3 parent_dir (target_id) changes via .mdspecmap', async () => {
+  it('reconcile NEVER invalidates spec_publish_targets when S3 parent_dir changes (self-heal owns abandonment)', async () => {
     const sptUpdates: Array<{ patch: Record<string, unknown> }> = []
     const supabase = makeReconcileCascadeMock(
       [{
@@ -811,10 +812,13 @@ describe('2.1 reconcileFolderMappings', () => {
     expect(res.status).toBe(202)
 
     const cascade = sptUpdates.find((u) => u.patch.external_page_id === null && u.patch.content_hash === null)
-    expect(cascade, 'expected dependent spec_publish_targets to be invalidated').toBeDefined()
+    expect(
+      cascade,
+      'reconcile must not eagerly null external_page_id — the S3 adapter self-heal recomputes the key at publish time and clears the pointer if it diverges'
+    ).toBeUndefined()
   })
 
-  it('cascades when s3_maintain_hierarchy toggles via .mdspecmap', async () => {
+  it('reconcile NEVER invalidates spec_publish_targets when s3_maintain_hierarchy toggles', async () => {
     const sptUpdates: Array<{ patch: Record<string, unknown> }> = []
     const supabase = makeReconcileCascadeMock(
       [{
@@ -849,8 +853,8 @@ describe('2.1 reconcileFolderMappings', () => {
     const cascade = sptUpdates.find((u) => u.patch.external_page_id === null && u.patch.content_hash === null)
     expect(
       cascade,
-      'flipping hierarchy reshapes every S3 key — dependents must be invalidated'
-    ).toBeDefined()
+      'hierarchy toggle reshapes the S3 key — but invalidation is the self-heal\'s job, not reconcile\'s'
+    ).toBeUndefined()
   })
 
   it('does NOT cascade when S3 destination fields are unchanged', async () => {
@@ -937,7 +941,7 @@ describe('2.1 reconcileFolderMappings', () => {
     ).toBe('cc69bd0f-98d7-4d6e-8701-72d92a920cf5')
   })
 
-  it('cascades when Notion parent (target_id) changes via .mdspecmap', async () => {
+  it('reconcile NEVER invalidates spec_publish_targets when Notion parent changes (self-heal owns abandonment)', async () => {
     const sptUpdates: Array<{ patch: Record<string, unknown> }> = []
     const supabase = makeReconcileCascadeMock(
       [{
@@ -967,7 +971,10 @@ describe('2.1 reconcileFolderMappings', () => {
     expect(res.status).toBe(202)
 
     const cascade = sptUpdates.find((u) => u.patch.external_page_id === null && u.patch.content_hash === null)
-    expect(cascade, 'changing Notion parent must invalidate dependent spec_publish_targets').toBeDefined()
+    expect(
+      cascade,
+      'reconcile must not null external_page_id when Notion parent changes — the Notion adapter self-heal verifies the stored page\'s parent at publish time and recreates if it diverges'
+    ).toBeUndefined()
   })
 
   it('does NOT cascade when no prior folder_mapping existed (fresh mapping)', async () => {

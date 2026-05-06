@@ -24,6 +24,10 @@ vi.mock('@/lib/db-server', () => ({
 }))
 vi.mock('@/lib/publish/adapters/notion', () => ({
   publishToNotion: vi.fn(),
+  // Default: stored page sits under the integration's root_page_id (the
+  // common case for most existing tests). Tests that specifically assert
+  // stale-parent behavior should override this per-case.
+  getNotionPageParentId: vi.fn().mockResolvedValue({ ok: true, parentId: 'page-root-123' }),
 }))
 vi.mock('@/lib/publish/adapters/confluence', () => ({
   publishToConfluence: vi.fn(),
@@ -35,6 +39,10 @@ vi.mock('@/lib/publish/adapters/clickup', () => ({
   clickUpDocExists: vi.fn(),
   clickUpPageExists: vi.fn(),
   resolveToNativeTaskId: vi.fn(),
+  // Default: stored docs/tasks live under the folder mapping's target.
+  // Tests asserting stale-parent / list-mismatch behavior override per-case.
+  getClickUpDocParent: vi.fn().mockResolvedValue({ ok: true, parent: 'space:ws-111' }),
+  getClickUpTaskListId: vi.fn().mockResolvedValue({ ok: true, listId: 'list-999' }),
 }))
 vi.mock('@/lib/publish/adapters/s3', () => ({
   publishToS3: vi.fn(),
@@ -57,6 +65,8 @@ import {
   publishAsTask,
   clickUpDocExists,
   clickUpPageExists,
+  getClickUpDocParent,
+  getClickUpTaskListId,
 } from '@/lib/publish/adapters/clickup'
 
 // ---------------------------------------------------------------------------
@@ -511,6 +521,43 @@ describe('ClickUp doc mode — flat (no parent_doc)', () => {
     // Called with null because stale ID was cleared
     expect(publishSingleSpec).toHaveBeenCalledWith(expect.anything(), expect.anything(), null, expect.anything())
   })
+
+  it('recreates doc when its parent no longer matches the folder mapping target', async () => {
+    // Self-heal: stored doc exists but under the OLD parent. ClickUp can't
+    // move docs between spaces/folders, so abandon the stored id and let
+    // publishSingleSpec create a fresh doc under the (current) target_id.
+    vi.mocked(clickUpDocExists).mockResolvedValue(true)
+    vi.mocked(getClickUpDocParent).mockResolvedValue({ ok: true, parent: 'space:OLD-PARENT' })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeClickUpSupabase(CLICKUP_CREDS, folderMapping, 'doc-at-old-parent') as never
+    )
+    vi.mocked(publishSingleSpec).mockResolvedValue({ page_id: 'doc-fresh', page_url: '' })
+
+    await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'clickup', specs: [makeSpec()], matched_folder: 'docs/specs', clickup_mode: 'doc' })
+
+    expect(publishSingleSpec).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      null,                  // existing id cleared
+      'space:ws-111',        // current target_id
+    )
+  })
+
+  it('keeps stored doc when its parent matches the folder mapping target', async () => {
+    vi.mocked(clickUpDocExists).mockResolvedValue(true)
+    vi.mocked(getClickUpDocParent).mockResolvedValue({ ok: true, parent: 'space:ws-111' })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeClickUpSupabase(CLICKUP_CREDS, folderMapping, 'doc-at-correct-parent', 'different') as never
+    )
+    vi.mocked(publishSingleSpec).mockResolvedValue({ page_id: 'doc-at-correct-parent', page_url: '' })
+
+    await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'clickup', specs: [makeSpec()], matched_folder: 'docs/specs', clickup_mode: 'doc' })
+
+    // Stored id forwarded — no recreation
+    expect(publishSingleSpec).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'doc-at-correct-parent', 'space:ws-111'
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -524,7 +571,9 @@ describe('ClickUp doc mode — multi (parent_doc set)', () => {
   }
 
   it('dispatches to publishSpecAsPage when parent doc exists', async () => {
-    vi.mocked(clickUpDocExists).mockResolvedValue(true)   // shared doc exists
+    // setupClickupGroupContext now verifies parent (not just existence) of the
+    // shared doc. Default mock returns the matching parent, so multi-mode stays.
+    vi.mocked(getClickUpDocParent).mockResolvedValue({ ok: true, parent: 'space:ws-111' })
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
       makeClickUpSupabase(CLICKUP_CREDS, folderMappingWithDoc) as never
     )
@@ -537,7 +586,7 @@ describe('ClickUp doc mode — multi (parent_doc set)', () => {
   })
 
   it('falls back to flat mode when shared doc no longer exists in ClickUp', async () => {
-    vi.mocked(clickUpDocExists).mockResolvedValue(false)   // shared doc deleted
+    vi.mocked(getClickUpDocParent).mockResolvedValue({ ok: false, missing: true })   // shared doc deleted
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
       makeClickUpSupabase(CLICKUP_CREDS, folderMappingWithDoc) as never
     )
@@ -547,6 +596,33 @@ describe('ClickUp doc mode — multi (parent_doc set)', () => {
 
     expect(publishSingleSpec).toHaveBeenCalled()
     expect(publishSpecAsPage).not.toHaveBeenCalled()
+  })
+
+  it('abandons shared doc when its parent no longer matches the folder mapping target', async () => {
+    // User re-pointed the folder mapping (target_id) to a new space/folder.
+    // The doc still exists, but lives under the OLD parent. Self-heal: drop
+    // sharedSubDocId — multi-mode stays (so semantics don't change), and
+    // publishSpecAsPage creates a fresh doc under the current target_id.
+    // ClickUp can't move a doc between spaces/folders.
+    vi.mocked(getClickUpDocParent).mockResolvedValue({ ok: true, parent: 'space:OLD-PARENT' })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeClickUpSupabase(CLICKUP_CREDS, folderMappingWithDoc) as never
+    )
+    vi.mocked(publishSpecAsPage).mockResolvedValue({ page_id: 'page-new', doc_id: 'doc-new', doc_url: '' })
+
+    await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'clickup', specs: [makeSpec()], matched_folder: 'docs/specs', clickup_mode: 'doc' })
+
+    // publishSpecAsPage receives folderDocId=null so it creates fresh under
+    // the current folder mapping target_id (space:ws-111).
+    expect(publishSpecAsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      null,             // folderDocId — cleared by self-heal
+      null,             // existingPageId
+      expect.anything(),
+      'space:ws-111',   // current target_id
+      undefined,
+    )
   })
 })
 
@@ -602,6 +678,52 @@ describe('ClickUp task_list mode', () => {
 
     expect(publishAsTask).toHaveBeenCalledWith(
       expect.anything(), expect.anything(), 'task-existing', 'list-999', null
+    )
+  })
+
+  it('recreates task when stored task lives in a different list than the folder mapping', async () => {
+    // Self-heal: stored task is in OLD-LIST, folder mapping now points to
+    // 'list-999'. ClickUp can't move a task between lists via PUT, so the
+    // processor must abandon the stored id and let publishAsTask create a
+    // fresh task in the current list.
+    vi.mocked(getClickUpTaskListId).mockResolvedValue({ ok: true, listId: 'OLD-LIST' })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeClickUpSupabase(CLICKUP_CREDS, folderMappingTaskList, 'task-old-list') as never
+    )
+    vi.mocked(publishAsTask).mockResolvedValue({ task_id: 'task-fresh', task_url: '' })
+
+    await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'clickup', specs: [makeSpec()], matched_folder: 'docs/specs', clickup_mode: 'task_list' })
+
+    expect(publishAsTask).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), null, 'list-999', null
+    )
+  })
+
+  it('recreates task when stored task no longer exists (404)', async () => {
+    vi.mocked(getClickUpTaskListId).mockResolvedValue({ ok: false, missing: true })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeClickUpSupabase(CLICKUP_CREDS, folderMappingTaskList, 'task-deleted') as never
+    )
+    vi.mocked(publishAsTask).mockResolvedValue({ task_id: 'task-fresh', task_url: '' })
+
+    await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'clickup', specs: [makeSpec()], matched_folder: 'docs/specs', clickup_mode: 'task_list' })
+
+    expect(publishAsTask).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), null, 'list-999', null
+    )
+  })
+
+  it('keeps stored task_id when it lives in the matching list', async () => {
+    vi.mocked(getClickUpTaskListId).mockResolvedValue({ ok: true, listId: 'list-999' })
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeClickUpSupabase(CLICKUP_CREDS, folderMappingTaskList, 'task-in-correct-list') as never
+    )
+    vi.mocked(publishAsTask).mockResolvedValue({ task_id: 'task-in-correct-list', task_url: '' })
+
+    await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'clickup', specs: [makeSpec()], matched_folder: 'docs/specs', clickup_mode: 'task_list' })
+
+    expect(publishAsTask).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'task-in-correct-list', 'list-999', null
     )
   })
 })

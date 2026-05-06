@@ -27,7 +27,10 @@ vi.mock('@/lib/publish/adapters/s3', () => ({
   buildS3Key: vi.fn(),
   s3ObjectExists: vi.fn(),
 }))
-vi.mock('@/lib/publish/adapters/notion', () => ({ publishToNotion: vi.fn() }))
+vi.mock('@/lib/publish/adapters/notion', () => ({
+  publishToNotion: vi.fn(),
+  getNotionPageParentId: vi.fn().mockResolvedValue({ ok: true, parentId: null }),
+}))
 vi.mock('@/lib/publish/adapters/confluence', () => ({ publishToConfluence: vi.fn() }))
 vi.mock('@/lib/publish/adapters/clickup', () => ({
   publishSingleSpec: vi.fn(),
@@ -36,6 +39,8 @@ vi.mock('@/lib/publish/adapters/clickup', () => ({
   clickUpDocExists: vi.fn(),
   clickUpPageExists: vi.fn(),
   resolveToNativeTaskId: vi.fn(),
+  getClickUpDocParent: vi.fn().mockResolvedValue({ ok: true, parent: null }),
+  getClickUpTaskListId: vi.fn().mockResolvedValue({ ok: true, listId: null }),
 }))
 vi.mock('@/lib/folder-mapping', () => ({
   resolveFolderMapping: vi.fn().mockResolvedValue({ shouldRunAgent: false, templateId: null, trigger: null }),
@@ -76,6 +81,7 @@ function makeSpec(overrides: Partial<{
   content: string
   content_hash: string
   frontmatter: Record<string, unknown>
+  id: string | undefined
 }> = {}) {
   return {
     spec_id: 'spec-001',
@@ -86,6 +92,7 @@ function makeSpec(overrides: Partial<{
     content_hash: 'hash-abc',
     frontmatter: {},
     id_ref: undefined,
+    id: undefined,
     ...overrides,
   }
 }
@@ -685,6 +692,99 @@ describe('distributed maps — isolated prefixes', () => {
     )
     const unique = new Set(keys)
     expect(unique.size).toBe(keys.length)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 8b. Self-healing key migration (Notion-parity)
+//
+// The .mdspecmap-driven config (root prefix + maintain-hierarchy) is
+// authoritative. If the user re-points parent_dir or toggles hierarchy,
+// the stored object key no longer matches what we'd compute now. The
+// processor must abandon the stored key locally so publishToS3 writes
+// at the correct key. Without this, even after a mapping change, every
+// publish would HEAD-check the OLD key, find it (it still exists), and
+// keep writing there forever — cascade-invalidation alone can't fix
+// this if the worker reads stale state.
+// ---------------------------------------------------------------------------
+describe('S3 self-heal — stored key no longer matches mapping', () => {
+  it('republishes at expected key when prefix changes (existingPageId differs from buildS3Key)', async () => {
+    // existingPageId is the OLD key 'old-prefix/auth.md'; mapping now has
+    // target_id='new-prefix' so buildS3Key('docs/specs/auth.md', 'new-prefix')
+    // = 'new-prefix/auth.md'. Self-heal clears existing, writes at new key.
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({
+        folderMapping: { id: 'fm-1', target_id: 'new-prefix', s3_maintain_hierarchy: false },
+        existingPageId: 'old-prefix/auth.md',
+        storedHash: 'hash-abc',          // unchanged content — would normally skip
+      }) as never
+    )
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'new-prefix/auth.md', page_url: '' })
+
+    await runPublishGroup(makeJobData())
+
+    // Self-heal should force a republish at the new key, even with matching hash
+    expect(publishToS3).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'new-prefix/auth.md'
+    )
+  })
+
+  it('republishes when hierarchy toggle changes the expected key', async () => {
+    // Stored as flat 'auth.md'; mapping now has hierarchy=true with prefix
+    // → expected key is 'eng/auth.md'. Mismatch detected, self-heals.
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({
+        folderMapping: { id: 'fm-1', target_id: 'eng', s3_maintain_hierarchy: true },
+        existingPageId: 'auth.md',
+        storedHash: 'hash-abc',
+      }) as never
+    )
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'eng/auth.md', page_url: '' })
+
+    await runPublishGroup(makeJobData({ matched_folder: 'docs/specs' }))
+
+    expect(publishToS3).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'eng/auth.md'
+    )
+  })
+
+  it('skips (content unchanged) when stored key still matches the expected key', async () => {
+    // Stored 'eng/auth.md', target_id='eng' flat → expected 'eng/auth.md'. Match.
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({
+        folderMapping: { id: 'fm-1', target_id: 'eng', s3_maintain_hierarchy: false },
+        existingPageId: 'eng/auth.md',
+        storedHash: 'hash-abc',
+      }) as never
+    )
+    vi.mocked(s3ObjectExists).mockResolvedValue(true)
+
+    await runPublishGroup(makeJobData())
+
+    expect(publishToS3).not.toHaveBeenCalled()
+  })
+
+  it('does NOT self-heal when spec.id is declared (declared key wins over computed)', async () => {
+    // User explicitly declared id='custom/explicit-key.md' in frontmatter.
+    // Even though it diverges from buildS3Key('docs/specs/auth.md', 'eng'),
+    // we leave it alone — declared > computed.
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeSupabase({
+        folderMapping: { id: 'fm-1', target_id: 'eng', s3_maintain_hierarchy: false },
+        existingPageId: 'custom/explicit-key.md',
+        storedHash: 'hash-abc',
+      }) as never
+    )
+    vi.mocked(s3ObjectExists).mockResolvedValue(true)
+
+    const declared = makeSpec({ id: 'custom/explicit-key.md' })
+    await runPublishGroup(makeJobData({ specs: [declared] }))
+
+    // Either skipped (hash match + object exists) — but absolutely no
+    // recompute / republish at the buildS3Key-derived key.
+    expect(publishToS3).not.toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'eng/auth.md'
+    )
   })
 })
 

@@ -43,7 +43,7 @@ vi.mock('@notionhq/client', () => ({
   }),
 }))
 
-import { publishToNotion, type NotionCredentials } from '../notion'
+import { publishToNotion, getNotionPageParentId, type NotionCredentials } from '../notion'
 
 const PAGE_CREDS: NotionCredentials = {
   token: 'secret_abc',
@@ -110,27 +110,18 @@ describe('Page mode — create', () => {
     expect(result).toEqual({ page_id: 'created-page-id', page_url: 'https://notion.so/created-page-id' })
   })
 
-  it('creates intermediate folder pages for nested specs', async () => {
-    // First two list calls are folder-page lookups (return no match → create)
-    mockBlocksList.mockResolvedValue({ results: [] })
-    mockPagesCreate
-      .mockResolvedValueOnce({ id: 'folder-1', url: '' })       // specs
-      .mockResolvedValueOnce({ id: 'folder-2', url: '' })       // specs/payments
-      .mockResolvedValueOnce({ id: 'spec-page', url: 'https://notion.so/spec-page' })
+  it('publishes nested-path specs flat under root_page_id (no folder hierarchy in Notion)', async () => {
+    // Notion publishes are flat: the .mdspecmap parent is authoritative and
+    // every spec lands directly under it. Repo folders never become Notion
+    // wrapper pages — there is no `pages.update`-able way to relocate later,
+    // so we keep the destination shape fixed and source-of-truth driven.
+    mockPagesCreate.mockResolvedValueOnce({ id: 'spec-page', url: 'https://notion.so/spec-page' })
 
     const nested = { ...SPEC, path: 'specs/payments/checkout.md' }
     const result = await publishToNotion(PAGE_CREDS, nested, null)
 
-    // 2 folder pages + 1 spec page
-    expect(mockPagesCreate).toHaveBeenCalledTimes(3)
-
-    // First folder under root
+    expect(mockPagesCreate).toHaveBeenCalledTimes(1)
     expect(mockPagesCreate.mock.calls[0][0].parent).toEqual({ type: 'page_id', page_id: 'root-page-id' })
-    // Second folder under first folder
-    expect(mockPagesCreate.mock.calls[1][0].parent).toEqual({ type: 'page_id', page_id: 'folder-1' })
-    // Spec under second folder
-    expect(mockPagesCreate.mock.calls[2][0].parent).toEqual({ type: 'page_id', page_id: 'folder-2' })
-
     expect(result.page_id).toBe('spec-page')
   })
 })
@@ -150,9 +141,44 @@ describe('Page mode — update', () => {
     expect(mockBlocksAppend).toHaveBeenCalled()
     expect(mockBlocksAppend.mock.calls[0][0].block_id).toBe('existing-page-id')
 
-    // No new page created for the spec
-    // (folder-page creates would only happen if path were nested; SPEC.path = 'auth.md' is flat)
+    // Adapter never creates wrapper pages — flat publishing only
     expect(mockPagesCreate).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getNotionPageParentId — used by the publish processor to detect when a
+// stored external_page_id points under a parent that no longer matches the
+// .mdspecmap-authoritative target_id, so we can abandon and recreate.
+// ---------------------------------------------------------------------------
+describe('getNotionPageParentId', () => {
+  it('returns the parent page_id for a normal nested page', async () => {
+    mockPagesRetrieve.mockResolvedValueOnce({ id: 'p1', parent: { type: 'page_id', page_id: 'parent-abc' } })
+    const res = await getNotionPageParentId('secret_abc', 'p1')
+    expect(res).toEqual({ ok: true, parentId: 'parent-abc' })
+  })
+
+  it('returns parentId=null when the page lives under a database/workspace (not page-parented)', async () => {
+    mockPagesRetrieve.mockResolvedValueOnce({ id: 'p1', parent: { type: 'workspace' } })
+    const res = await getNotionPageParentId('secret_abc', 'p1')
+    expect(res).toEqual({ ok: true, parentId: null })
+  })
+
+  it('reports missing when the page is archived', async () => {
+    mockPagesRetrieve.mockResolvedValueOnce({ id: 'p1', archived: true, parent: { type: 'page_id', page_id: 'parent-abc' } })
+    const res = await getNotionPageParentId('secret_abc', 'p1')
+    expect(res).toEqual({ ok: false, missing: true })
+  })
+
+  it('reports missing on object_not_found from Notion', async () => {
+    mockPagesRetrieve.mockRejectedValueOnce(Object.assign(new Error('not found'), { code: 'object_not_found' }))
+    const res = await getNotionPageParentId('secret_abc', 'p1')
+    expect(res).toEqual({ ok: false, missing: true })
+  })
+
+  it('rethrows non-recoverable errors (e.g. network/auth) so the worker retries', async () => {
+    mockPagesRetrieve.mockRejectedValueOnce(Object.assign(new Error('rate limited'), { code: 'rate_limited' }))
+    await expect(getNotionPageParentId('secret_abc', 'p1')).rejects.toThrow(/rate limited/)
   })
 })
 
