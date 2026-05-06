@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { generateFolderMdspecMap } from './generateFolderMdspecMap'
 
 interface Integration {
   id: string
@@ -38,6 +39,11 @@ interface ClickUpTarget {
   kind: 'space' | 'folder'
   space_name?: string
 }
+
+interface NotionItem { id: string; title: string }
+interface NotionTargets { pages: NotionItem[]; databases: NotionItem[] }
+type NotionTargetsState = NotionTargets | 'loading' | { error: string }
+type NotionChildrenState = NotionItem[] | 'loading' | { error: string }
 
 interface Props {
   projectId: string
@@ -113,9 +119,18 @@ export function FolderMappingsTab({
   const [addingDiscoveredFolder, setAddingDiscoveredFolder] = useState<string | null>(null)
   const [targetsCache, setTargetsCache] = useState<Record<string, ClickUpTarget[]>>({})
   const [s3FoldersCache, setS3FoldersCache] = useState<Record<string, string[] | 'loading' | { error: string }>>({})
+  const [notionTargetsCache, setNotionTargetsCache] = useState<Record<string, NotionTargetsState>>({})
+  // key = `${integrationId}:${parentKind}:${parentId}`
+  const [notionChildrenCache, setNotionChildrenCache] = useState<Record<string, NotionChildrenState>>({})
+  // mappingId → { parentId, parentKind } so the sub-page dropdown remembers its source
+  const [notionParentDraft, setNotionParentDraft] = useState<Record<string, { parentId: string; parentKind: 'page' | 'database' }>>({})
   // new row doc state
   const [newFolderDocId, setNewFolderDocId] = useState<string>('')
   const [newFolderSpaceId, setNewFolderSpaceId] = useState<string>('')
+  // new row Notion state
+  const [newFolderNotionParentId, setNewFolderNotionParentId] = useState<string>('')
+  const [newFolderNotionParentKind, setNewFolderNotionParentKind] = useState<'page' | 'database'>('page')
+  const [newFolderNotionSubPageId, setNewFolderNotionSubPageId] = useState<string>('')
   // existing mapping doc URL drafts: mappingId → raw URL input
   const [docUrlDraft, setDocUrlDraft] = useState<Record<string, string>>({})
   // existing mapping list URL drafts: mappingId → raw URL input
@@ -126,6 +141,38 @@ export function FolderMappingsTab({
   // frontmatter_map: mappingId → textarea draft (key: value per line)
   const [frontmatterMapDraft, setFrontmatterMapDraft] = useState<Record<string, string>>({})
   const [newFolderFrontmatterMap, setNewFolderFrontmatterMap] = useState<string>('')
+
+  function fetchNotionTargets(integrationId: string) {
+    if (notionTargetsCache[integrationId]) return
+    setNotionTargetsCache((prev) => ({ ...prev, [integrationId]: 'loading' }))
+    fetch(`/api/integrations/${integrationId}/notion-targets`)
+      .then((r) => r.json())
+      .then((data) => {
+        setNotionTargetsCache((prev) => ({
+          ...prev,
+          [integrationId]: data?.ok
+            ? { pages: data.pages ?? [], databases: data.databases ?? [] }
+            : { error: data?.error ?? 'Could not load Notion targets.' },
+        }))
+      })
+      .catch(() => setNotionTargetsCache((prev) => ({ ...prev, [integrationId]: { error: 'network error' } })))
+  }
+
+  function fetchNotionChildren(integrationId: string, parentId: string, parentKind: 'page' | 'database') {
+    const key = `${integrationId}:${parentKind}:${parentId}`
+    if (notionChildrenCache[key]) return
+    setNotionChildrenCache((prev) => ({ ...prev, [key]: 'loading' }))
+    const url = `/api/integrations/${integrationId}/notion-targets?parent_id=${encodeURIComponent(parentId)}&parent_kind=${parentKind}`
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        setNotionChildrenCache((prev) => ({
+          ...prev,
+          [key]: data?.ok ? (data.pages ?? []) : { error: data?.error ?? 'Could not load sub-pages.' },
+        }))
+      })
+      .catch(() => setNotionChildrenCache((prev) => ({ ...prev, [key]: { error: 'network error' } })))
+  }
 
   function fetchS3Folders(integrationId: string) {
     if (s3FoldersCache[integrationId]) return
@@ -181,6 +228,22 @@ export function FolderMappingsTab({
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data)) setTargetsCache((prev) => ({ ...prev, [newFolderIntegrationId]: data })) })
       .catch(() => {})
+  }, [newFolderIntegrationId])
+
+  // Load Notion targets for all existing Notion mappings
+  useEffect(() => {
+    const ids = [...new Set(
+      mappings.filter((m) => m.integrations?.type === 'notion').map((m) => m.integration_id)
+    )]
+    for (const id of ids) fetchNotionTargets(id)
+  }, [mappings])
+
+  // Load Notion targets when a new-row Notion integration is selected
+  useEffect(() => {
+    if (!newFolderIntegrationId) return
+    const integration = availableIntegrations.find((i) => i.id === newFolderIntegrationId)
+    if (integration?.type !== 'notion') return
+    fetchNotionTargets(newFolderIntegrationId)
   }, [newFolderIntegrationId])
 
   // Only show folders that have active mappings. Discovered folders are shown
@@ -385,7 +448,11 @@ function prefillFromSuggestion(folderPath: string) {
     if (!path || !integrationId) return
     const selectedIntegration = availableIntegrations.find((i) => i.id === integrationId)
     const isClickUp = selectedIntegration?.type === 'clickup'
+    const isNotion = selectedIntegration?.type === 'notion'
     const mode = isClickUp ? newFolderMode : 'doc'
+    const targetId = isNotion
+      ? (newFolderNotionSubPageId || newFolderNotionParentId || null)
+      : (newFolderSpaceId || null)
 
     setAddingFolder(true)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
@@ -395,7 +462,7 @@ function prefillFromSuggestion(folderPath: string) {
         folder_path: path || '/',
         integration_id: integrationId,
         clickup_mode: mode,
-        target_id: newFolderSpaceId || null,
+        target_id: targetId,
         clickup_list_id: newFolderListId || null,
         clickup_doc_id: newFolderDocId || null,
         skip_patterns: newFolderSkipPatterns.split('\n').map((l) => l.trim()).filter(Boolean),
@@ -415,51 +482,18 @@ function prefillFromSuggestion(folderPath: string) {
       setNewFolderTemplateId('')
       setNewFolderDocId('')
       setNewFolderSpaceId('')
+      setNewFolderNotionParentId('')
+      setNewFolderNotionParentKind('page')
+      setNewFolderNotionSubPageId('')
       setNewFolderSkipPatterns('')
       setNewFolderFrontmatterMap('')
     }
     setAddingFolder(false)
   }
 
-  function generateFolderMdspecMap(mapping: FolderMapping): string {
-    const lines: string[] = ['version: 1', '', 'mappings:']
-    const intType = mapping.integrations?.type
-
-    if (intType) {
-      lines.push(`  - integration: ${intType}`)
-    } else {
-      lines.push('  -')
-    }
-
-    if (intType === 'clickup') {
-      const mode = mapping.clickup_mode ?? 'doc'
-      if (mode === 'task_list') {
-        lines.push('    target: task')
-        if (mapping.clickup_list_id) lines.push(`    list_id: id:${mapping.clickup_list_id}`)
-      } else {
-        if (mapping.clickup_doc_id) lines.push(`    parent_doc: id:${mapping.clickup_doc_id}`)
-      }
-      if (mapping.target_id) lines.push(`    space_id: id:${mapping.target_id}`)
-      if (mapping.clickup_use_custom_task_ids) lines.push('    custom_task_ids: true')
-    } else if (intType === 's3') {
-      if (mapping.target_id) lines.push(`    parent_dir: ${mapping.target_id}`)
-    } else if (intType) {
-      if (mapping.target_id) lines.push(`    parent: id:${mapping.target_id}`)
-    }
-
-    const templateName = templates.find((t) => t.id === mapping.template_id)?.name
-    if (templateName) lines.push(`    agent: ${templateName}`)
-
-    if (mapping.skip_patterns && mapping.skip_patterns.length > 0) {
-      lines.push('    skip:')
-      for (const p of mapping.skip_patterns) lines.push(`      - ${p}`)
-    }
-
-    return lines.join('\n') + '\n'
-  }
-
   function downloadFolderMdspecMap(mapping: FolderMapping) {
-    const content = generateFolderMdspecMap(mapping)
+    const content = generateFolderMdspecMap(mapping, templates)
+    console.log(`\n=== [per-row mdspecmap] folder=${mapping.folder_path} mapping=${mapping.id} ===\n${content}=== /per-row ===\n`)
     const blob = new Blob([content], { type: 'application/octet-stream' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -738,6 +772,84 @@ function prefillFromSuggestion(folderPath: string) {
                             )}
                           </div>
                         )
+                      })() : mapping.integrations?.type === 'notion' ? (() => {
+                        const isSaving = savingMappingId === mapping.id
+                        const intId = mapping.integration_id
+                        const targets = notionTargetsCache[intId]
+                        const targetsLoaded = targets && targets !== 'loading' && !('error' in targets)
+                        const targetsError = targets && typeof targets === 'object' && 'error' in targets ? targets.error : null
+                        const draft = notionParentDraft[mapping.id]
+                        const childKey = draft ? `${intId}:${draft.parentKind}:${draft.parentId}` : null
+                        const childState = childKey ? notionChildrenCache[childKey] : undefined
+                        const childList = Array.isArray(childState) ? childState : []
+                        const childLoading = childState === 'loading'
+                        const childError = childState && typeof childState === 'object' && !Array.isArray(childState) && 'error' in childState ? childState.error : null
+
+                        return (
+                          <div className="flex flex-col gap-1.5 w-fit min-w-[220px]">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs text-zinc-500">Parent <span className="text-zinc-400">(page or wiki)</span></span>
+                              <select
+                                disabled={!canEdit || !targetsLoaded || isSaving}
+                                value={draft ? `${draft.parentKind}:${draft.parentId}` : (mapping.target_id ? `page:${mapping.target_id}` : '')}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  if (!v) {
+                                    setNotionParentDraft((prev) => { const n = { ...prev }; delete n[mapping.id]; return n })
+                                    updateTarget(mapping.id, null)
+                                    return
+                                  }
+                                  const [kindRaw, id] = v.split(':')
+                                  const parentKind = kindRaw === 'database' ? 'database' : 'page'
+                                  setNotionParentDraft((prev) => ({ ...prev, [mapping.id]: { parentId: id, parentKind } }))
+                                  updateTarget(mapping.id, id)
+                                  fetchNotionChildren(intId, id, parentKind)
+                                }}
+                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                              >
+                                <option value="">{!targetsLoaded ? (targetsError ? 'Could not load' : 'Loading…') : 'Select a parent…'}</option>
+                                {targetsLoaded && targets.pages.length > 0 && (
+                                  <optgroup label="Pages">
+                                    {targets.pages.map((p) => (
+                                      <option key={p.id} value={`page:${p.id}`}>{p.title}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {targetsLoaded && targets.databases.length > 0 && (
+                                  <optgroup label="Wikis / Databases">
+                                    {targets.databases.map((d) => (
+                                      <option key={d.id} value={`database:${d.id}`}>{d.title}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                              {targetsError && <p className="text-xs text-red-500">{targetsError}</p>}
+                            </div>
+                            {draft && (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-xs text-zinc-500">Sub-page <span className="text-zinc-400">(optional)</span></span>
+                                <select
+                                  disabled={!canEdit || childLoading || isSaving || childList.length === 0}
+                                  value={mapping.target_id && mapping.target_id !== draft.parentId ? mapping.target_id : ''}
+                                  onChange={(e) => {
+                                    const id = e.target.value
+                                    updateTarget(mapping.id, id || draft.parentId)
+                                  }}
+                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                                >
+                                  <option value="">
+                                    {childLoading ? 'Loading…' : childError ? 'Could not load sub-pages' : childList.length === 0 ? 'No sub-pages' : (draft.parentKind === 'database' ? 'Use wiki root' : 'Use parent page')}
+                                  </option>
+                                  {childList.map((c) => (
+                                    <option key={c.id} value={c.id}>{c.title}</option>
+                                  ))}
+                                </select>
+                                {childError && <p className="text-xs text-red-500">{childError}</p>}
+                              </div>
+                            )}
+                            {isSaving && spinner}
+                          </div>
+                        )
                       })() : (
                         <span className="text-xs text-zinc-400">—</span>
                       )}
@@ -808,7 +920,16 @@ function prefillFromSuggestion(folderPath: string) {
                     <td className="px-4 py-3 align-top">
                       <select
                         value={newFolderIntegrationId}
-                        onChange={(e) => { setNewFolderIntegrationId(e.target.value); setNewFolderMode('doc'); setNewFolderListId('') }}
+                        onChange={(e) => {
+                          setNewFolderIntegrationId(e.target.value)
+                          setNewFolderMode('doc')
+                          setNewFolderListId('')
+                          setNewFolderSpaceId('')
+                          setNewFolderDocId('')
+                          setNewFolderNotionParentId('')
+                          setNewFolderNotionParentKind('page')
+                          setNewFolderNotionSubPageId('')
+                        }}
                         className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                       >
                         <option value="">Integration…</option>
@@ -916,6 +1037,81 @@ function prefillFromSuggestion(folderPath: string) {
                             </div>
                           )}
                         </div>
+                        )
+                      })() : newIntegration?.type === 'notion' ? (() => {
+                        const targets = notionTargetsCache[newFolderIntegrationId]
+                        const targetsLoaded = targets && targets !== 'loading' && !('error' in targets)
+                        const targetsError = targets && typeof targets === 'object' && 'error' in targets ? targets.error : null
+                        const childKey = newFolderNotionParentId
+                          ? `${newFolderIntegrationId}:${newFolderNotionParentKind}:${newFolderNotionParentId}`
+                          : null
+                        const childState = childKey ? notionChildrenCache[childKey] : undefined
+                        const childList = Array.isArray(childState) ? childState : []
+                        const childLoading = childState === 'loading'
+                        const childError = childState && typeof childState === 'object' && !Array.isArray(childState) && 'error' in childState ? childState.error : null
+
+                        return (
+                          <div className="flex flex-col gap-1.5 min-w-[220px]">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs text-zinc-500">Parent <span className="text-zinc-400">(page or wiki)</span></span>
+                              <select
+                                disabled={!targetsLoaded}
+                                value={newFolderNotionParentId ? `${newFolderNotionParentKind}:${newFolderNotionParentId}` : ''}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  if (!v) {
+                                    setNewFolderNotionParentId('')
+                                    setNewFolderNotionParentKind('page')
+                                    setNewFolderNotionSubPageId('')
+                                    return
+                                  }
+                                  const [kindRaw, id] = v.split(':')
+                                  const parentKind = kindRaw === 'database' ? 'database' : 'page'
+                                  setNewFolderNotionParentKind(parentKind)
+                                  setNewFolderNotionParentId(id)
+                                  setNewFolderNotionSubPageId('')
+                                  fetchNotionChildren(newFolderIntegrationId, id, parentKind)
+                                }}
+                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                              >
+                                <option value="">{!targetsLoaded ? (targetsError ? 'Could not load' : 'Loading…') : 'Select a parent…'}</option>
+                                {targetsLoaded && targets.pages.length > 0 && (
+                                  <optgroup label="Pages">
+                                    {targets.pages.map((p) => (
+                                      <option key={p.id} value={`page:${p.id}`}>{p.title}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {targetsLoaded && targets.databases.length > 0 && (
+                                  <optgroup label="Wikis / Databases">
+                                    {targets.databases.map((d) => (
+                                      <option key={d.id} value={`database:${d.id}`}>{d.title}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                              {targetsError && <p className="text-xs text-red-500">{targetsError}</p>}
+                            </div>
+                            {newFolderNotionParentId && (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-xs text-zinc-500">Sub-page <span className="text-zinc-400">(optional)</span></span>
+                                <select
+                                  disabled={childLoading || childList.length === 0}
+                                  value={newFolderNotionSubPageId}
+                                  onChange={(e) => setNewFolderNotionSubPageId(e.target.value)}
+                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                                >
+                                  <option value="">
+                                    {childLoading ? 'Loading…' : childError ? 'Could not load sub-pages' : childList.length === 0 ? 'No sub-pages' : (newFolderNotionParentKind === 'database' ? 'Use wiki root' : 'Use parent page')}
+                                  </option>
+                                  {childList.map((c) => (
+                                    <option key={c.id} value={c.id}>{c.title}</option>
+                                  ))}
+                                </select>
+                                {childError && <p className="text-xs text-red-500">{childError}</p>}
+                              </div>
+                            )}
+                          </div>
                         )
                       })() : (
                         <span className="text-xs text-zinc-400">—</span>

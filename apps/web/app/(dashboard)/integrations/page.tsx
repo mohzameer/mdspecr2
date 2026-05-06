@@ -448,7 +448,8 @@ export default function IntegrationsPage() {
                       {!notionDataSources && (() => {
                         const isDatabase = form.notion.mode === 'database'
                         const raw = isDatabase ? form.notion.database_id : form.notion.root_page_id
-                        if (!parseNotionInput(raw)) return null
+                        const parsed = parseNotionInput(raw)
+                        if (!parsed) return null
                         const labelHint = isDatabase ? 'Sub-page (optional — pick a wiki entry to publish under)' : 'Sub-page (optional)'
                         const defaultLabel = isDatabase ? 'Publish as new rows' : 'Use parent page'
                         return (

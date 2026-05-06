@@ -79,14 +79,23 @@ export async function GET(
         if (m.clickup_use_custom_task_ids) lines.push(`    custom_task_ids: true`)
       }
 
-      // For doc mode: emit parent doc ID if configured (specs publish as pages inside this doc)
-      if (!isTaskList && m.clickup_doc_id) {
+      // ClickUp doc mode: emit parent doc ID if configured (specs publish as pages inside this doc)
+      if (intType === 'clickup' && !isTaskList && m.clickup_doc_id) {
         lines.push(`    parent_doc: id:${m.clickup_doc_id}`)
       }
 
-      // Emit space/folder target_id if configured (null = workspace root, no field needed)
+      // Emit target_id using the field name that matches the integration type:
+      //   clickup    → space_id: id:<target>
+      //   s3         → parent_dir: <target>      (no id: prefix — S3 keys aren't IDs)
+      //   notion/etc → parent: id:<target>
       if (m.target_id) {
-        lines.push(`    space_id: id:${m.target_id}`)
+        if (intType === 'clickup') {
+          lines.push(`    space_id: id:${m.target_id}`)
+        } else if (intType === 's3') {
+          lines.push(`    parent_dir: ${m.target_id}`)
+        } else if (intType) {
+          lines.push(`    parent: id:${m.target_id}`)
+        }
       }
 
       // Agent template
@@ -111,6 +120,8 @@ export async function GET(
   }
 
   const content = lines.join('\n') + '\n'
+
+  console.log('\n=== [generate-mdspecmap] OVERALL project=' + projectId + ' ===\n' + content + '=== /OVERALL ===\n')
 
   return new NextResponse(content, {
     status: 200,
