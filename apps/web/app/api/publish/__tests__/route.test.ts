@@ -889,6 +889,87 @@ describe('2.1 reconcileFolderMappings', () => {
     expect(cascade, 'identical config must not trigger invalidation').toBeUndefined()
   })
 
+  // -------------------------------------------------------------------------
+  // Notion parent persistence — for a long time the reconcile loop only wrote
+  // ClickUp/S3 destination fields (space_id, parent_dir, parent_doc, list_id)
+  // back to folder_mappings. The Notion `parent:` field was used to look up
+  // the integration_id but its native_id was never stored as target_id, so
+  // the publish processor always fell back to the integration default
+  // root_page_id — making per-folder Notion destinations a silent no-op.
+  // -------------------------------------------------------------------------
+  it('persists Notion parent (id:) as folder_mappings.target_id during reconcile', async () => {
+    const supabase = createServiceMock()
+    const upsertedRows: Array<Record<string, unknown>> = []
+
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    setupIntegrationsOnly(supabase, 'notion', 'int-notion')
+    setupSpecUpsertNoTarget(supabase)
+
+    supabase.from.mockImplementation((table: string) => {
+      const chain = makeChain({ data: null, error: null })
+      if (table === 'folder_mappings') {
+        ;(chain.upsert as ReturnType<typeof vi.fn>).mockImplementation((row: Record<string, unknown>) => {
+          upsertedRows.push(row)
+          return chain
+        })
+      }
+      return chain
+    })
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'src/utils/SPEC.md', hash: 'sha256:abc', frontmatter: {}, content: '# Spec' }],
+      config: {
+        version: 1,
+        mappings: [{ folder: 'src/utils', integration: 'notion', parent: 'id:cc69bd0f-98d7-4d6e-8701-72d92a920cf5' }],
+      },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+
+    const notionRow = upsertedRows.find((r) => r.folder_path === 'src/utils')
+    expect(notionRow, 'Notion mapping must be upserted').toBeDefined()
+    expect(
+      notionRow!.target_id,
+      'parent: id:<page> must be persisted as folder_mappings.target_id so setupNotionGroupContext can override the integration default'
+    ).toBe('cc69bd0f-98d7-4d6e-8701-72d92a920cf5')
+  })
+
+  it('cascades when Notion parent (target_id) changes via .mdspecmap', async () => {
+    const sptUpdates: Array<{ patch: Record<string, unknown> }> = []
+    const supabase = makeReconcileCascadeMock(
+      [{
+        folder_path: 'src/utils',
+        integration_id: 'int-notion',
+        target_id: 'old-page-id',
+        s3_maintain_hierarchy: null,
+        clickup_doc_id: null,
+        clickup_list_id: null,
+        clickup_mode: 'doc',
+      }],
+      sptUpdates,
+      'notion',
+      'int-notion'
+    )
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'src/utils/SPEC.md', hash: 'sha256:abc', frontmatter: {}, content: '# Spec' }],
+      config: {
+        version: 1,
+        mappings: [{ folder: 'src/utils', integration: 'notion', parent: 'id:new-page-id' }],
+      },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+
+    const cascade = sptUpdates.find((u) => u.patch.external_page_id === null && u.patch.content_hash === null)
+    expect(cascade, 'changing Notion parent must invalidate dependent spec_publish_targets').toBeDefined()
+  })
+
   it('does NOT cascade when no prior folder_mapping existed (fresh mapping)', async () => {
     const sptUpdates: Array<{ patch: Record<string, unknown> }> = []
     const supabase = makeReconcileCascadeMock([], sptUpdates) // no existing rows

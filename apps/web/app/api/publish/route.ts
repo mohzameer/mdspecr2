@@ -639,9 +639,11 @@ async function reconcileFolderMappings(
       const newTargetId =
         mapping.integration === 's3' && mapping.parent_dir !== undefined
           ? (mapping.parent_dir.trim() || null)
-          : mapping.space_id !== undefined
-            ? parseId(mapping.space_id)
-            : null
+          : mapping.integration === 'notion' && mapping.parent && resolvedAliases.has(mapping.parent)
+            ? resolvedAliases.get(mapping.parent)!.native_id
+            : mapping.space_id !== undefined
+              ? parseId(mapping.space_id)
+              : null
       const newClickupDocId = mapping.parent_doc !== undefined ? parseId(mapping.parent_doc) : null
       const newClickupListId = mapping.list_id !== undefined ? parseId(mapping.list_id) : null
       const newMaintainHierarchy = mapping.maintain_hierarchy ?? false
@@ -661,6 +663,12 @@ async function reconcileFolderMappings(
             // For S3: parent_dir is the bucket key prefix stored as target_id
             ...(mapping.integration === 's3' && mapping.parent_dir !== undefined ? {
               target_id: mapping.parent_dir.trim() || null,
+            } : {}),
+            // For Notion: parent (alias or id) resolves to the destination page; persist
+            // its native_id so setupNotionGroupContext can override the integration's
+            // default root_page_id at publish time.
+            ...(mapping.integration === 'notion' && mapping.parent && resolvedAliases.has(mapping.parent) ? {
+              target_id: resolvedAliases.get(mapping.parent)!.native_id,
             } : {}),
             ...(mapping.custom_task_ids !== undefined ? { clickup_use_custom_task_ids: mapping.custom_task_ids } : {}),
             ...(templateId !== undefined ? { template_id: templateId } : {}),
