@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 type IntegrationType = 'notion' | 'confluence' | 'clickup' | 's3'
 
@@ -98,33 +98,52 @@ export default function IntegrationsPage() {
   const [loadingChildren, setLoadingChildren] = useState(false)
   const [childrenError, setChildrenError] = useState<string | null>(null)
   const [notionSubPageId, setNotionSubPageId] = useState<string>('')
-
-  async function loadNotionChildren() {
-    const parsed = parseNotionInput(form.notion.root_page_id)
-    if (!form.notion.token || !parsed) return
-    setLoadingChildren(true)
-    setChildrenError(null)
-    setNotionChildren(null)
-    setNotionSubPageId('')
-    const res = await fetch('/api/integrations/notion/children', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: form.notion.token, parent_id: parsed.id }),
-    })
-    const body = await res.json()
-    if (!body.ok) {
-      setChildrenError(body.error ?? 'Could not load sub-pages.')
-    } else {
-      setNotionChildren(body.pages)
-    }
-    setLoadingChildren(false)
-  }
+  const loadedParentRef = useRef<string | null>(null)
 
   function resetNotionChildren() {
     setNotionChildren(null)
     setChildrenError(null)
     setNotionSubPageId('')
+    loadedParentRef.current = null
   }
+
+  useEffect(() => {
+    if (form.notion.mode !== 'page' || !form.notion.token) return
+    const parsed = parseNotionInput(form.notion.root_page_id)
+    if (!parsed) return
+    if (loadedParentRef.current === parsed.id) return
+
+    let cancelled = false
+    const parentId = parsed.id
+    const token = form.notion.token
+    setLoadingChildren(true)
+    setChildrenError(null)
+    loadedParentRef.current = parentId
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/integrations/notion/children', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, parent_id: parentId }),
+        })
+        const body = await res.json()
+        if (cancelled) return
+        if (!body.ok) {
+          setChildrenError(body.error ?? 'Could not load sub-pages.')
+          setNotionChildren(null)
+        } else {
+          setNotionChildren(body.pages)
+        }
+      } catch {
+        if (!cancelled) setChildrenError('Could not load sub-pages.')
+      } finally {
+        if (!cancelled) setLoadingChildren(false)
+      }
+    }, 400)
+
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [form.notion.token, form.notion.root_page_id, form.notion.mode])
 
   async function loadNotionShared() {
     if (!form.notion.token) return
@@ -423,36 +442,30 @@ export default function IntegrationsPage() {
                           </p>
                         )
                       })()}
-                      {form.notion.mode === 'page' && parseNotionInput(form.notion.root_page_id) && !notionChildren && (
-                        <div>
-                          <button
-                            type="button"
-                            onClick={loadNotionChildren}
-                            disabled={loadingChildren}
-                            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 disabled:opacity-50"
-                          >
-                            {loadingChildren ? 'Loading…' : 'Browse sub-pages'}
-                          </button>
-                          {childrenError && <p className="text-xs text-red-500 mt-1">{childrenError}</p>}
-                        </div>
-                      )}
-                      {form.notion.mode === 'page' && notionChildren && notionChildren.length > 0 && (
+                      {form.notion.mode === 'page' && parseNotionInput(form.notion.root_page_id) && (
                         <div>
                           <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Sub-page (optional)</label>
                           <select
                             value={notionSubPageId}
                             onChange={(e) => { setNotionSubPageId(e.target.value); setNotionValidateError(null) }}
-                            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                            disabled={loadingChildren || !notionChildren || notionChildren.length === 0}
+                            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                           >
-                            <option value="">Use parent page</option>
-                            {notionChildren.map((p) => (
+                            <option value="">
+                              {loadingChildren
+                                ? 'Loading sub-pages…'
+                                : childrenError
+                                ? 'Could not load sub-pages'
+                                : !notionChildren || notionChildren.length === 0
+                                ? 'No sub-pages found — use parent'
+                                : 'Use parent page'}
+                            </option>
+                            {notionChildren?.map((p) => (
                               <option key={p.id} value={p.id}>{p.title}</option>
                             ))}
                           </select>
+                          {childrenError && <p className="text-xs text-red-500 mt-1">{childrenError}</p>}
                         </div>
-                      )}
-                      {form.notion.mode === 'page' && notionChildren && notionChildren.length === 0 && (
-                        <p className="text-xs text-zinc-400">No sub-pages found under this parent.</p>
                       )}
                       {form.notion.mode === 'database' && notionDataSources && notionDataSources.length > 0 && (
                         <div>
