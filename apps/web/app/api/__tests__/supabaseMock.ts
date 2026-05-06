@@ -5,7 +5,7 @@ export type MockResult = { data: unknown; error: unknown; count?: number }
 /** Creates a single chainable query object that resolves to `result` when awaited. */
 export function makeChain(result: MockResult = { data: null, error: null }) {
   const chain: Record<string, unknown> = {}
-  for (const m of ['select', 'eq', 'in', 'neq', 'not', 'order', 'insert', 'update', 'upsert', 'delete', 'maybeSingle', 'head']) {
+  for (const m of ['select', 'eq', 'in', 'neq', 'not', 'or', 'order', 'insert', 'update', 'upsert', 'delete', 'maybeSingle', 'head']) {
     chain[m] = vi.fn().mockReturnValue(chain)
   }
   chain.single = vi.fn().mockResolvedValue(result)

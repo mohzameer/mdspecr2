@@ -273,6 +273,148 @@ describe('Notion dispatch', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Notion — folder_mappings.target_id override (per-folder destination)
+//
+// The user picks a parent page or wiki sub-page from the project map; that
+// selection is saved to folder_mappings.target_id and MUST override the
+// integration-level credentials.root_page_id when publishing specs in that
+// folder. Without this, the per-folder picker has no effect.
+// ---------------------------------------------------------------------------
+
+/**
+ * Supabase mock for Notion that returns a folder_mappings row.
+ * Mirrors makeClickUpSupabase but for Notion (no clickup_mode filter).
+ */
+function makeNotionSupabaseWithMapping(
+  credentials: Record<string, unknown>,
+  folderMapping: Record<string, unknown> | null,
+  existingPageId: string | null = null,
+  storedHash = 'different'
+) {
+  let integrationDone = false
+  let mappingDone = false
+  let sptCount = 0
+
+  const fromMock = vi.fn((table: string) => {
+    if (table === 'integrations' && !integrationDone) {
+      integrationDone = true
+      return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' })
+    }
+    if (table === 'folder_mappings' && !mappingDone) {
+      mappingDone = true
+      return chain(folderMapping)
+    }
+    if (table === 'spec_publish_targets') {
+      sptCount++
+      if (sptCount % 2 === 1) return chain({ external_page_id: existingPageId, retry_count: 0, content_hash: storedHash })
+      return chain(null)
+    }
+    if (table === 'folder_mappings') return chain(null)
+    return chain(null)
+  })
+
+  const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(credentials), error: null })
+  return { from: fromMock, rpc: rpcMock }
+}
+
+describe('Notion folder_mappings.target_id override', () => {
+  it('passes folder_mappings.target_id as root_page_id when set (overrides integration default)', async () => {
+    const FOLDER_TARGET = 'page-folder-override-456'
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeNotionSupabaseWithMapping(NOTION_CREDS, {
+        id: 'fm-no', folder_path: 'docs/specs', target_id: FOLDER_TARGET,
+        frontmatter_map: null,
+      }) as never
+    )
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'p1', page_url: 'https://notion.so/p1' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion',
+      specs: [makeSpec()], matched_folder: 'docs/specs',
+    })
+
+    expect(publishToNotion).toHaveBeenCalledWith(
+      expect.objectContaining({ root_page_id: FOLDER_TARGET }),
+      expect.anything(),
+      null
+    )
+    expect(publishToNotion).not.toHaveBeenCalledWith(
+      expect.objectContaining({ root_page_id: NOTION_CREDS.root_page_id }),
+      expect.anything(),
+      expect.anything()
+    )
+  })
+
+  it('falls back to credentials.root_page_id when folder_mappings.target_id is null', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeNotionSupabaseWithMapping(NOTION_CREDS, {
+        id: 'fm-no', folder_path: 'docs/specs', target_id: null,
+        frontmatter_map: null,
+      }) as never
+    )
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'p1', page_url: 'https://notion.so/p1' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion',
+      specs: [makeSpec()], matched_folder: 'docs/specs',
+    })
+
+    expect(publishToNotion).toHaveBeenCalledWith(
+      expect.objectContaining({ root_page_id: NOTION_CREDS.root_page_id }),
+      expect.anything(),
+      null
+    )
+  })
+
+  it('falls back to credentials.root_page_id when no folder_mappings row exists', async () => {
+    // No mapping registered for this folder — should not crash, should use integration default.
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeNotionSupabaseWithMapping(NOTION_CREDS, null) as never
+    )
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'p1', page_url: 'https://notion.so/p1' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion',
+      specs: [makeSpec()], matched_folder: 'docs/specs',
+    })
+
+    expect(publishToNotion).toHaveBeenCalledWith(
+      expect.objectContaining({ root_page_id: NOTION_CREDS.root_page_id }),
+      expect.anything(),
+      null
+    )
+  })
+
+  it('database-mode credentials still override root_page_id from folder mapping', async () => {
+    const dbCreds = { ...NOTION_CREDS, mode: 'database', database_id: 'db-id', data_source_id: 'ds-id' }
+    const FOLDER_TARGET = 'wiki-row-override-789'
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeNotionSupabaseWithMapping(dbCreds, {
+        id: 'fm-no', folder_path: 'docs/specs', target_id: FOLDER_TARGET,
+        frontmatter_map: null,
+      }) as never
+    )
+    vi.mocked(publishToNotion).mockResolvedValue({ page_id: 'p1', page_url: 'https://notion.so/p1' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion',
+      specs: [makeSpec()], matched_folder: 'docs/specs',
+    })
+
+    expect(publishToNotion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        root_page_id: FOLDER_TARGET,
+        mode: 'database',
+        database_id: 'db-id',
+        data_source_id: 'ds-id',
+      }),
+      expect.anything(),
+      null
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Confluence
 // ---------------------------------------------------------------------------
 describe('Confluence dispatch', () => {

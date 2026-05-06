@@ -589,7 +589,25 @@ async function reconcileFolderMappings(
       if (f !== '') coveredFolders.add(f)
     }
 
+    // Snapshot existing rows BEFORE the destructive delete so we can compare
+    // each upserted destination against its prior value. If a destination-
+    // defining field changes (target_id, s3_maintain_hierarchy, clickup_*,
+    // mode), dependent spec_publish_targets must be invalidated — otherwise
+    // the publish processor's content-hash skip keeps re-pointing at the
+    // old destination and changing the .mdspecmap silently has no effect.
+    const existingByKey = new Map<string, Record<string, unknown>>()
     if (coveredFolders.size > 0) {
+      const { data: existingRows } = await supabase
+        .from('folder_mappings')
+        .select('folder_path, integration_id, target_id, s3_maintain_hierarchy, clickup_doc_id, clickup_list_id, clickup_mode')
+        .eq('project_id', projectId)
+        .in('folder_path', [...coveredFolders])
+
+      for (const row of (existingRows ?? []) as Array<Record<string, unknown>>) {
+        const key = `${row.folder_path}|${row.integration_id}|${row.clickup_mode ?? 'doc'}`
+        existingByKey.set(key, row)
+      }
+
       await supabase
         .from('folder_mappings')
         .delete()
@@ -615,6 +633,19 @@ async function reconcileFolderMappings(
       const mode = mapping.integration === 'clickup' && mapping.target === 'task' ? 'task_list' : 'doc'
       const templateId = mapping.agent ? (templateByName.get(mapping.agent) ?? null) : undefined
 
+      // Compute the resolved destination values that will be persisted, so we
+      // can compare them to the snapshot above (covering both explicit and
+      // omitted-falls-back-to-column-default cases).
+      const newTargetId =
+        mapping.integration === 's3' && mapping.parent_dir !== undefined
+          ? (mapping.parent_dir.trim() || null)
+          : mapping.space_id !== undefined
+            ? parseId(mapping.space_id)
+            : null
+      const newClickupDocId = mapping.parent_doc !== undefined ? parseId(mapping.parent_doc) : null
+      const newClickupListId = mapping.list_id !== undefined ? parseId(mapping.list_id) : null
+      const newMaintainHierarchy = mapping.maintain_hierarchy ?? false
+
       await supabase
         .from('folder_mappings')
         .upsert(
@@ -639,6 +670,33 @@ async function reconcileFolderMappings(
           },
           { onConflict: 'project_id,folder_path,integration_id,clickup_mode' }
         )
+
+      const prev = existingByKey.get(`${normalizedFolder}|${integrationId}|${mode}`) ??
+        existingByKey.get(`${normalizedFolder}|${integrationId}|doc`) ??
+        existingByKey.get(`${normalizedFolder}|${integrationId}|task_list`)
+
+      if (prev) {
+        const destinationChanged =
+          ((prev.target_id as string | null) ?? null) !== newTargetId ||
+          ((prev.clickup_doc_id as string | null) ?? null) !== newClickupDocId ||
+          ((prev.clickup_list_id as string | null) ?? null) !== newClickupListId ||
+          ((prev.s3_maintain_hierarchy as boolean | null) ?? false) !== newMaintainHierarchy ||
+          ((prev.clickup_mode as string | null) ?? 'doc') !== mode
+
+        if (destinationChanged) {
+          const specsBase = supabase.from('specs').select('id').eq('project_id', projectId)
+          const { data: specsInFolder } = normalizedFolder === ''
+            ? await specsBase
+            : await specsBase.or(`path.eq.${normalizedFolder},path.like.${normalizedFolder}/%`)
+          const specIds = ((specsInFolder ?? []) as Array<{ id: string }>).map((s) => s.id)
+
+          await supabase
+            .from('spec_publish_targets')
+            .update({ external_page_id: null, content_hash: null })
+            .eq('integration_id', integrationId)
+            .in('spec_id', specIds)
+        }
+      }
     }
 
     console.log(`[publish] folder_mappings reconciled for project=${projectId}`)

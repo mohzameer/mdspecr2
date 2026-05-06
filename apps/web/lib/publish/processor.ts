@@ -111,6 +111,8 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     // Seed prefix from job data; folder_mappings lookup may override it for folder-scoped mappings
     ctx.s3RootPrefix = data.s3_root_prefix ?? null
     await setupS3GroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
+  } else if (target_type === 'notion') {
+    await setupNotionGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
   }
 
   // -- Iterate specs sequentially --------------------------------------------
@@ -227,6 +229,35 @@ async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string
   }
 
   console.log(`[publish] group mode=${ctx.isMultiMode ? 'multi' : 'flat'} mapping=${ctx.folderMappingPath ?? 'none'} docId=${ctx.sharedSubDocId ?? 'none'}`)
+}
+
+// ---------------------------------------------------------------------------
+// Notion group context: read folder_mappings.target_id so the per-folder
+// destination (sub-page picked in the dashboard) overrides the integration
+// default root_page_id. Without this, changing the destination via the UI
+// has no effect on actual publishing.
+// ---------------------------------------------------------------------------
+async function setupNotionGroupContext(ctx: GroupContext, matchedFolder: string): Promise<void> {
+  const { supabase, project_id, integration_id } = ctx
+
+  const { data: mapping } = await supabase
+    .from('folder_mappings')
+    .select('id, folder_path, target_id, frontmatter_map')
+    .eq('project_id', project_id)
+    .eq('integration_id', integration_id)
+    .eq('folder_path', matchedFolder)
+    .maybeSingle()
+
+  if (mapping) {
+    ctx.folderMappingTargetId = (mapping.target_id as string | null) ?? null
+    ctx.folderMappingId = mapping.id as string
+    ctx.folderMappingPath = matchedFolder
+    if (mapping.frontmatter_map) {
+      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
+    }
+  }
+
+  console.log(`[publish:notion] folder=${matchedFolder} target_id=${ctx.folderMappingTargetId ?? '(none)'}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -388,7 +419,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
       result = await publishToNotion(
         {
           token: credentials.token as string,
-          root_page_id: credentials.root_page_id as string,
+          root_page_id: ctx.folderMappingTargetId ?? (credentials.root_page_id as string),
           mode: credentials.mode as 'page' | 'database' | undefined,
           database_id: credentials.database_id as string | undefined,
           data_source_id: credentials.data_source_id as string | undefined,

@@ -741,6 +741,171 @@ describe('2.1 reconcileFolderMappings', () => {
     expect(deleteChain).toBeDefined()
   })
 
+  // -------------------------------------------------------------------------
+  // S3 destination-change cascade — the publish route reconciles
+  // folder_mappings when the CLI re-pushes .mdspecmap. If the new config
+  // changes a destination-defining field (S3 prefix, hierarchy toggle), the
+  // dependent spec_publish_targets MUST be invalidated. Without that, the
+  // publish processor's "skip when content unchanged" branch keeps writing
+  // to the old S3 keys forever — the operator sees no effect from changing
+  // parent_dir or maintain_hierarchy in their .mdspecmap.
+  // -------------------------------------------------------------------------
+  function makeReconcileCascadeMock(
+    existingMappings: Array<Record<string, unknown>>,
+    sptUpdates: Array<{ patch: Record<string, unknown> }>,
+    integrationType: string = 's3',
+    integrationId: string = 'int-s3'
+  ) {
+    const supabase = createServiceMock()
+    setupAuthSuccess(supabase)
+    setupProjectAndOrg(supabase, { registered_repo: 'owner/repo' })
+    setupIntegrationsOnly(supabase, integrationType, integrationId)
+    setupSpecUpsertNoTarget(supabase)
+
+    supabase.from.mockImplementation((table: string) => {
+      if (table === 'folder_mappings') {
+        // SELECT (fetch existing before delete), DELETE, and UPSERT all
+        // resolve to this same chain. Only the SELECT result is used.
+        return makeChain({ data: existingMappings, error: null })
+      }
+      if (table === 'specs') {
+        // Cascade query: list spec ids in the folder.
+        return makeChain({ data: [{ id: 'spec1' }], error: null })
+      }
+      if (table === 'spec_publish_targets') {
+        const chain = makeChain({ data: null, error: null })
+        ;(chain.update as ReturnType<typeof vi.fn>).mockImplementation((patch: Record<string, unknown>) => {
+          sptUpdates.push({ patch })
+          return chain
+        })
+        return chain
+      }
+      return makeChain({ data: null, error: null })
+    })
+
+    return supabase
+  }
+
+  it('cascades to spec_publish_targets when S3 parent_dir (target_id) changes via .mdspecmap', async () => {
+    const sptUpdates: Array<{ patch: Record<string, unknown> }> = []
+    const supabase = makeReconcileCascadeMock(
+      [{
+        folder_path: 'src',
+        integration_id: 'int-s3',
+        target_id: 'old-prefix',
+        s3_maintain_hierarchy: false,
+        clickup_doc_id: null,
+        clickup_list_id: null,
+        clickup_mode: 'doc',
+      }],
+      sptUpdates
+    )
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'src/App.jsx', hash: 'sha256:abc', frontmatter: {}, content: '# App' }],
+      config: { version: 1, mappings: [{ folder: 'src', integration: 's3', parent_dir: 'new-prefix' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+
+    const cascade = sptUpdates.find((u) => u.patch.external_page_id === null && u.patch.content_hash === null)
+    expect(cascade, 'expected dependent spec_publish_targets to be invalidated').toBeDefined()
+  })
+
+  it('cascades when s3_maintain_hierarchy toggles via .mdspecmap', async () => {
+    const sptUpdates: Array<{ patch: Record<string, unknown> }> = []
+    const supabase = makeReconcileCascadeMock(
+      [{
+        folder_path: 'src',
+        integration_id: 'int-s3',
+        target_id: 'same-prefix',
+        s3_maintain_hierarchy: false,
+        clickup_doc_id: null,
+        clickup_list_id: null,
+        clickup_mode: 'doc',
+      }],
+      sptUpdates
+    )
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'src/App.jsx', hash: 'sha256:abc', frontmatter: {}, content: '# App' }],
+      config: {
+        version: 1,
+        mappings: [{
+          folder: 'src',
+          integration: 's3',
+          parent_dir: 'same-prefix',
+          maintain_hierarchy: true,
+        }],
+      },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+
+    const cascade = sptUpdates.find((u) => u.patch.external_page_id === null && u.patch.content_hash === null)
+    expect(
+      cascade,
+      'flipping hierarchy reshapes every S3 key — dependents must be invalidated'
+    ).toBeDefined()
+  })
+
+  it('does NOT cascade when S3 destination fields are unchanged', async () => {
+    const sptUpdates: Array<{ patch: Record<string, unknown> }> = []
+    const supabase = makeReconcileCascadeMock(
+      [{
+        folder_path: 'src',
+        integration_id: 'int-s3',
+        target_id: 'same-prefix',
+        s3_maintain_hierarchy: false,
+        clickup_doc_id: null,
+        clickup_list_id: null,
+        clickup_mode: 'doc',
+      }],
+      sptUpdates
+    )
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'src/App.jsx', hash: 'sha256:abc', frontmatter: {}, content: '# App' }],
+      config: {
+        version: 1,
+        mappings: [{
+          folder: 'src',
+          integration: 's3',
+          parent_dir: 'same-prefix',
+          maintain_hierarchy: false,
+        }],
+      },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+
+    const cascade = sptUpdates.find((u) => u.patch.external_page_id === null && u.patch.content_hash === null)
+    expect(cascade, 'identical config must not trigger invalidation').toBeUndefined()
+  })
+
+  it('does NOT cascade when no prior folder_mapping existed (fresh mapping)', async () => {
+    const sptUpdates: Array<{ patch: Record<string, unknown> }> = []
+    const supabase = makeReconcileCascadeMock([], sptUpdates) // no existing rows
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)
+
+    const payload = {
+      ...BASE_PAYLOAD,
+      specs: [{ path: 'src/App.jsx', hash: 'sha256:abc', frontmatter: {}, content: '# App' }],
+      config: { version: 1, mappings: [{ folder: 'src', integration: 's3', parent_dir: 'fresh-prefix' }] },
+    }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(202)
+
+    const cascade = sptUpdates.find((u) => u.patch.external_page_id === null && u.patch.content_hash === null)
+    expect(cascade, 'new mappings have no published history to invalidate').toBeUndefined()
+  })
+
   it('does not delete rows for uncovered folders (root is never touched)', async () => {
     const supabase = createServiceMock()
     vi.mocked(createSupabaseServiceClient).mockReturnValue(supabase as never)

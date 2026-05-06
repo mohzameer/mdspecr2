@@ -57,6 +57,23 @@ export async function PATCH(
   if ('clickup_use_custom_task_ids' in body) patch.clickup_use_custom_task_ids = !!clickup_use_custom_task_ids
   if ('skip_patterns' in body) patch.skip_patterns = Array.isArray(skip_patterns) ? skip_patterns : []
 
+  // Read existing row first so we can detect a destination change and cascade-
+  // invalidate dependent spec_publish_targets. Without that invalidation the
+  // publish processor's "skip when content unchanged" branch keeps re-pointing
+  // at the old destination forever.
+  //
+  // Any folder_mappings field that decides *where* a spec ends up needs to
+  // trigger this cascade — not just target_id. For ClickUp that includes the
+  // parent doc, the task list, and the mode flag (doc vs task_list).
+  const DESTINATION_FIELDS = ['target_id', 'clickup_doc_id', 'clickup_list_id', 'clickup_mode'] as const
+
+  const { data: existing } = await supabase
+    .from('folder_mappings')
+    .select('target_id, clickup_doc_id, clickup_list_id, clickup_mode, integration_id, folder_path')
+    .eq('id', mappingId)
+    .eq('project_id', projectId)
+    .single()
+
   const { data: mapping, error } = await supabase
     .from('folder_mappings')
     .update(patch)
@@ -66,6 +83,36 @@ export async function PATCH(
     .single()
 
   if (error || !mapping) return NextResponse.json({ error: 'update_failed' }, { status: 500 })
+
+  if (existing) {
+    const destinationChanged = DESTINATION_FIELDS.some((field) => {
+      if (!(field in body)) return false
+      const oldVal = ((existing as Record<string, unknown>)[field] as unknown) ?? null
+      const newVal = ((body as Record<string, unknown>)[field] as unknown) ?? null
+      return oldVal !== newVal
+    })
+
+    if (destinationChanged) {
+      const folderPath = (existing.folder_path as string | null) ?? ''
+      const integrationId = existing.integration_id as string
+
+      // Find specs in this folder so we can scope the invalidation to rows
+      // that actually depend on this mapping (rather than blanket-clearing
+      // every target on the integration).
+      const specsBase = supabase.from('specs').select('id').eq('project_id', projectId)
+      const { data: specsInFolder } = folderPath === ''
+        ? await specsBase
+        : await specsBase.or(`path.eq.${folderPath},path.like.${folderPath}/%`)
+      const specIds = (specsInFolder ?? []).map((s: { id: string }) => s.id)
+
+      await supabase
+        .from('spec_publish_targets')
+        .update({ external_page_id: null, content_hash: null })
+        .eq('integration_id', integrationId)
+        .in('spec_id', specIds)
+    }
+  }
+
   return NextResponse.json(mapping)
 }
 
