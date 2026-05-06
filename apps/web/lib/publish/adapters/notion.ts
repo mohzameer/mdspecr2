@@ -268,13 +268,51 @@ function parentPageId(item: unknown): string | null {
 
 export async function listNotionChildPages(
   token: string,
-  parentId: string
+  parentId: string,
+  parentKind: 'page' | 'database' = 'page'
 ): Promise<{ ok: true; pages: NotionSharedItem[] } | { ok: false; error: string }> {
   if (!token) return { ok: false, error: 'token is required' }
   if (!parentId) return { ok: false, error: 'parent_id is required' }
   const notion = new Client({ auth: token, notionVersion: NOTION_API_VERSION })
 
   const pages: NotionSharedItem[] = []
+
+  if (parentKind === 'database') {
+    let dataSourceId: string
+    try {
+      const database = (await notion.databases.retrieve({ database_id: parentId })) as { data_sources?: Array<{ id: string }> }
+      const ds = database.data_sources?.[0]
+      if (!ds) return { ok: false, error: 'Database has no data sources.' }
+      dataSourceId = ds.id
+    } catch (err) {
+      return { ok: false, error: notionErrorMessage(err, 'Could not load database.') }
+    }
+
+    try {
+      let cursor: string | undefined
+      do {
+        const body: Record<string, unknown> = { page_size: 100 }
+        if (cursor) body.start_cursor = cursor
+        const res = (await notion.request({
+          path: `data_sources/${dataSourceId}/query`,
+          method: 'post',
+          body,
+        } as never)) as { results: Array<Record<string, unknown>>; next_cursor?: string | null; has_more?: boolean }
+        for (const row of res.results) {
+          const id = row.id as string
+          const title = extractPageTitle(row)
+          const url = (row as { url?: string }).url ?? `https://notion.so/${id.replace(/-/g, '')}`
+          pages.push({ id, title, url })
+        }
+        cursor = res.has_more ? (res.next_cursor ?? undefined) : undefined
+      } while (cursor)
+    } catch (err) {
+      return { ok: false, error: notionErrorMessage(err, 'Could not list database rows.') }
+    }
+
+    return { ok: true, pages }
+  }
+
   try {
     let cursor: string | undefined
     do {

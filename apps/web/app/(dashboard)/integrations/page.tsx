@@ -108,13 +108,16 @@ export default function IntegrationsPage() {
   }
 
   useEffect(() => {
-    if (form.notion.mode !== 'page' || !form.notion.token) return
-    const parsed = parseNotionInput(form.notion.root_page_id)
+    if (!form.notion.token) return
+    const isDatabase = form.notion.mode === 'database'
+    const raw = isDatabase ? form.notion.database_id : form.notion.root_page_id
+    const parsed = parseNotionInput(raw)
     if (!parsed) return
     if (loadedParentRef.current === parsed.id) return
 
     let cancelled = false
     const parentId = parsed.id
+    const parentKind = isDatabase ? 'database' : 'page'
     const token = form.notion.token
     setLoadingChildren(true)
     setChildrenError(null)
@@ -125,7 +128,7 @@ export default function IntegrationsPage() {
         const res = await fetch('/api/integrations/notion/children', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, parent_id: parentId }),
+          body: JSON.stringify({ token, parent_id: parentId, parent_kind: parentKind }),
         })
         const body = await res.json()
         if (cancelled) return
@@ -143,7 +146,7 @@ export default function IntegrationsPage() {
     }, 400)
 
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [form.notion.token, form.notion.root_page_id, form.notion.mode])
+  }, [form.notion.token, form.notion.root_page_id, form.notion.database_id, form.notion.mode])
 
   async function loadNotionShared() {
     if (!form.notion.token) return
@@ -442,31 +445,46 @@ export default function IntegrationsPage() {
                           </p>
                         )
                       })()}
-                      {form.notion.mode === 'page' && parseNotionInput(form.notion.root_page_id) && (
-                        <div>
-                          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Sub-page (optional)</label>
-                          <select
-                            value={notionSubPageId}
-                            onChange={(e) => { setNotionSubPageId(e.target.value); setNotionValidateError(null) }}
-                            disabled={loadingChildren || !notionChildren || notionChildren.length === 0}
-                            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
-                          >
-                            <option value="">
-                              {loadingChildren
-                                ? 'Loading sub-pages…'
-                                : childrenError
-                                ? 'Could not load sub-pages'
-                                : !notionChildren || notionChildren.length === 0
-                                ? 'No sub-pages found — use parent'
-                                : 'Use parent page'}
-                            </option>
-                            {notionChildren?.map((p) => (
-                              <option key={p.id} value={p.id}>{p.title}</option>
-                            ))}
-                          </select>
-                          {childrenError && <p className="text-xs text-red-500 mt-1">{childrenError}</p>}
-                        </div>
-                      )}
+                      {!notionDataSources && (() => {
+                        const isDatabase = form.notion.mode === 'database'
+                        const raw = isDatabase ? form.notion.database_id : form.notion.root_page_id
+                        if (!parseNotionInput(raw)) return null
+                        const labelHint = isDatabase ? 'Sub-page (optional — pick a wiki entry to publish under)' : 'Sub-page (optional)'
+                        const defaultLabel = isDatabase ? 'Publish as new rows' : 'Use parent page'
+                        return (
+                          <div>
+                            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">{labelHint}</label>
+                            <select
+                              value={notionSubPageId}
+                              onChange={(e) => {
+                                const id = e.target.value
+                                setNotionSubPageId(id)
+                                setNotionValidateError(null)
+                                if (id && isDatabase) {
+                                  setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: id, database_id: '', data_source_id: '' } })
+                                  setNotionDataSources(null)
+                                }
+                              }}
+                              disabled={loadingChildren || !notionChildren || notionChildren.length === 0}
+                              className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                            >
+                              <option value="">
+                                {loadingChildren
+                                  ? 'Loading sub-pages…'
+                                  : childrenError
+                                  ? 'Could not load sub-pages'
+                                  : !notionChildren || notionChildren.length === 0
+                                  ? `No sub-pages found — ${defaultLabel.toLowerCase()}`
+                                  : defaultLabel}
+                              </option>
+                              {notionChildren?.map((p) => (
+                                <option key={p.id} value={p.id}>{p.title}</option>
+                              ))}
+                            </select>
+                            {childrenError && <p className="text-xs text-red-500 mt-1">{childrenError}</p>}
+                          </div>
+                        )
+                      })()}
                       {form.notion.mode === 'database' && notionDataSources && notionDataSources.length > 0 && (
                         <div>
                           <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Data source</label>
