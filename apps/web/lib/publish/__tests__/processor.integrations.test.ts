@@ -239,10 +239,13 @@ describe('Notion dispatch', () => {
     })
     const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(NOTION_CREDS), error: null })
     vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock, rpc: rpcMock } as never)
-    vi.mocked(publishToNotion).mockRejectedValueOnce(new Error('Notion API error')).mockResolvedValueOnce({ page_id: 'p2', page_url: '' })
+    vi.mocked(publishToNotion)
+      .mockRejectedValueOnce(new Error('Notion API error')) // s1 first attempt
+      .mockResolvedValueOnce({ page_id: 'p1', page_url: '' }) // s1 retry
+      .mockResolvedValueOnce({ page_id: 'p2', page_url: '' }) // s2
 
     await expect(runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion', specs, matched_folder: 'docs' })).resolves.toBeUndefined()
-    expect(publishToNotion).toHaveBeenCalledTimes(2)
+    expect(publishToNotion).toHaveBeenCalledTimes(3)
   })
 
   it('forwards database-mode credentials (mode, database_id, data_source_id) to adapter', async () => {

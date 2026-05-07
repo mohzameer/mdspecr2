@@ -714,8 +714,9 @@ describe('error handling', () => {
     const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(S3_CREDENTIALS), error: null })
     vi.mocked(createSupabaseServiceClient).mockReturnValue({ from: fromMock, rpc: rpcMock } as never)
     vi.mocked(publishToS3)
-      .mockRejectedValueOnce(new Error('S3 timeout'))
-      .mockResolvedValueOnce({ page_id: 'payments.md', page_url: '' })
+      .mockRejectedValueOnce(new Error('S3 timeout'))          // s1 first attempt
+      .mockResolvedValueOnce({ page_id: 'auth.md', page_url: '' })    // s1 retry
+      .mockResolvedValueOnce({ page_id: 'payments.md', page_url: '' }) // s2
 
     const specs = [
       makeSpec({ spec_id: 's1', spec_publish_target_id: 'spt-1', path: 'docs/specs/auth.md', content_hash: 'h1' }),
@@ -723,7 +724,7 @@ describe('error handling', () => {
     ]
 
     await expect(runPublishGroup(makeJobData({ specs }))).resolves.toBeUndefined()
-    expect(publishToS3).toHaveBeenCalledTimes(2)
+    expect(publishToS3).toHaveBeenCalledTimes(3)
   })
 
   it('throws UnrecoverableError when integration record not found', async () => {

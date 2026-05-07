@@ -137,18 +137,24 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
         throw new UnrecoverableError(`Auth error on integration ${integration_id}: ${message}`)
       }
 
-      // Per-spec failure — record and continue with remaining specs.
-      // If the remote rejected the update because it (or its parent) is archived,
-      // clear the stored pointer so the next sync starts fresh rather than
-      // retrying the same stale ID forever.
-      const isArchivedError = (err as { code?: string }).code === 'validation_error' && message.includes('archived')
-      const sptPatch: Record<string, unknown> = { status: 'failed', last_error: `${status ? `(${status}) ` : ''}${message}` }
-      if (isArchivedError) sptPatch.external_page_id = null
+      // Clear the stored pointer and retry once as a fresh create — fixes a
+      // large class of stale external_page_id issues in a single run.
+      console.warn(`[publish] spec ${spec.spec_id} failed (${message}), clearing pointer and retrying`)
       await supabase
         .from('spec_publish_targets')
-        .update(sptPatch)
+        .update({ external_page_id: null, external_url: null })
         .eq('id', spec.spec_publish_target_id)
-      console.error(`[publish] spec ${spec.spec_id} failed: ${message}`)
+
+      try {
+        await processOneSpec(ctx, spec)
+      } catch (retryErr) {
+        const retryMessage = (retryErr as { message?: string }).message ?? String(retryErr)
+        await supabase
+          .from('spec_publish_targets')
+          .update({ status: 'failed', last_error: retryMessage })
+          .eq('id', spec.spec_publish_target_id)
+        console.error(`[publish] spec ${spec.spec_id} failed after retry: ${retryMessage}`)
+      }
     }
   }
 
