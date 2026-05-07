@@ -617,8 +617,14 @@ export function applySubfolderFilter(files: string[], config: MdspecMapConfig): 
   const hasSubfolderLimits = config.mappings.some((m) => m.subfolders !== undefined)
   if (!hasSubfolderLimits) return files
 
+  // Most-specific mapping wins: sort by folder length descending so a
+  // restricted subfolder mapping is evaluated before a root catch-all.
+  const mappingsBySpecificity = [...config.mappings].sort(
+    (a, b) => normalizeFolder(b.folder ?? '').length - normalizeFolder(a.folder ?? '').length
+  )
+
   return files.filter((filePath) => {
-    for (const mapping of config.mappings) {
+    for (const mapping of mappingsBySpecificity) {
       const normalizedFolder = normalizeFolder(mapping.folder ?? '')
       const inFolder = normalizedFolder === '' ||
         filePath.startsWith(normalizedFolder + '/') ||
@@ -630,9 +636,11 @@ export function applySubfolderFilter(files: string[], config: MdspecMapConfig): 
       const relPath = normalizedFolder === '' ? filePath : filePath.slice(normalizedFolder.length + 1)
       // Files directly in the mapping root (no subfolder) are always allowed.
       if (!relPath.includes('/')) return true
+      // Most-specific matching mapping with subfolders is authoritative — its
+      // decision (allow or deny) is final; don't fall through to a broader mapping.
       // Use micromatch() (not isMatch) so negation patterns combine correctly
       // with positive ones — e.g. ['api/**', '!api/private/**'].
-      if (micromatch([relPath], mapping.subfolders).length > 0) return true
+      return micromatch([relPath], mapping.subfolders).length > 0
     }
     return false
   })

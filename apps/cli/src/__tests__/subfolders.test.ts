@@ -62,7 +62,7 @@ describe('applySubfolderFilter', () => {
     expect(applySubfolderFilter(files, config)).toEqual(['readme.md', 'docs/a.md'])
   })
 
-  it('file covered by mapping with no subfolders restriction is kept', () => {
+  it('most-specific subfolder mapping is authoritative: root mapping cannot override a folder restriction', () => {
     const config: MdspecMapConfig = {
       version: 1,
       mappings: [
@@ -70,9 +70,35 @@ describe('applySubfolderFilter', () => {
         { folder: '', integration: 'confluence', parent: 'q' },
       ],
     }
-    const files = ['docs/internal/x.md']
-    // first mapping would drop it, but root mapping covers it without restriction
-    expect(applySubfolderFilter(files, config)).toEqual(['docs/internal/x.md'])
+    const files = ['docs/internal/x.md', 'docs/api/y.md', 'root.md']
+    // docs/internal/x.md: docs mapping rejects it (not in api/**) — most-specific wins, excluded
+    // docs/api/y.md: docs mapping allows it
+    // root.md: only covered by root mapping (no restriction) — kept
+    expect(applySubfolderFilter(files, config)).toEqual(['docs/api/y.md', 'root.md'])
+  })
+
+  it('root mapping without restriction does not bypass a subfolder glob in a scoped folder', () => {
+    // Regression: s3-selective/.mdspecmap has sub_folders: ['included/**'] but
+    // excluded/ files were still syncing because the root ClickUp mapping (no restriction)
+    // short-circuited the filter before the scoped mapping could reject them.
+    const config: MdspecMapConfig = {
+      version: 1,
+      mappings: [
+        { folder: 's3-selective', integration: 's3', subfolders: ['included/**'] },
+        { folder: '', integration: 'clickup', parent: 'q' },
+      ],
+    }
+    const files = [
+      's3-selective/ROOT_FILE.md',            // root of scoped folder → kept
+      's3-selective/included/INCLUDED.md',    // matches included/** → kept
+      's3-selective/excluded/EXCLUDED.md',    // does not match → dropped
+      'clickup-root-only/SHALLOW.md',         // only covered by root mapping → kept
+    ]
+    expect(applySubfolderFilter(files, config)).toEqual([
+      's3-selective/ROOT_FILE.md',
+      's3-selective/included/INCLUDED.md',
+      'clickup-root-only/SHALLOW.md',
+    ])
   })
 
   it('files outside any mapped folder are excluded when subfolder limits exist', () => {

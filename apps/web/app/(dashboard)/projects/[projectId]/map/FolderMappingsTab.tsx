@@ -246,6 +246,30 @@ export function FolderMappingsTab({
     fetchNotionTargets(newFolderIntegrationId)
   }, [newFolderIntegrationId])
 
+  // Once Notion targets load, auto-initialize the draft for existing rows so
+  // the sub-page dropdown appears without requiring the user to re-select a parent.
+  useEffect(() => {
+    for (const mapping of mappings) {
+      if (mapping.integrations?.type !== 'notion') continue
+      if (!mapping.target_id) continue
+      if (notionParentDraft[mapping.id]) continue  // already has a draft
+
+      const targets = notionTargetsCache[mapping.integration_id]
+      if (!targets || targets === 'loading' || 'error' in targets) continue
+
+      const matchPage = targets.pages.find((p) => p.id === mapping.target_id)
+      const matchDb = targets.databases.find((d) => d.id === mapping.target_id)
+      if (!matchPage && !matchDb) continue  // target_id is a sub-page or unknown — skip
+
+      const parentKind: 'page' | 'database' = matchDb ? 'database' : 'page'
+      setNotionParentDraft((prev) => ({
+        ...prev,
+        [mapping.id]: { parentId: mapping.target_id!, parentKind },
+      }))
+      fetchNotionChildren(mapping.integration_id, mapping.target_id, parentKind)
+    }
+  }, [notionTargetsCache, mappings])
+
   // Only show folders that have active mappings. Discovered folders are shown
   // as suggestions below for quickly adding new ones.
   const mappedFolderPaths = (mappings ?? []).map((m) => m.folder_path.replace(/^\//, '').replace(/\/$/, ''))
