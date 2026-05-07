@@ -35,15 +35,11 @@ export default async function LandingPage() {
           <span className="text-lg font-semibold tracking-tight">mdspec</span>
         </span>
         <div className="flex items-center gap-3">
-          <Link href="/docs/api-reference" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
-            Docs
-          </Link>
-          <Link href="/pricing" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
-            Pricing
-          </Link>
-          <a href="https://blog.mdspec.dev"  className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
-            Blog
-          </a>
+          <div className="hidden md:flex items-center gap-3">
+            <Link href="/docs/api-reference" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>Docs</Link>
+            <Link href="/pricing" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>Pricing</Link>
+            <a href="https://blog.mdspec.dev" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>Blog</a>
+          </div>
           <ThemeToggle />
           <Link href={isLoggedIn ? '/dashboard' : '/login'} className={buttonVariants({ size: 'sm' })}>
             {isLoggedIn ? 'Dashboard' : 'Sign in'}
@@ -61,7 +57,7 @@ export default async function LandingPage() {
         <p className="mt-6 text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
           Drop a mapping file in your repo, add one line to GitHub Actions, and every markdown file lands exactly where your team needs it — published as clean docs or agent-transformed into release notes, task summaries, and more.
         </p>
-        <div className="mt-10 flex items-center justify-center gap-3">
+        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'} className={buttonVariants({ size: 'lg' })}>
             {isLoggedIn ? 'Go to dashboard' : 'Get started free'}
           </Link>
@@ -71,7 +67,7 @@ export default async function LandingPage() {
         </div>
 
         {/* Integration badges */}
-        <div className="mt-10 flex items-center justify-center gap-3 flex-wrap">
+        <div className="mt-10 grid grid-cols-2 justify-items-center gap-3 sm:flex sm:flex-wrap sm:justify-center">
           <IntegrationBadge label="Notion" active />
           <IntegrationBadge label="ClickUp" active />
           <IntegrationBadge label="S3" active />
@@ -102,7 +98,7 @@ export default async function LandingPage() {
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Two files. Done.</p>
           <p className="text-center text-sm text-muted-foreground mb-6">Drop a .mdspecmap into any folder you want to sync — its location defines its scope and mappings apply to all subfolders automatically. Optionally assign agent templates per file to transform specs before they publish.</p>
           <Card>
-            <CardContent className="p-6 font-mono text-sm">
+            <CardContent className="p-6 font-mono text-sm overflow-x-auto">
               <div className="text-muted-foreground mb-2"># docs/specs/.mdspecmap</div>
               <div className="text-foreground">version: <span className="text-foreground">1</span></div>
               <div className="text-foreground">mappings:</div>
@@ -111,7 +107,7 @@ export default async function LandingPage() {
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-6 font-mono text-sm">
+            <CardContent className="p-6 font-mono text-sm overflow-x-auto">
               <div className="text-muted-foreground mb-2"># .github/workflows/mdspec.yml</div>
               <div className="text-muted-foreground">- name: <span className="text-foreground">Publish specs</span></div>
               <div className="text-muted-foreground ml-2">run: <span className="text-foreground">npx mdspeci publish --project ${'${PROJECT_ID}'}</span></div>
@@ -190,7 +186,7 @@ export default async function LandingPage() {
         <div className="max-w-xl mx-auto text-center">
           <h2 className="text-2xl font-semibold tracking-tight mb-3">Simple pricing</h2>
           <p className="text-muted-foreground mb-8">Free to start. $9/mo or $100/yr for unlimited everything.</p>
-          <div className="grid grid-cols-3 gap-4 text-left">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
             <Card>
               <CardContent className="p-5">
                 <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Free</p>
@@ -222,12 +218,12 @@ export default async function LandingPage() {
       {/* Footer */}
       <Separator className="max-w-5xl mx-auto" />
       <footer className="px-6 py-8">
-        <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-muted-foreground">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
           <span>mdspec</span>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
             <Link href="/docs/api-reference" className="hover:text-foreground transition-colors">Docs</Link>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
-            <a href="https://blog.mdspec.dev"  className="hover:text-foreground transition-colors">Blog</a>
+            <a href="https://blog.mdspec.dev" className="hover:text-foreground transition-colors">Blog</a>
             <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
             <Link href="/login" className="hover:text-foreground transition-colors">Sign in</Link>
