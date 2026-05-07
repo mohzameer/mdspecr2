@@ -91,10 +91,15 @@ async function isFirstSync(apiUrl: string, token: string, projectId: string): Pr
     const res = await fetch(`${apiUrl}/api/projects/${projectId}/first-sync`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-    if (!res.ok) return false
+    if (!res.ok) {
+      console.log(`— first-sync check: ${res.status} ${res.statusText}`)
+      return false
+    }
     const data = await res.json() as { is_first_sync?: boolean }
+    console.log(`— first-sync check: is_first_sync=${data.is_first_sync}`)
     return data.is_first_sync === true
-  } catch {
+  } catch (err) {
+    console.log(`— first-sync check failed: ${err instanceof Error ? err.message : String(err)}`)
     return false
   }
 }
