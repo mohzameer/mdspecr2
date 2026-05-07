@@ -330,12 +330,11 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   // -- Fetch current publish target state ------------------------------------
   const { data: target } = await supabase
     .from('spec_publish_targets')
-    .select('external_page_id, retry_count, content_hash')
+    .select('external_page_id, retry_count')
     .eq('id', spec_publish_target_id)
     .single()
 
   let existingPageId = target?.external_page_id ?? null
-  const lastPublishedHash = (target as { content_hash?: string | null } | null)?.content_hash ?? null
 
   // -- Unified `id` is authoritative (UNIFIED_ATTRIBUTES_SPEC §4) -----------
   // Resolved `id` (frontmatter wins over .mdspecmap specs[path].id) is the
@@ -505,21 +504,6 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
         .from('spec_publish_targets')
         .update({ external_page_id: null, external_url: null })
         .eq('id', spec_publish_target_id)
-    }
-  }
-
-  // Skip if content unchanged — but in multi-mode only if the folder doc already exists.
-  // If there's no shared doc yet, we must publish to create the folder structure even
-  // if content is the same (e.g. transitioning from single-mode to multi-mode).
-  const canSkip = existingPageId && (!ctx.isMultiMode || ctx.sharedSubDocId)
-  if (canSkip) {
-    if (content_hash && lastPublishedHash === content_hash) {
-      console.log(`[publish] skipping spec ${spec_id} — remote exists and content unchanged`)
-      await supabase
-        .from('spec_publish_targets')
-        .update({ status: 'published' })
-        .eq('id', spec_publish_target_id)
-      return
     }
   }
 

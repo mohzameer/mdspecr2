@@ -6,8 +6,7 @@
  *   - Key composition — flat mode (default): only filename used
  *   - Key composition — hierarchy mode: path relative to matched_folder
  *   - First publish (no existing page_id)
- *   - Content-unchanged skip
- *   - Content changed → republish
+ *   - Always publishes when reached via git diff (no hash-skip)
  *   - Multiple specs in one group
  *   - Per-spec failure recorded, group continues
  *   - Integration not found → UnrecoverableError
@@ -133,8 +132,6 @@ function makeSupabase({
   credentials = S3_CREDENTIALS,
   folderMapping = { id: 'fm-1', target_id: null, s3_maintain_hierarchy: false } as FolderMappingRow | null,
   existingPageId = null as string | null,
-  // last-published hash stored on spec_publish_targets (not specs)
-  storedHash = 'different-hash',
 } = {}) {
   const calls: string[] = []
 
@@ -149,7 +146,7 @@ function makeSupabase({
       return chain(folderMapping)
     }
     if (table === 'spec_publish_targets' && calls.filter(c => c === 'spec_publish_targets').length === 1) {
-      return chain({ external_page_id: existingPageId, retry_count: 0, content_hash: storedHash })
+      return chain({ external_page_id: existingPageId, retry_count: 0 })
     }
     if (table === 'spec_publish_targets') {
       return chain(null)
@@ -439,45 +436,12 @@ describe('first publish — no existing page_id', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 5. Content-unchanged skip
+// 5. S3 object existence check
 // ---------------------------------------------------------------------------
-describe('content-unchanged skip', () => {
-  it('skips publishToS3 when existing page_id and content hash matches', async () => {
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ existingPageId: 'auth.md', storedHash: 'hash-abc' }) as never
-    )
-
-    await runPublishGroup(makeJobData())
-
-    expect(publishToS3).not.toHaveBeenCalled()
-  })
-
-  it('republishes when existing page_id but content hash changed', async () => {
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ existingPageId: 'auth.md', storedHash: 'old-hash' }) as never
-    )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
-
-    await runPublishGroup(makeJobData())
-
-    expect(publishToS3).toHaveBeenCalledOnce()
-  })
-
-  it('publishes even if content_hash is empty string (force republish)', async () => {
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ existingPageId: 'auth.md', storedHash: '' }) as never
-    )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
-
-    const spec = makeSpec({ content_hash: '' })
-    await runPublishGroup(makeJobData({ specs: [spec] }))
-
-    expect(publishToS3).toHaveBeenCalledOnce()
-  })
-
+describe('S3 object existence check', () => {
   it('republishes when S3 object no longer exists (bucket changed or object deleted)', async () => {
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ existingPageId: 'auth.md', storedHash: 'hash-abc' }) as never
+      makeSupabase({ existingPageId: 'auth.md' }) as never
     )
     vi.mocked(s3ObjectExists).mockResolvedValue(false)
     vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
@@ -486,24 +450,12 @@ describe('content-unchanged skip', () => {
 
     expect(publishToS3).toHaveBeenCalledOnce()
   })
-
-  it('skips when S3 object exists and content unchanged', async () => {
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ existingPageId: 'auth.md', storedHash: 'hash-abc' }) as never
-    )
-    vi.mocked(s3ObjectExists).mockResolvedValue(true)
-
-    await runPublishGroup(makeJobData())
-
-    expect(publishToS3).not.toHaveBeenCalled()
-  })
 })
 
 // ---------------------------------------------------------------------------
 // 5b. Post-publish content_hash write
-// The worker must write specs.content_hash after a successful publish so that
-// the next run can correctly compare the last-published hash with the new hash.
-// (The route no longer writes content_hash on upsert.)
+// The worker records content_hash on spec_publish_targets after a successful
+// publish for audit / debugging purposes.
 // ---------------------------------------------------------------------------
 describe('post-publish content_hash write', () => {
   it('writes content_hash to spec_publish_targets after successful publish', async () => {
@@ -531,29 +483,6 @@ describe('post-publish content_hash write', () => {
     expect(updateCalls.some((args) => (args[0] as Record<string, unknown>).content_hash === 'hash-abc')).toBe(true)
   })
 
-  it('does NOT skip when DB hash is stale (last-published differs from new content)', async () => {
-    // storedHash = 'old-hash', job content_hash = 'hash-abc' (changed) → must publish
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ existingPageId: 'auth.md', storedHash: 'old-hash' }) as never
-    )
-    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'auth.md', page_url: '' })
-
-    await runPublishGroup(makeJobData())
-
-    expect(publishToS3).toHaveBeenCalledOnce()
-  })
-
-  it('skips when DB hash matches (content identical to last published)', async () => {
-    // storedHash = 'hash-abc', job content_hash = 'hash-abc' → skip
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({ existingPageId: 'auth.md', storedHash: 'hash-abc' }) as never
-    )
-    vi.mocked(s3ObjectExists).mockResolvedValue(true)
-
-    await runPublishGroup(makeJobData())
-
-    expect(publishToS3).not.toHaveBeenCalled()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -716,7 +645,6 @@ describe('S3 self-heal — stored key no longer matches mapping', () => {
       makeSupabase({
         folderMapping: { id: 'fm-1', target_id: 'new-prefix', s3_maintain_hierarchy: false },
         existingPageId: 'old-prefix/auth.md',
-        storedHash: 'hash-abc',          // unchanged content — would normally skip
       }) as never
     )
     vi.mocked(publishToS3).mockResolvedValue({ page_id: 'new-prefix/auth.md', page_url: '' })
@@ -736,7 +664,6 @@ describe('S3 self-heal — stored key no longer matches mapping', () => {
       makeSupabase({
         folderMapping: { id: 'fm-1', target_id: 'eng', s3_maintain_hierarchy: true },
         existingPageId: 'auth.md',
-        storedHash: 'hash-abc',
       }) as never
     )
     vi.mocked(publishToS3).mockResolvedValue({ page_id: 'eng/auth.md', page_url: '' })
@@ -748,40 +675,24 @@ describe('S3 self-heal — stored key no longer matches mapping', () => {
     )
   })
 
-  it('skips (content unchanged) when stored key still matches the expected key', async () => {
-    // Stored 'eng/auth.md', target_id='eng' flat → expected 'eng/auth.md'. Match.
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSupabase({
-        folderMapping: { id: 'fm-1', target_id: 'eng', s3_maintain_hierarchy: false },
-        existingPageId: 'eng/auth.md',
-        storedHash: 'hash-abc',
-      }) as never
-    )
-    vi.mocked(s3ObjectExists).mockResolvedValue(true)
-
-    await runPublishGroup(makeJobData())
-
-    expect(publishToS3).not.toHaveBeenCalled()
-  })
-
-  it('does NOT self-heal when spec.id is declared (declared key wins over computed)', async () => {
-    // User explicitly declared id='custom/explicit-key.md' in frontmatter.
-    // Even though it diverges from buildS3Key('docs/specs/auth.md', 'eng'),
-    // we leave it alone — declared > computed.
+  it('does NOT self-heal when spec.id is declared — publishes to declared key, not computed key', async () => {
+    // User explicitly declared id='custom/explicit-key.md'. Even though the
+    // computed buildS3Key would yield 'eng/auth.md', self-heal is skipped for
+    // declared IDs — declared > computed. Publish must land at the declared key.
     vi.mocked(createSupabaseServiceClient).mockReturnValue(
       makeSupabase({
         folderMapping: { id: 'fm-1', target_id: 'eng', s3_maintain_hierarchy: false },
         existingPageId: 'custom/explicit-key.md',
-        storedHash: 'hash-abc',
       }) as never
     )
-    vi.mocked(s3ObjectExists).mockResolvedValue(true)
+    vi.mocked(publishToS3).mockResolvedValue({ page_id: 'custom/explicit-key.md', page_url: '' })
 
     const declared = makeSpec({ id: 'custom/explicit-key.md' })
     await runPublishGroup(makeJobData({ specs: [declared] }))
 
-    // Either skipped (hash match + object exists) — but absolutely no
-    // recompute / republish at the buildS3Key-derived key.
+    expect(publishToS3).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'custom/explicit-key.md'
+    )
     expect(publishToS3).not.toHaveBeenCalledWith(
       expect.anything(), expect.anything(), 'eng/auth.md'
     )

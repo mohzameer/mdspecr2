@@ -117,7 +117,6 @@ function chain(data: unknown, error: unknown = null) {
 
 /**
  * Minimal supabase mock for a non-ClickUp integration (Notion, Confluence, S3).
- * storedHash is the last-published hash stored on spec_publish_targets.content_hash.
  */
 function makeSimpleSupabase(credentials: Record<string, unknown>, existingPageId: string | null = null, storedHash = 'different') {
   let integrationDone = false
@@ -225,16 +224,6 @@ describe('Notion dispatch', () => {
     await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion', specs: [makeSpec()], matched_folder: 'docs/specs' })
 
     expect(publishToNotion).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'existing-page-id')
-  })
-
-  it('skips publishToNotion when content hash unchanged', async () => {
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSimpleSupabase(NOTION_CREDS, 'existing-page', 'hash-abc') as never
-    )
-
-    await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'notion', specs: [makeSpec()], matched_folder: 'docs/specs' })
-
-    expect(publishToNotion).not.toHaveBeenCalled()
   })
 
   it('records error and continues when publishToNotion throws', async () => {
@@ -455,15 +444,6 @@ describe('Confluence dispatch', () => {
     expect(publishToConfluence).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'cf-existing')
   })
 
-  it('skips publishToConfluence when content hash unchanged', async () => {
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(
-      makeSimpleSupabase(CONFLUENCE_CREDS, 'cf-page', 'hash-abc') as never
-    )
-
-    await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'confluence', specs: [makeSpec()], matched_folder: 'docs/specs' })
-
-    expect(publishToConfluence).not.toHaveBeenCalled()
-  })
 })
 
 // ---------------------------------------------------------------------------
