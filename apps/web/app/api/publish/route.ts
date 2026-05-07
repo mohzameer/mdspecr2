@@ -108,7 +108,7 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     const { data: project } = await supabase
       .from('projects')
-      .select('id, org_id, registered_repo')
+      .select('id, org_id, registered_repo, publish_count')
       .eq('id', project_id)
       .single()
 
@@ -513,6 +513,11 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     // Response
     // -------------------------------------------------------------------------
+    await supabase
+      .from('projects')
+      .update({ publish_count: (project.publish_count ?? 0) + 1 })
+      .eq('id', project_id)
+
     return Response.json(
       {
         accepted: true,

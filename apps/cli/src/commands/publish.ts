@@ -83,6 +83,23 @@ interface PublishPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function isFirstSync(apiUrl: string, token: string, projectId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${apiUrl}/api/projects/${projectId}/first-sync`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return false
+    const data = await res.json() as { is_first_sync?: boolean }
+    return data.is_first_sync === true
+  } catch {
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -175,8 +192,13 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
       console.log('— First run with sync_all_on_first_run=true, publishing all specs.')
       specsToPublish = allSpecs
     } else if (isFirstRun) {
-      console.log('— First run, sync_all_on_first_run is false. No specs published.')
-      process.exit(0)
+      if (await isFirstSync(apiUrl, token, options.project)) {
+        console.log('— First sync detected — publishing all specs.')
+        specsToPublish = allSpecs
+      } else {
+        console.log('— First run, sync_all_on_first_run is false. No specs published.')
+        process.exit(0)
+      }
     } else {
       // Normal change detection using git diff --name-status
       const baseRef = options.base ?? before ?? 'HEAD^'
@@ -186,8 +208,13 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
         // git diff failed — publish all as fallback
         specsToPublish = allSpecs
       } else if (diffResult.changed.size === 0 && diffResult.renames.size === 0) {
-        console.log('— No spec changes detected. Nothing to publish.')
-        process.exit(0)
+        if (await isFirstSync(apiUrl, token, options.project)) {
+          console.log('— First sync detected — publishing all specs.')
+          specsToPublish = allSpecs
+        } else {
+          console.log('— No spec changes detected. Nothing to publish.')
+          process.exit(0)
+        }
       } else {
         specsToPublish = allSpecs.filter((p) => diffResult.changed.has(p) || diffResult.renames.has(p))
         renames = diffResult.renames
