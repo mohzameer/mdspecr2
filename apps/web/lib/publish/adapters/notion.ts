@@ -199,6 +199,13 @@ export async function publishToNotion(
   const notion = new Client({ auth: credentials.token, notionVersion: NOTION_API_VERSION })
 
   if (credentials.mode === 'database') {
+    // When a per-folder parent override is present (from .mdspecmap `parent: id:...`),
+    // publish as a page under that parent. Pass null for existingPageId because the
+    // stored ID (if any) points to a database row under a different parent — abandon it
+    // and create fresh under the correct page.
+    if (credentials.root_page_id) {
+      return publishAsPage(notion, credentials, spec, null)
+    }
     return publishAsDatabaseRow(notion, credentials, spec, existingPageId)
   }
   return publishAsPage(notion, credentials, spec, existingPageId)
