@@ -99,10 +99,17 @@ async function publishAsPage(
   const parentPageId = credentials.root_page_id
 
   if (existingPageId) {
-    await clearChildren(notion, existingPageId)
-    await appendInChunks(notion, existingPageId, blocks)
-    const page = await notion.pages.retrieve({ page_id: existingPageId })
-    return { page_id: existingPageId, page_url: (page as any).url ?? `https://notion.so/${existingPageId}` }
+    try {
+      await clearChildren(notion, existingPageId)
+      await appendInChunks(notion, existingPageId, blocks)
+      const page = await notion.pages.retrieve({ page_id: existingPageId })
+      return { page_id: existingPageId, page_url: (page as any).url ?? `https://notion.so/${existingPageId}` }
+    } catch (err) {
+      const code = (err as { code?: string }).code
+      const message = (err as { message?: string }).message ?? ''
+      if (code !== 'validation_error' || !message.includes('archived')) throw err
+      // Page or its blocks are archived — fall through to create a fresh page
+    }
   }
 
   const page = await notion.pages.create({
