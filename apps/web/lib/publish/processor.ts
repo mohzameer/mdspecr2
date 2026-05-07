@@ -137,10 +137,16 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
         throw new UnrecoverableError(`Auth error on integration ${integration_id}: ${message}`)
       }
 
-      // Per-spec failure — record and continue with remaining specs
+      // Per-spec failure — record and continue with remaining specs.
+      // If the remote rejected the update because it (or its parent) is archived,
+      // clear the stored pointer so the next sync starts fresh rather than
+      // retrying the same stale ID forever.
+      const isArchivedError = (err as { code?: string }).code === 'validation_error' && message.includes('archived')
+      const sptPatch: Record<string, unknown> = { status: 'failed', last_error: `${status ? `(${status}) ` : ''}${message}` }
+      if (isArchivedError) sptPatch.external_page_id = null
       await supabase
         .from('spec_publish_targets')
-        .update({ status: 'failed', last_error: `${status ? `(${status}) ` : ''}${message}` })
+        .update(sptPatch)
         .eq('id', spec.spec_publish_target_id)
       console.error(`[publish] spec ${spec.spec_id} failed: ${message}`)
     }
