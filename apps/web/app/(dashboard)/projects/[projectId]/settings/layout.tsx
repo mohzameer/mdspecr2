@@ -8,8 +8,6 @@ import { buttonVariants } from '@/components/ui/button-variants'
 const subNav = [
   { href: 'general', label: 'General' },
   { href: 'tokens', label: 'CI Tokens' },
-  { href: 'repository', label: 'Repository' },
-  { href: 'members', label: 'Members' },
 ]
 
 export default function ProjectSettingsLayout({ children }: { children: React.ReactNode }) {
