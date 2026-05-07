@@ -485,8 +485,6 @@ The CLI validates each discovered `.mdspecmap` before building the payload:
 
 ```
 ✗ Error   docs/api/.mdspecmap validation failed:
-          - mappings[0].folder: not supported — place .mdspecmap
-            inside the folder you want to sync
           - mappings[1].integration: unknown value 'notiom'
             (did you mean 'notion'?)
           - version: must be 1
@@ -494,16 +492,9 @@ The CLI validates each discovered `.mdspecmap` before building the payload:
 
 Publish is blocked until the file is valid. Each `.mdspecmap` is validated independently — one invalid file blocks the entire publish.
 
-### 13.2 `folder:` Key Is Rejected
+### 13.2 `folder:` Key
 
-The `folder:` key inside a mapping is not supported in the distributed model. If present, the CLI exits with:
-
-```
-✗ Error   mappings[0].folder: not supported — place .mdspecmap
-          inside the folder you want to sync
-```
-
-This enforces the distributed model and prevents confusion from mixing the old root-config model with the new per-folder model.
+The optional `folder:` key inside a mapping specifies a subfolder path relative to the `.mdspecmap` file's location. This is used when placing a single `.mdspecmap` at the repo root to map multiple subdirectories — the same file the Dashboard's **Download map** button generates.
 
 ---
 

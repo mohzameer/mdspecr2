@@ -402,9 +402,6 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
   } else {
     for (let i = 0; i < config.mappings.length; i++) {
       const m = config.mappings[i] as Record<string, unknown>
-      if (m.folder !== undefined) {
-        errors.push(`mappings[${i}].folder: not supported — place .mdspecmap inside the folder you want to sync`)
-      }
       if (m.integration && !['notion', 'confluence', 'clickup', 's3'].includes(m.integration as string)) {
         const val = m.integration as string
         const suggestions: Record<string, string> = { notiom: 'notion', noton: 'notion', conflunce: 'confluence', clikup: 'clickup', S3: 's3', 'amazon-s3': 's3' }
