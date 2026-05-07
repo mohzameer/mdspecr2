@@ -8,7 +8,7 @@ interface InitOptions {
 
 export async function initCommand(options: InitOptions): Promise<void> {
   const token = process.env.MDSPEC_TOKEN
-  const apiUrl = (process.env.MDSPEC_API_URL ?? 'https://mdspec.app').replace(/\/$/, '')
+  const apiUrl = (process.env.MDSPEC_API_URL ?? 'https://mdspec.dev').replace(/\/$/, '')
 
   if (!token) {
     console.error('Error: MDSPEC_TOKEN environment variable is required')

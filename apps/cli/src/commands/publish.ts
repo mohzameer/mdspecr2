@@ -88,18 +88,19 @@ interface PublishPayload {
 
 async function isFirstSync(apiUrl: string, token: string, projectId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${apiUrl}/api/projects/${projectId}/first-sync`, {
+    const url = `${apiUrl}/api/projects/${projectId}/config`
+    console.log(`— first-sync check: ${url}`)
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     })
-    if (!res.ok) {
-      console.log(`— first-sync check: ${res.status} ${res.statusText}`)
-      return false
-    }
-    const data = await res.json() as { is_first_sync?: boolean }
-    console.log(`— first-sync check: is_first_sync=${data.is_first_sync}`)
-    return data.is_first_sync === true
+    const body = await res.text()
+    console.log(`— first-sync check: status=${res.status} body=${body}`)
+    if (!res.ok) return false
+    const data = JSON.parse(body) as { publish_count?: number }
+    return (data.publish_count ?? 0) === 0
   } catch (err) {
-    console.log(`— first-sync check failed: ${err instanceof Error ? err.message : String(err)}`)
+    const cause = (err as { cause?: unknown }).cause
+    console.log(`— first-sync check error: ${err instanceof Error ? err.message : String(err)}${cause ? ` (cause: ${String(cause)})` : ''}`)
     return false
   }
 }
@@ -110,7 +111,7 @@ async function isFirstSync(apiUrl: string, token: string, projectId: string): Pr
 
 export async function publishCommand(options: PublishOptions): Promise<void> {
   const token = process.env.MDSPEC_TOKEN
-  const apiUrl = (process.env.MDSPEC_API_URL ?? 'https://mdspec.app').replace(/\/$/, '')
+  const apiUrl = (process.env.MDSPEC_API_URL ?? 'https://mdspec.dev').replace(/\/$/, '')
 
   if (!token) {
     console.error('Error: MDSPEC_TOKEN environment variable is required')

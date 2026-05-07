@@ -32,7 +32,7 @@ export async function GET(
 
     const { data: project } = await supabase
       .from('projects')
-      .select('id, name, spec_dirs, registered_repo')
+      .select('id, name, spec_dirs, registered_repo, publish_count')
       .eq('id', projectId)
       .single()
 
@@ -42,6 +42,7 @@ export async function GET(
     return NextResponse.json({
       spec_dirs: project.spec_dirs ?? [],
       name: project.name,
+      publish_count: project.publish_count ?? 0,
     })
   }
 
