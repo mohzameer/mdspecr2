@@ -18,6 +18,7 @@ export default function TokensSettingsPage() {
   const [tokens, setTokens] = useState<Token[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [rotatingId, setRotatingId] = useState<string | null>(null)
   const [newToken, setNewToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -55,6 +56,25 @@ export default function TokensSettingsPage() {
       body: JSON.stringify({ token_id: tokenId }),
     })
     fetchTokens()
+  }
+
+  async function rotateToken(tokenId: string) {
+    if (!confirm('Rotate this token? The old token will stop working immediately.')) return
+    setRotatingId(tokenId)
+    const res = await fetch('/api/tokens/rotate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token_id: tokenId }),
+    })
+    if (res.ok) {
+      const { token } = await res.json()
+      setNewToken(token)
+      fetchTokens()
+    } else {
+      const { error } = await res.json()
+      alert(error)
+    }
+    setRotatingId(null)
   }
 
   function copyToken() {
@@ -136,12 +156,21 @@ export default function TokensSettingsPage() {
                       Created {new Date(token.created_at).toLocaleDateString()}
                     </p>
                   </div>
-                  <button
-                    onClick={() => revokeToken(token.id)}
-                    className="text-xs text-red-500 hover:text-red-700 font-medium"
-                  >
-                    Revoke
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => rotateToken(token.id)}
+                      disabled={rotatingId === token.id}
+                      className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 font-medium disabled:opacity-50"
+                    >
+                      {rotatingId === token.id ? 'Rotating…' : 'Rotate'}
+                    </button>
+                    <button
+                      onClick={() => revokeToken(token.id)}
+                      className="text-xs text-red-500 hover:text-red-700 font-medium"
+                    >
+                      Revoke
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

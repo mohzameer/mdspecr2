@@ -26,7 +26,6 @@ type ConnectForm = {
 
 type NotionDataSource = { id: string; name: string }
 type NotionSharedItem = { id: string; title: string; url?: string }
-type NotionShared = { pages: NotionSharedItem[]; databases: NotionSharedItem[] }
 
 function parseClickUpWorkspaceId(url: string): string | null {
   const match = url.match(/app\.clickup\.com\/(\d+)/)
@@ -91,9 +90,6 @@ export default function IntegrationsPage() {
   const [s3ValidateError, setS3ValidateError] = useState<string | null>(null)
   const [notionValidateError, setNotionValidateError] = useState<string | null>(null)
   const [notionDataSources, setNotionDataSources] = useState<NotionDataSource[] | null>(null)
-  const [notionShared, setNotionShared] = useState<NotionShared | null>(null)
-  const [loadingShared, setLoadingShared] = useState(false)
-  const [sharedError, setSharedError] = useState<string | null>(null)
   const [notionChildren, setNotionChildren] = useState<NotionSharedItem[] | null>(null)
   const [loadingChildren, setLoadingChildren] = useState(false)
   const [childrenError, setChildrenError] = useState<string | null>(null)
@@ -148,24 +144,6 @@ export default function IntegrationsPage() {
     return () => { cancelled = true; clearTimeout(timer) }
   }, [form.notion.token, form.notion.root_page_id, form.notion.database_id, form.notion.mode])
 
-  async function loadNotionShared() {
-    if (!form.notion.token) return
-    setLoadingShared(true)
-    setSharedError(null)
-    const res = await fetch('/api/integrations/notion/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: form.notion.token }),
-    })
-    const body = await res.json()
-    if (!body.ok) {
-      setSharedError(body.error ?? 'Could not load shared pages.')
-      setNotionShared(null)
-    } else {
-      setNotionShared({ pages: body.pages, databases: body.databases })
-    }
-    setLoadingShared(false)
-  }
 
   async function fetchIntegrations() {
     setLoading(true)
@@ -360,60 +338,7 @@ export default function IntegrationsPage() {
                 <form onSubmit={(e) => connect(type, e)} className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
                   {type === 'notion' && (
                     <>
-                      <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v, root_page_id: '', database_id: '', data_source_id: '' } }); setNotionValidateError(null); setNotionShared(null); setSharedError(null); setNotionDataSources(null); resetNotionChildren() }} placeholder="ntn_... or secret_..." />
-                      {form.notion.token && !notionShared && (
-                        <div>
-                          <button
-                            type="button"
-                            onClick={loadNotionShared}
-                            disabled={loadingShared}
-                            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 disabled:opacity-50"
-                          >
-                            {loadingShared ? 'Loading…' : 'Find shared pages'}
-                          </button>
-                          {sharedError && <p className="text-xs text-red-500 mt-1">{sharedError}</p>}
-                          <p className="text-xs text-zinc-400 mt-1">In Notion, open a page → ••• → Connections → add this integration. Then click above to pick from a list.</p>
-                        </div>
-                      )}
-                      {notionShared && notionShared.pages.length === 0 && notionShared.databases.length === 0 && (
-                        <p className="text-xs text-yellow-600">No pages shared with this integration yet. In Notion, open a page → ••• → Connections → add this integration, then paste the link below.</p>
-                      )}
-                      {notionShared && (notionShared.pages.length > 0 || notionShared.databases.length > 0) && (
-                        <div>
-                          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Pick a shared page or database</label>
-                          <select
-                            value=""
-                            onChange={(e) => {
-                              const v = e.target.value
-                              if (!v) return
-                              const [kind, id] = v.split(':')
-                              if (kind === 'db') {
-                                setForm({ ...form, notion: { ...form.notion, mode: 'database', database_id: id, root_page_id: '', data_source_id: '' } })
-                              } else {
-                                setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: id, database_id: '', data_source_id: '' } })
-                              }
-                              setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren()
-                            }}
-                            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                          >
-                            <option value="">Select…</option>
-                            {notionShared.pages.length > 0 && (
-                              <optgroup label="Pages">
-                                {notionShared.pages.map((p) => (
-                                  <option key={p.id} value={`page:${p.id}`}>{p.title}</option>
-                                ))}
-                              </optgroup>
-                            )}
-                            {notionShared.databases.length > 0 && (
-                              <optgroup label="Databases">
-                                {notionShared.databases.map((d) => (
-                                  <option key={d.id} value={`db:${d.id}`}>{d.title}</option>
-                                ))}
-                              </optgroup>
-                            )}
-                          </select>
-                        </div>
-                      )}
+                      <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v, root_page_id: '', database_id: '', data_source_id: '' } }); setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren() }} placeholder="ntn_... or secret_..." />
                       <Field
                         label="Notion link or ID"
                         value={form.notion.mode === 'database' ? form.notion.database_id : form.notion.root_page_id}
@@ -553,7 +478,7 @@ export default function IntegrationsPage() {
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                       {saving ? (type === 's3' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setNotionShared(null); setSharedError(null); setNotionDataSources(null); resetNotionChildren() }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setNotionDataSources(null); resetNotionChildren() }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>
