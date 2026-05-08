@@ -657,6 +657,11 @@ async function reconcileFolderMappings(
             ...(mapping.integration === 'notion' && mapping.parent && resolvedAliases.has(mapping.parent) ? {
               target_id: resolvedAliases.get(mapping.parent)!.native_id,
             } : {}),
+            // For Confluence: parent: id:<pageId> → target_id so the worker passes it as parentPageId.
+            ...(mapping.integration === 'confluence' && mapping.parent ? (() => {
+              const p = parseParent(mapping.parent)
+              return p.type === 'id' ? { target_id: p.value } : {}
+            })() : {}),
             ...(mapping.custom_task_ids !== undefined ? { clickup_use_custom_task_ids: mapping.custom_task_ids } : {}),
             ...(templateId !== undefined ? { template_id: templateId } : {}),
             ...(mapping.maintain_hierarchy !== undefined ? { s3_maintain_hierarchy: mapping.maintain_hierarchy } : {}),
