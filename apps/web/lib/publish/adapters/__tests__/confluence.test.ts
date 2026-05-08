@@ -262,7 +262,7 @@ describe('publishToConfluence — update', () => {
     expect(mockGet).toHaveBeenCalledOnce()
     expect(mockGet).toHaveBeenCalledWith(
       `${BASE}/wiki/rest/api/content/page-existing`,
-      expect.objectContaining({ params: { expand: 'version' } })
+      expect.objectContaining({ params: { expand: 'version,ancestors' } })
     )
 
     // PUT increments version number
@@ -304,6 +304,56 @@ describe('publishToConfluence — update', () => {
 
     expect(result.page_id).toBe('page-upd')
     expect(result.page_url).toBe(`${BASE}/wiki/spaces/ENG/pages/page-upd`)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// publishToConfluence — self-heal (wrong parent / deleted page)
+// ---------------------------------------------------------------------------
+describe('publishToConfluence — self-heal', () => {
+  it('recreates page under correct parent when existing page is under wrong parent', async () => {
+    // GET existing page — under wrong parent (753666, not the expected 360449)
+    mockGet.mockResolvedValueOnce({
+      data: { version: { number: 3 }, ancestors: [{ id: '753666' }] },
+    })
+    // findOrCreatePage search for the spec title → not found → POST
+    mockGet.mockResolvedValueOnce({ data: { results: [] } })
+    mockPost.mockResolvedValueOnce({ data: { id: 'new-page-id' } })
+
+    const result = await publishToConfluence(CREDS, SPEC, 'old-page-id', '360449')
+
+    // Should NOT have called PUT (skipped update)
+    expect(mockPut).not.toHaveBeenCalled()
+    // Should have created a new page under the correct parent
+    const postPayload = mockPost.mock.calls[0][1] as Record<string, unknown>
+    expect((postPayload as { ancestors: Array<{ id: string }> }).ancestors).toEqual([{ id: '360449' }])
+    expect(result.page_id).toBe('new-page-id')
+  })
+
+  it('does NOT recreate when existing page is already under correct parent', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: { version: { number: 2 }, ancestors: [{ id: '360449' }] },
+    })
+    mockPut.mockResolvedValueOnce({})
+
+    const result = await publishToConfluence(CREDS, SPEC, 'page-existing', '360449')
+
+    expect(mockPut).toHaveBeenCalledOnce()
+    expect(mockPost).not.toHaveBeenCalled()
+    expect(result.page_id).toBe('page-existing')
+  })
+
+  it('falls through to create when existing page returns 404', async () => {
+    const err = Object.assign(new Error('Not Found'), { response: { status: 404 } })
+    mockGet.mockRejectedValueOnce(err)
+    // findOrCreatePage search → not found → POST
+    mockGet.mockResolvedValueOnce({ data: { results: [] } })
+    mockPost.mockResolvedValueOnce({ data: { id: 'recreated-id' } })
+
+    const result = await publishToConfluence(CREDS, SPEC, 'deleted-page-id')
+
+    expect(mockPut).not.toHaveBeenCalled()
+    expect(result.page_id).toBe('recreated-id')
   })
 })
 

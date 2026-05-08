@@ -107,34 +107,53 @@ export async function publishToConfluence(
     }
   }
 
-  if (existingPageId) {
-    // Get current version
-    const current = await axios.get(`${base}/wiki/rest/api/content/${existingPageId}`, {
-      auth: auth(credentials),
-      params: { expand: 'version' },
-    })
-    const version = (current.data.version.number as number) + 1
+  let activePageId = existingPageId ?? null
 
-    await axios.put(
-      `${base}/wiki/rest/api/content/${existingPageId}`,
-      {
-        type: 'page',
-        title,
-        version: { number: version },
-        body: { storage: { value: storage, representation: 'storage' } },
-      },
-      { auth: auth(credentials) }
-    )
+  if (activePageId) {
+    try {
+      const current = await axios.get(`${base}/wiki/rest/api/content/${activePageId}`, {
+        auth: auth(credentials),
+        params: { expand: 'version,ancestors' },
+      })
 
-    return {
-      page_id: existingPageId,
-      page_url: `${base}/wiki/spaces/${credentials.space_key}/pages/${existingPageId}`,
+      // Self-heal: if a parent override is set, verify the page is actually
+      // under that parent. If it diverges (e.g. mapping changed), recreate
+      // under the correct parent instead of updating in the wrong location.
+      if (parentPageId) {
+        const ancestors: Array<{ id: string }> = current.data.ancestors ?? []
+        const directParentId = ancestors[ancestors.length - 1]?.id
+        if (directParentId !== parentPageId) {
+          activePageId = null
+        }
+      }
+
+      if (activePageId) {
+        const version = (current.data.version.number as number) + 1
+        await axios.put(
+          `${base}/wiki/rest/api/content/${activePageId}`,
+          {
+            type: 'page',
+            title,
+            version: { number: version },
+            body: { storage: { value: storage, representation: 'storage' } },
+          },
+          { auth: auth(credentials) }
+        )
+        return {
+          page_id: activePageId,
+          page_url: `${base}/wiki/spaces/${credentials.space_key}/pages/${activePageId}`,
+        }
+      }
+    } catch (err) {
+      // Page was deleted remotely — fall through to create
+      if ((err as AxiosError).response?.status !== 404) throw err
+      activePageId = null
     }
-  } else {
-    const pageId = await findOrCreatePage(credentials, title, parentId, storage)
-    return {
-      page_id: pageId,
-      page_url: `${base}/wiki/spaces/${credentials.space_key}/pages/${pageId}`,
-    }
+  }
+
+  const pageId = await findOrCreatePage(credentials, title, parentId, storage)
+  return {
+    page_id: pageId,
+    page_url: `${base}/wiki/spaces/${credentials.space_key}/pages/${pageId}`,
   }
 }
