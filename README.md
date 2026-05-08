@@ -139,4 +139,18 @@ The `npx mdspec` binary that runs inside CI pipelines.
 
 ---
 
+---
+
+## Testing
+
+**Unit tests (CLI):** `apps/cli/src/__tests__/` — covers subfolder filtering, depth, skip patterns, distributed map merging, spec artifact building, and error handling. See [`apps/cli/TESTS.md`](./apps/cli/TESTS.md) for a full breakdown.
+
+```bash
+cd apps/cli && npm test
+```
+
+**End-to-end integration tests:** `/Users/mfmz/testmdspecdocs` — a live test repo that publishes real docs to S3, ClickUp, and Notion on every push and verifies the results via a polling verify script. Covers routing modes, subfolder filtering, per-folder parent overrides, and content sync. See that repo's `README.md` for full scenario documentation.
+
+---
+
 See [`APP_SPEC.md`](./APP_SPEC.md) for the full product specification.

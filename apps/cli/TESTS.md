@@ -2,6 +2,8 @@
 
 All tests live in `src/__tests__/` and run with Vitest.
 
+For end-to-end integration tests (S3, ClickUp, Notion round-trip), see `/Users/mfmz/testmdspecdocs`.
+
 ```bash
 npm test          # run all tests once
 npm run test:watch  # watch mode

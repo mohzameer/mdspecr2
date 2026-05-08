@@ -419,9 +419,44 @@ describe('Notion folder_mappings.target_id override', () => {
 // ---------------------------------------------------------------------------
 // Confluence
 // ---------------------------------------------------------------------------
+
+/**
+ * Supabase mock for Confluence that optionally returns a folder_mappings row.
+ */
+function makeConfluenceSupabase(
+  credentials: Record<string, unknown>,
+  folderMapping: Record<string, unknown> | null = null,
+  existingPageId: string | null = null,
+  storedHash = 'different'
+) {
+  let integrationDone = false
+  let mappingDone = false
+  let sptCount = 0
+
+  const fromMock = vi.fn((table: string) => {
+    if (table === 'integrations' && !integrationDone) {
+      integrationDone = true
+      return chain({ credentials_secret_id: 'sec-xyz', status: 'connected' })
+    }
+    if (table === 'folder_mappings' && !mappingDone) {
+      mappingDone = true
+      return chain(folderMapping)
+    }
+    if (table === 'spec_publish_targets') {
+      sptCount++
+      if (sptCount % 2 === 1) return chain({ external_page_id: existingPageId, retry_count: 0, content_hash: storedHash })
+      return chain(null)
+    }
+    return chain(null)
+  })
+
+  const rpcMock = vi.fn().mockResolvedValue({ data: JSON.stringify(credentials), error: null })
+  return { from: fromMock, rpc: rpcMock }
+}
+
 describe('Confluence dispatch', () => {
-  it('calls publishToConfluence with correct credentials', async () => {
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(makeSimpleSupabase(CONFLUENCE_CREDS) as never)
+  it('calls publishToConfluence with correct credentials and null parentPageId when no mapping', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(makeConfluenceSupabase(CONFLUENCE_CREDS) as never)
     vi.mocked(publishToConfluence).mockResolvedValue({ page_id: 'cf-page', page_url: 'https://acme.atlassian.net/wiki/cf-page' })
 
     await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'confluence', specs: [makeSpec()], matched_folder: 'docs/specs' })
@@ -434,19 +469,84 @@ describe('Confluence dispatch', () => {
         space_key: CONFLUENCE_CREDS.space_key,
       },
       expect.objectContaining({ path: 'docs/specs/auth.md' }),
-      null
+      null,
+      null   // no folder mapping → parentPageId is null
     )
   })
 
   it('passes existingPageId on subsequent publish', async () => {
-    vi.mocked(createSupabaseServiceClient).mockReturnValue(makeSimpleSupabase(CONFLUENCE_CREDS, 'cf-existing') as never)
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(makeConfluenceSupabase(CONFLUENCE_CREDS, null, 'cf-existing') as never)
     vi.mocked(publishToConfluence).mockResolvedValue({ page_id: 'cf-existing', page_url: '' })
 
     await runPublishGroup({ project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'confluence', specs: [makeSpec()], matched_folder: 'docs/specs' })
 
-    expect(publishToConfluence).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'cf-existing')
+    expect(publishToConfluence).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'cf-existing', null
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Confluence — folder_mappings.target_id override (per-folder parent page)
+// ---------------------------------------------------------------------------
+describe('Confluence folder_mappings.target_id override', () => {
+  it('passes folder_mappings.target_id as parentPageId when set', async () => {
+    const PARENT_PAGE = 'cf-parent-page-override-456'
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeConfluenceSupabase(CONFLUENCE_CREDS, {
+        id: 'fm-cf', folder_path: 'docs/specs', target_id: PARENT_PAGE,
+        frontmatter_map: null,
+      }) as never
+    )
+    vi.mocked(publishToConfluence).mockResolvedValue({ page_id: 'cf-p1', page_url: '' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'confluence',
+      specs: [makeSpec()], matched_folder: 'docs/specs',
+    })
+
+    expect(publishToConfluence).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      null,
+      PARENT_PAGE
+    )
   })
 
+  it('passes null parentPageId when folder_mappings.target_id is null', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeConfluenceSupabase(CONFLUENCE_CREDS, {
+        id: 'fm-cf', folder_path: 'docs/specs', target_id: null,
+        frontmatter_map: null,
+      }) as never
+    )
+    vi.mocked(publishToConfluence).mockResolvedValue({ page_id: 'cf-p1', page_url: '' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'confluence',
+      specs: [makeSpec()], matched_folder: 'docs/specs',
+    })
+
+    expect(publishToConfluence).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), null, null
+    )
+  })
+
+  it('passes null parentPageId when no folder_mappings row exists', async () => {
+    vi.mocked(createSupabaseServiceClient).mockReturnValue(
+      makeConfluenceSupabase(CONFLUENCE_CREDS, null) as never
+    )
+    vi.mocked(publishToConfluence).mockResolvedValue({ page_id: 'cf-p1', page_url: '' })
+
+    await runPublishGroup({
+      project_id: PROJECT_ID, integration_id: INTEGRATION_ID, target_type: 'confluence',
+      specs: [makeSpec()], matched_folder: 'docs/specs',
+    })
+
+    expect(publishToConfluence).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), null, null
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

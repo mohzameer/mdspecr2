@@ -113,6 +113,8 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     await setupS3GroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
   } else if (target_type === 'notion') {
     await setupNotionGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
+  } else if (target_type === 'confluence') {
+    await setupConfluenceGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
   }
 
   // -- Iterate specs sequentially --------------------------------------------
@@ -284,6 +286,32 @@ async function setupNotionGroupContext(ctx: GroupContext, matchedFolder: string)
   }
 
   console.log(`[publish:notion] folder=${matchedFolder} target_id=${ctx.folderMappingTargetId ?? '(none)'}`)
+}
+
+// ---------------------------------------------------------------------------
+// Confluence group context: resolve optional folder-level parent page override
+// ---------------------------------------------------------------------------
+async function setupConfluenceGroupContext(ctx: GroupContext, matchedFolder: string): Promise<void> {
+  const { supabase, project_id, integration_id } = ctx
+
+  const { data: mapping } = await supabase
+    .from('folder_mappings')
+    .select('id, folder_path, target_id, frontmatter_map')
+    .eq('project_id', project_id)
+    .eq('integration_id', integration_id)
+    .eq('folder_path', matchedFolder)
+    .maybeSingle()
+
+  if (mapping) {
+    ctx.folderMappingTargetId = (mapping.target_id as string | null) ?? null
+    ctx.folderMappingId = mapping.id as string
+    ctx.folderMappingPath = matchedFolder
+    if (mapping.frontmatter_map) {
+      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
+    }
+  }
+
+  console.log(`[publish:confluence] folder=${matchedFolder} target_id=${ctx.folderMappingTargetId ?? '(none)'}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -549,7 +577,8 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
           space_key: credentials.space_key as string,
         },
         specPayload,
-        existingPageId
+        existingPageId,
+        ctx.folderMappingTargetId
       )
       break
 

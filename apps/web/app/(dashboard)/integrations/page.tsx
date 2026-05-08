@@ -71,7 +71,7 @@ const statusColors: Record<string, string> = {
 
 const INTEGRATION_ORDER: IntegrationType[] = ['clickup', 's3', 'notion', 'confluence']
 
-const DISABLED_INTEGRATIONS = new Set<IntegrationType>(['confluence'])
+const DISABLED_INTEGRATIONS = new Set<IntegrationType>([])
 
 export default function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<Record<IntegrationType, Integration | null>>({
@@ -89,6 +89,7 @@ export default function IntegrationsPage() {
   const [urlError, setUrlError] = useState<string | null>(null)
   const [s3ValidateError, setS3ValidateError] = useState<string | null>(null)
   const [notionValidateError, setNotionValidateError] = useState<string | null>(null)
+  const [confluenceValidateError, setConfluenceValidateError] = useState<string | null>(null)
   const [notionDataSources, setNotionDataSources] = useState<NotionDataSource[] | null>(null)
   const [notionChildren, setNotionChildren] = useState<NotionSharedItem[] | null>(null)
   const [loadingChildren, setLoadingChildren] = useState(false)
@@ -254,6 +255,31 @@ export default function IntegrationsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, credentials: JSON.stringify(creds) }),
+      })
+      await fetchIntegrations()
+      setConnecting(null)
+      setSaving(false)
+      return
+    }
+
+    if (type === 'confluence') {
+      setSaving(true)
+      const creds = form.confluence
+      const validateRes = await fetch('/api/integrations/confluence/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(creds),
+      })
+      const validateBody = await validateRes.json()
+      if (!validateBody.ok) {
+        setConfluenceValidateError(validateBody.error ?? 'Could not reach Confluence. Check your credentials.')
+        setSaving(false)
+        return
+      }
+      await fetch('/api/integrations/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, credentials: JSON.stringify(creds), config: creds }),
       })
       await fetchIntegrations()
       setConnecting(null)
@@ -433,10 +459,12 @@ export default function IntegrationsPage() {
                   )}
                   {type === 'confluence' && (
                     <>
-                      <Field label="Base URL" value={form.confluence.base_url} onChange={(v) => setForm({ ...form, confluence: { ...form.confluence, base_url: v } })} placeholder="https://mycompany.atlassian.net" />
-                      <Field label="Email" value={form.confluence.email} onChange={(v) => setForm({ ...form, confluence: { ...form.confluence, email: v } })} placeholder="you@company.com" type="email" />
-                      <Field label="API token" value={form.confluence.token} onChange={(v) => setForm({ ...form, confluence: { ...form.confluence, token: v } })} placeholder="Atlassian API token" />
-                      <Field label="Space key" value={form.confluence.space_key} onChange={(v) => setForm({ ...form, confluence: { ...form.confluence, space_key: v } })} placeholder="ENG" />
+                      <Field label="Base URL" value={form.confluence.base_url} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, base_url: v } }); setConfluenceValidateError(null) }} placeholder="https://mycompany.atlassian.net" />
+                      <Field label="Email" value={form.confluence.email} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, email: v } }); setConfluenceValidateError(null) }} placeholder="you@company.com" type="email" />
+                      <Field label="API token" value={form.confluence.token} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, token: v } }); setConfluenceValidateError(null) }} placeholder="Atlassian API token" />
+                      <Field label="Space key" value={form.confluence.space_key} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, space_key: v } }); setConfluenceValidateError(null) }} placeholder="ENG" />
+                      {confluenceValidateError && <p className="text-xs text-red-500">{confluenceValidateError}</p>}
+                      <p className="text-xs text-zinc-400">Credentials are verified against the Confluence API before saving.</p>
                     </>
                   )}
                   {type === 'clickup' && (
@@ -476,9 +504,9 @@ export default function IntegrationsPage() {
                   )}
                   <div className="flex gap-2">
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
-                      {saving ? (type === 's3' ? 'Verifying…' : 'Connecting…') : 'Save'}
+                      {saving ? (type === 's3' || type === 'confluence' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setNotionDataSources(null); resetNotionChildren() }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); setNotionDataSources(null); resetNotionChildren() }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>

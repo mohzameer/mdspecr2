@@ -8,7 +8,7 @@ export interface ConfluenceCredentials {
   space_key: string
 }
 
-function mdToConfluenceStorage(markdown: string): string {
+export function mdToConfluenceStorage(markdown: string): string {
   const lines = markdown.split('\n')
   const html: string[] = []
 
@@ -82,16 +82,21 @@ async function findOrCreatePage(
 export async function publishToConfluence(
   credentials: ConfluenceCredentials,
   spec: { path: string; content: string; resolvedTitle: string },
-  existingPageId?: string | null
+  existingPageId?: string | null,
+  parentPageId?: string | null
 ): Promise<{ page_id: string; page_url: string }> {
   const base = credentials.base_url.replace(/\/$/, '')
   const title = spec.resolvedTitle
   const storage = mdToConfluenceStorage(spec.content)
 
+  // When a folder-mapping parent page is set, use it as the root ancestor.
+  // Otherwise build the full ancestor hierarchy from the spec path.
   const folders = getAncestorFolders(spec.path)
-  let parentId: string | null = null
-  for (const folder of folders) {
-    parentId = await findOrCreatePage(credentials, folder.name, parentId)
+  let parentId: string | null = parentPageId ?? null
+  if (!parentPageId) {
+    for (const folder of folders) {
+      parentId = await findOrCreatePage(credentials, folder.name, parentId)
+    }
   }
 
   if (existingPageId) {

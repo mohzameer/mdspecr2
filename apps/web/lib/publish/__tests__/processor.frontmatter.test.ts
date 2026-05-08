@@ -205,7 +205,8 @@ describe('Unified id adoption — first publish', () => {
     expect(publishToConfluence).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      'fm-conf'
+      'fm-conf',
+      null
     )
   })
 
