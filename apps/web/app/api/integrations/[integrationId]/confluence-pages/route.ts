@@ -60,19 +60,17 @@ export async function GET(
       return NextResponse.json({ ok: true, pages })
     }
 
-    // Fetch top-level pages in the space (no ancestors other than the space root)
+    // Fetch all pages in the space, ordered by title
     const res = await axios.get(`${base}/wiki/rest/api/content`, {
       auth,
       params: {
         spaceKey: credentials.space_key,
         type: 'page',
-        expand: 'ancestors',
         limit: 50,
         orderby: 'title',
       },
     })
     const pages: ConfluencePageItem[] = (res.data.results ?? [])
-      .filter((p: { ancestors?: unknown[] }) => !p.ancestors || p.ancestors.length === 0)
       .map((p: { id: string; title: string }) => ({ id: p.id, title: p.title }))
 
     return NextResponse.json({ ok: true, pages })
