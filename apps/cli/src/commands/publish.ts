@@ -15,7 +15,7 @@ export interface MdspecMapMapping {
   folder?: string                    // repo-relative path; absent = scope root of the owning .mdspecmap file
   integration?: string
   target?: 'document' | 'task'
-  parent?: string                    // alias:<name> | id:<nativeId> | bare
+  parent?: string                    // alias:<name> | id:<nativeId> | link:<url> | bare
   skip?: string[]
   depth?: number
   subfolders?: string[]              // resolved per-mapping form of MdspecMapConfig.sub_folders array. Globs matched against file path relative to mapping folder. Files at mapping root are always included.
@@ -137,7 +137,7 @@ export async function publishCommand(options: PublishOptions): Promise<void> {
     resolvedConfigs.push(resolveConfigPaths(raw, scopeDir))
   }
 
-  const config = mergeConfigs(resolvedConfigs)
+  const config = resolveLinkParents(mergeConfigs(resolvedConfigs))
 
   // Extract spec dirs from merged mappings (unique folder paths)
   const specDirs = extractSpecDirs(config)
@@ -435,6 +435,9 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
   } else {
     for (let i = 0; i < config.mappings.length; i++) {
       const m = config.mappings[i] as Record<string, unknown>
+      if (m.folder !== undefined) {
+        errors.push(`mappings[${i}].folder: not supported — place the .mdspecmap file inside the folder you want to sync instead`)
+      }
       if (m.integration && !['notion', 'confluence', 'clickup', 's3'].includes(m.integration as string)) {
         const val = m.integration as string
         const suggestions: Record<string, string> = { notiom: 'notion', noton: 'notion', conflunce: 'confluence', clikup: 'clickup', S3: 's3', 'amazon-s3': 's3' }
@@ -460,6 +463,12 @@ export async function readMdspecMapAt(filePath: string): Promise<MdspecMapConfig
         }
         if (parsed.type === 'id' && !parsed.value) {
           errors.push(`mappings[${i}].parent: id: prefix requires a non-empty ID`)
+        }
+        if (parsed.type === 'link' && !parsed.value) {
+          errors.push(`mappings[${i}].parent: link: prefix requires a URL`)
+        }
+        if (parsed.type === 'link' && parsed.value && !parsed.value.startsWith('http')) {
+          errors.push(`mappings[${i}].parent: link: prefix value must be a URL starting with http — use id: for raw IDs`)
         }
       }
     }
@@ -682,10 +691,90 @@ export function resolveFirstRunMode(
   return 'exit'
 }
 
-export function parseParent(parent: string): { type: 'alias' | 'id' | 'bare'; value: string } {
+export function parseParent(parent: string): { type: 'alias' | 'id' | 'link' | 'bare'; value: string } {
   if (parent.startsWith('alias:')) return { type: 'alias', value: parent.slice(6) }
   if (parent.startsWith('id:'))    return { type: 'id',    value: parent.slice(3) }
+  if (parent.startsWith('link:'))  return { type: 'link',  value: parent.slice(5) }
   return { type: 'bare', value: parent }
+}
+
+export function extractLinkId(url: string): string {
+  if (!url.startsWith('http')) {
+    throw new Error(
+      `link: prefix requires a URL starting with http.\nUse id:${url} instead if this is a raw ID.`
+    )
+  }
+
+  if (url.includes('notion.so') || url.includes('notion.com')) {
+    try {
+      const pathname = new URL(url).pathname
+      const segment = pathname.split('/').filter(Boolean).pop() ?? ''
+      // UUID with hyphens: 8-4-4-4-12 — preserve hyphens, Notion API accepts both forms
+      const uuidMatch = segment.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i)
+      if (uuidMatch) return uuidMatch[1].toLowerCase()
+      // 32-char hex at end of last segment (possibly after title-hyphen prefix)
+      const hexMatch = segment.match(/([0-9a-f]{32})$/i)
+      if (hexMatch) return hexMatch[1].toLowerCase()
+    } catch { /* fall through to error */ }
+    throw new Error(
+      `Cannot extract a native ID from:\nlink:${url}\n\nThe URL did not match any known Notion page pattern.\nPaste the URL directly from the page in your browser, or use:\nparent: id:<nativeId>`
+    )
+  }
+
+  if (url.includes('atlassian.net')) {
+    if (url.includes('/display/')) {
+      throw new Error(
+        `Cannot extract a page ID from:\nlink:${url}\n\nConfluence Data Center URLs (/display/...) do not contain a page ID.\nGo to the page → ··· → Page Information and copy the numeric Page ID\nfrom the URL bar, then use:\nparent: id:<pageId>`
+      )
+    }
+    const match = url.match(/\/wiki\/spaces\/[^/]+\/pages\/(\d+)/)
+    if (match) return match[1]
+    throw new Error(
+      `Cannot extract a page ID from:\nlink:${url}\n\nExpected a Confluence Cloud URL like:\nhttps://<domain>.atlassian.net/wiki/spaces/<KEY>/pages/<pageId>/...\nOr use:\nparent: id:<pageId>`
+    )
+  }
+
+  if (url.includes('clickup.com')) {
+    const spaceMatch = url.match(/\/v\/s\/([0-9]+)/)
+    if (spaceMatch) return spaceMatch[1]
+    const listMatch = url.match(/\/li\/([0-9]+)/)
+    if (listMatch) return listMatch[1]
+    const docMatch = url.match(/\/docs\/([a-zA-Z0-9-]+)/)
+    if (docMatch) return docMatch[1]
+    throw new Error(
+      `Cannot extract a native ID from:\nlink:${url}\n\nThe URL did not match any known ClickUp pattern (space /v/s/<id>, list /li/<id>, doc /docs/<id>).\nPaste the URL directly from your browser, or use:\nparent: id:<nativeId>`
+    )
+  }
+
+  throw new Error(
+    `Cannot extract a native ID from:\nlink:${url}\n\nUnrecognised domain. Supported platforms: notion.so, atlassian.net, clickup.com.\nUse:\nparent: id:<nativeId>`
+  )
+}
+
+export function resolveLinkParents(config: MdspecMapConfig): MdspecMapConfig {
+  const resolveValue = (parent: string, label: string): string => {
+    const parsed = parseParent(parent)
+    if (parsed.type !== 'link') return parent
+    try {
+      const id = extractLinkId(parsed.value)
+      return `id:${id}`
+    } catch (err) {
+      console.error(`✗ Error   ${label}`)
+      console.error(`          ${(err as Error).message.split('\n').join('\n          ')}`)
+      process.exit(1)
+    }
+  }
+
+  const mappings = config.mappings.map((m) => {
+    if (!m.parent) return m
+    return { ...m, parent: resolveValue(m.parent, `parent in mapping for folder '${m.folder ?? '(root)'}'`) }
+  })
+
+  const defaultBlock = config.default?.parent
+    ? { ...config.default, parent: resolveValue(config.default.parent, 'parent in default:') }
+    : config.default
+
+  return { ...config, mappings, ...(defaultBlock !== undefined ? { default: defaultBlock } : {}) }
 }
 
 export function normalizeFolder(folder: string): string {

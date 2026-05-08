@@ -208,6 +208,35 @@ it('default: invalid integration type errors', async () => {
   expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('default.integration'))
 })
 
+it('link: prefix with valid URL passes validation', async () => {
+  vi.mocked(fs.access).mockResolvedValue(undefined)
+  vi.mocked(fs.readFile).mockResolvedValue(
+    'version: 1\nmappings:\n  - integration: notion\n    parent: link:https://www.notion.so/ws/Docs-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n' as never
+  )
+  const cfg = await readMdspecMap()
+  expect(cfg.mappings[0].parent).toBe('link:https://www.notion.so/ws/Docs-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4')
+  expect(mockExit).not.toHaveBeenCalled()
+})
+
+it('link: prefix with empty value errors', async () => {
+  vi.mocked(fs.access).mockResolvedValue(undefined)
+  // quote the value so YAML parses it as string "link:" rather than a nested mapping
+  vi.mocked(fs.readFile).mockResolvedValue(
+    'version: 1\nmappings:\n  - integration: notion\n    parent: "link:"\n' as never
+  )
+  await expect(readMdspecMap()).rejects.toThrow('exit:1')
+  expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('link: prefix requires a URL'))
+})
+
+it('link: prefix with non-URL value errors', async () => {
+  vi.mocked(fs.access).mockResolvedValue(undefined)
+  vi.mocked(fs.readFile).mockResolvedValue(
+    'version: 1\nmappings:\n  - integration: notion\n    parent: link:just-an-id\n' as never
+  )
+  await expect(readMdspecMap()).rejects.toThrow('exit:1')
+  expect(mockErr).toHaveBeenCalledWith(expect.stringContaining('link: prefix value must be a URL starting with http'))
+})
+
 // parseParent unit tests
 import { parseParent } from '../commands/publish.js'
 
@@ -225,6 +254,21 @@ it('parseParent: bare value', () => {
 
 it('parseParent: bare numeric ID', () => {
   expect(parseParent('90181844797')).toEqual({ type: 'bare', value: '90181844797' })
+})
+
+it('parseParent: link: prefix with Notion URL', () => {
+  const url = 'https://www.notion.so/ws/Eng-Docs-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4'
+  expect(parseParent(`link:${url}`)).toEqual({ type: 'link', value: url })
+})
+
+it('parseParent: link: prefix with Confluence URL', () => {
+  const url = 'https://acme.atlassian.net/wiki/spaces/ENG/pages/123456/Title'
+  expect(parseParent(`link:${url}`)).toEqual({ type: 'link', value: url })
+})
+
+it('parseParent: link: prefix with ClickUp URL', () => {
+  const url = 'https://app.clickup.com/90181234/v/s/90181844797'
+  expect(parseParent(`link:${url}`)).toEqual({ type: 'link', value: url })
 })
 
 // ---------------------------------------------------------------------------

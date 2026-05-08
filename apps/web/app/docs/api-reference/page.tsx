@@ -69,6 +69,7 @@ const NAV = [
   { label: 'The .mdspecmap file', href: '#mdspecmap' },
   { label: 'Distributed maps', href: '#distributed' },
   { label: 'mappings:', href: '#mappings' },
+  { label: 'parent: link: prefix', href: '#parent-link' },
   { label: 'default:', href: '#default' },
   { label: 'specs:', href: '#specs' },
   { label: 'Generating the file', href: '#generating' },
@@ -267,7 +268,7 @@ mappings:
               headers={['Field', 'Required', 'What it does']}
               rows={[
                 ['`integration`', 'No', 'Target: notion, confluence, clickup, or s3.'],
-                ['`parent`', 'No', 'Target container. Three forms: alias:<name> (dashboard alias), id:<nativeId> (raw ID directly), or bare value (tries alias first, falls back to raw ID). For S3, the alias resolves to a key prefix (the "parent directory").'],
+                ['`parent`', 'No', 'Target container. Four forms: alias:<name> (dashboard alias), id:<nativeId> (raw ID directly), link:<url> (browser URL — mdspec extracts the native ID), or bare value (tries alias first, falls back to raw ID). For S3, the alias resolves to a key prefix (the "parent directory"). See Parent link: prefix for extraction rules and failure behaviour.'],
                 ['`target`', 'No', 'For ClickUp only: document (default) or task. task publishes specs as ClickUp tasks.'],
                 ['`depth`', 'No', 'Max subfolder depth. 1 = direct children only. Omit for unlimited depth.'],
                 ['`maintain_hierarchy`', 'No', 'S3 only. true preserves the spec\'s subfolder path under the alias prefix; false (default) flattens to the basename only.'],
@@ -295,6 +296,73 @@ mappings:
     agent: Task Template`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
               A file at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils/SPEC7.md</code> is governed by <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/utils/.mdspecmap</code>, not <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">src/.mdspecmap</code> — nearest ancestor wins.
+            </p>
+          </section>
+
+          <Separator />
+
+          {/* parent link: prefix */}
+          <section id="parent-link" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">
+              parent: <code className="font-mono text-base bg-muted px-1.5 py-0.5 rounded">link:</code> prefix
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              If you are editing <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> directly in your editor, you can paste the browser URL of the target container straight into the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">parent</code> field using the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">link:</code> prefix. The CLI extracts the native ID at publish time — no alias setup required.
+            </p>
+            <CodeBlock>{`mappings:
+  - integration: notion
+    parent: link:https://www.notion.so/my-workspace/Engineering-Docs-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+
+  - integration: confluence
+    parent: link:https://acme.atlassian.net/wiki/spaces/ENG/pages/123456/Platform+Docs
+
+  - integration: clickup
+    parent: link:https://app.clickup.com/90181234/v/s/90181844797`}</CodeBlock>
+
+            <h3 className="text-sm font-semibold">Extraction rules per platform</h3>
+            <Table
+              headers={['Integration', 'URL pattern', 'What is extracted']}
+              rows={[
+                ['Notion', '`https://notion.so/[workspace/]<title>-<id>` or `.../[workspace/]<id>`', '32-char hex ID at the end of the path, with or without title prefix'],
+                ['Confluence Cloud', '`https://<domain>.atlassian.net/wiki/spaces/<KEY>/pages/<pageId>/...`', 'Numeric `pageId` from the fixed fourth path segment after `/wiki/`'],
+                ['ClickUp (space)', '`.../v/s/<spaceId>`', '`spaceId`'],
+                ['ClickUp (list)', '`.../li/<listId>`', '`listId`'],
+                ['ClickUp (doc)', '`.../docs/<docId>`', '`docId`'],
+              ]}
+            />
+
+            <h3 className="text-sm font-semibold">What is not supported</h3>
+            <Table
+              headers={['Case', 'Reason']}
+              rows={[
+                ['Short links (`notion.so/xyz`, ClickUp share links)', 'The ID is not present in the short-link path. The CLI does not follow redirects. Use the full browser URL.'],
+                ['Confluence Data Center `/display/SPACEKEY/Page+Title`', 'No page ID in this URL format. Use `id:<pageId>` instead — get it from the page via ··· → Page Information.'],
+                ['Mobile app URLs', 'URL shapes from mobile clients may differ from desktop. Use the desktop browser URL.'],
+              ]}
+            />
+
+            <h3 className="text-sm font-semibold">Failure behaviour</h3>
+            <p className="text-sm text-muted-foreground">
+              If the CLI cannot extract an ID from a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">link:</code> value the publish is hard-blocked — no specs are sent. The error names the URL, explains why extraction failed, and tells you what to use instead:
+            </p>
+            <CodeBlock>{`✗ Error   Cannot extract a page ID from:
+          link:https://acme.atlassian.net/display/ENG/Auth+Flow
+
+          Confluence Data Center URLs (/display/...) do not contain a page ID.
+          Go to the page → ··· → Page Information and copy the numeric Page ID
+          from the URL bar, then use:
+          parent: id:<pageId>
+
+---
+
+✗ Error   Cannot extract a native ID from:
+          link:https://notion.so/some/unexpected/path
+
+          The URL did not match any known Notion page pattern.
+          Paste the URL directly from the page in your browser, or use:
+          parent: id:<nativeId>`}</CodeBlock>
+            <p className="text-sm text-muted-foreground">
+              No partial publishes. Fix the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">parent</code> value and push again.
             </p>
           </section>
 
@@ -1292,9 +1360,10 @@ Rules for working with spec files:
    - mappings: — maps this folder (and optionally subfolders) to integrations
    - specs:    — optional per-spec config, keyed by file path
 
-   The parent: field in mappings supports three forms:
+   The parent: field in mappings supports four forms:
      parent: alias:<name>      # dashboard alias
      parent: id:<nativeId>     # raw native ID (ClickUp space/list/doc ID, Notion page ID, etc.)
+     parent: link:<url>        # browser URL — CLI extracts the native ID at publish time
      parent: <bare>            # tries alias first, falls back to raw ID
 
    For S3 integrations, the parent alias resolves to an S3 key prefix (the "parent directory").
