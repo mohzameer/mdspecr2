@@ -134,6 +134,7 @@ No partial publishes. Fix the `parent` value, push again.
 
 ## What Is Not Supported
 
+- **S3** — S3 parents are plain key prefixes (e.g. `docs/specs/`), not opaque IDs. The user types the prefix directly; there is no URL to extract from. `link:` is not applicable to S3 mappings.
 - **Short links** (`notion.so/xyz`, ClickUp share links) — these redirect to the real URL but the ID is not in the short-link path. The CLI does not follow redirects. Use the full browser URL.
 - **Mobile app URLs** — URL shapes from mobile clients may differ. Use the desktop browser URL.
 - **Confluence Data Center** `/display/` URLs — no page ID is present (see above).

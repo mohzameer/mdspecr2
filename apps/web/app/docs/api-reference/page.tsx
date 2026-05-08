@@ -335,6 +335,7 @@ mappings:
             <Table
               headers={['Case', 'Reason']}
               rows={[
+                ['S3 integrations', 'S3 parents are plain key prefixes (e.g. `docs/specs/`) — not opaque IDs. Type the prefix directly; `link:` does not apply to S3.'],
                 ['Short links (`notion.so/xyz`, ClickUp share links)', 'The ID is not present in the short-link path. The CLI does not follow redirects. Use the full browser URL.'],
                 ['Confluence Data Center `/display/SPACEKEY/Page+Title`', 'No page ID in this URL format. Use `id:<pageId>` instead — get it from the page via ··· → Page Information.'],
                 ['Mobile app URLs', 'URL shapes from mobile clients may differ from desktop. Use the desktop browser URL.'],

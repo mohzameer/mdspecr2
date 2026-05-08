@@ -766,8 +766,13 @@ export function resolveLinkParents(config: MdspecMapConfig): MdspecMapConfig {
   }
 
   const mappings = config.mappings.map((m) => {
-    if (!m.parent) return m
-    return { ...m, parent: resolveValue(m.parent, `parent in mapping for folder '${m.folder ?? '(root)'}'`) }
+    const folder = m.folder ?? '(root)'
+    return {
+      ...m,
+      ...(m.parent    ? { parent:     resolveValue(m.parent,     `parent in mapping for folder '${folder}'`) }    : {}),
+      ...(m.list_id   ? { list_id:    resolveValue(m.list_id,    `list_id in mapping for folder '${folder}'`) }   : {}),
+      ...(m.parent_doc? { parent_doc: resolveValue(m.parent_doc, `parent_doc in mapping for folder '${folder}'`) }: {}),
+    }
   })
 
   const defaultBlock = config.default?.parent
