@@ -71,9 +71,9 @@ export default async function LandingPage() {
           <IntegrationBadge label="Notion" active />
           <IntegrationBadge label="ClickUp" active />
           <IntegrationBadge label="S3" active />
-          <IntegrationBadge label="Confluence" />
+          <IntegrationBadge label="Confluence" active />
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">Notion, ClickUp & S3 available now — Confluence coming soon</p>
+        <p className="mt-3 text-xs text-muted-foreground">Notion, ClickUp, S3 & Confluence — all available now</p>
       </section>
 
       <Separator className="max-w-5xl mx-auto" />

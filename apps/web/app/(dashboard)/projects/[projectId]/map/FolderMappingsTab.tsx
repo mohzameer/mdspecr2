@@ -45,6 +45,9 @@ interface NotionTargets { pages: NotionItem[]; databases: NotionItem[] }
 type NotionTargetsState = NotionTargets | 'loading' | { error: string }
 type NotionChildrenState = NotionItem[] | 'loading' | { error: string }
 
+interface ConfluencePageItem { id: string; title: string }
+type ConfluencePagesState = ConfluencePageItem[] | 'loading' | { error: string }
+
 interface Props {
   projectId: string
   discoveredFolders: string[]
@@ -124,6 +127,11 @@ export function FolderMappingsTab({
   const [notionChildrenCache, setNotionChildrenCache] = useState<Record<string, NotionChildrenState>>({})
   // mappingId → { parentId, parentKind } so the sub-page dropdown remembers its source
   const [notionParentDraft, setNotionParentDraft] = useState<Record<string, { parentId: string; parentKind: 'page' | 'database' }>>({})
+  const [confluencePagesCache, setConfluencePagesCache] = useState<Record<string, ConfluencePagesState>>({})
+  // key = `${integrationId}:${parentId}`
+  const [confluenceChildrenCache, setConfluenceChildrenCache] = useState<Record<string, ConfluencePagesState>>({})
+  // mappingId → parentId
+  const [confluenceParentDraft, setConfluenceParentDraft] = useState<Record<string, string>>({})
   // new row doc state
   const [newFolderDocId, setNewFolderDocId] = useState<string>('')
   const [newFolderSpaceId, setNewFolderSpaceId] = useState<string>('')
@@ -131,6 +139,9 @@ export function FolderMappingsTab({
   const [newFolderNotionParentId, setNewFolderNotionParentId] = useState<string>('')
   const [newFolderNotionParentKind, setNewFolderNotionParentKind] = useState<'page' | 'database'>('page')
   const [newFolderNotionSubPageId, setNewFolderNotionSubPageId] = useState<string>('')
+  // new row Confluence state
+  const [newFolderConfluenceParentId, setNewFolderConfluenceParentId] = useState<string>('')
+  const [newFolderConfluenceSubPageId, setNewFolderConfluenceSubPageId] = useState<string>('')
   // existing mapping doc URL drafts: mappingId → raw URL input
   const [docUrlDraft, setDocUrlDraft] = useState<Record<string, string>>({})
   // existing mapping list URL drafts: mappingId → raw URL input
@@ -172,6 +183,35 @@ export function FolderMappingsTab({
         }))
       })
       .catch(() => setNotionChildrenCache((prev) => ({ ...prev, [key]: { error: 'network error' } })))
+  }
+
+  function fetchConfluencePages(integrationId: string) {
+    if (confluencePagesCache[integrationId]) return
+    setConfluencePagesCache((prev) => ({ ...prev, [integrationId]: 'loading' }))
+    fetch(`/api/integrations/${integrationId}/confluence-pages`)
+      .then((r) => r.json())
+      .then((data) => {
+        setConfluencePagesCache((prev) => ({
+          ...prev,
+          [integrationId]: data?.ok ? (data.pages ?? []) : { error: data?.error ?? 'Could not load pages.' },
+        }))
+      })
+      .catch(() => setConfluencePagesCache((prev) => ({ ...prev, [integrationId]: { error: 'network error' } })))
+  }
+
+  function fetchConfluenceChildren(integrationId: string, parentId: string) {
+    const key = `${integrationId}:${parentId}`
+    if (confluenceChildrenCache[key]) return
+    setConfluenceChildrenCache((prev) => ({ ...prev, [key]: 'loading' }))
+    fetch(`/api/integrations/${integrationId}/confluence-pages?parent_id=${encodeURIComponent(parentId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setConfluenceChildrenCache((prev) => ({
+          ...prev,
+          [key]: data?.ok ? (data.pages ?? []) : { error: data?.error ?? 'Could not load sub-pages.' },
+        }))
+      })
+      .catch(() => setConfluenceChildrenCache((prev) => ({ ...prev, [key]: { error: 'network error' } })))
   }
 
   function fetchS3Folders(integrationId: string) {
@@ -269,6 +309,40 @@ export function FolderMappingsTab({
       fetchNotionChildren(mapping.integration_id, mapping.target_id, parentKind)
     }
   }, [notionTargetsCache, mappings])
+
+  // Load Confluence pages for all existing Confluence mappings
+  useEffect(() => {
+    const ids = [...new Set(
+      mappings.filter((m) => m.integrations?.type === 'confluence').map((m) => m.integration_id)
+    )]
+    for (const id of ids) fetchConfluencePages(id)
+  }, [mappings])
+
+  // Load Confluence pages when a new-row Confluence integration is selected
+  useEffect(() => {
+    if (!newFolderIntegrationId) return
+    const integration = availableIntegrations.find((i) => i.id === newFolderIntegrationId)
+    if (integration?.type !== 'confluence') return
+    fetchConfluencePages(newFolderIntegrationId)
+  }, [newFolderIntegrationId])
+
+  // Auto-initialize confluenceParentDraft for existing rows once pages load
+  useEffect(() => {
+    for (const mapping of mappings) {
+      if (mapping.integrations?.type !== 'confluence') continue
+      if (!mapping.target_id) continue
+      if (confluenceParentDraft[mapping.id]) continue
+
+      const pages = confluencePagesCache[mapping.integration_id]
+      if (!pages || pages === 'loading' || 'error' in pages) continue
+
+      const match = (pages as ConfluencePageItem[]).find((p) => p.id === mapping.target_id)
+      if (!match) continue  // target_id is a child page — skip top-level init
+
+      setConfluenceParentDraft((prev) => ({ ...prev, [mapping.id]: mapping.target_id! }))
+      fetchConfluenceChildren(mapping.integration_id, mapping.target_id)
+    }
+  }, [confluencePagesCache, mappings])
 
   // Only show folders that have active mappings. Discovered folders are shown
   // as suggestions below for quickly adding new ones.
@@ -473,10 +547,13 @@ function prefillFromSuggestion(folderPath: string) {
     const selectedIntegration = availableIntegrations.find((i) => i.id === integrationId)
     const isClickUp = selectedIntegration?.type === 'clickup'
     const isNotion = selectedIntegration?.type === 'notion'
+    const isConfluence = selectedIntegration?.type === 'confluence'
     const mode = isClickUp ? newFolderMode : 'doc'
     const targetId = isNotion
       ? (newFolderNotionSubPageId || newFolderNotionParentId || null)
-      : (newFolderSpaceId || null)
+      : isConfluence
+        ? (newFolderConfluenceSubPageId || newFolderConfluenceParentId || null)
+        : (newFolderSpaceId || null)
 
     setAddingFolder(true)
     const res = await fetch(`/api/projects/${projectId}/folder-mappings`, {
@@ -509,6 +586,8 @@ function prefillFromSuggestion(folderPath: string) {
       setNewFolderNotionParentId('')
       setNewFolderNotionParentKind('page')
       setNewFolderNotionSubPageId('')
+      setNewFolderConfluenceParentId('')
+      setNewFolderConfluenceSubPageId('')
       setNewFolderSkipPatterns('')
       setNewFolderFrontmatterMap('')
     }
@@ -874,6 +953,68 @@ function prefillFromSuggestion(folderPath: string) {
                             {isSaving && spinner}
                           </div>
                         )
+                      })() : mapping.integrations?.type === 'confluence' ? (() => {
+                        const isSaving = savingMappingId === mapping.id
+                        const intId = mapping.integration_id
+                        const pagesState = confluencePagesCache[intId]
+                        const pagesLoaded = Array.isArray(pagesState)
+                        const pagesError = pagesState && !Array.isArray(pagesState) && pagesState !== 'loading' ? (pagesState as { error: string }).error : null
+                        const draft = confluenceParentDraft[mapping.id]
+                        const childKey = draft ? `${intId}:${draft}` : null
+                        const childState = childKey ? confluenceChildrenCache[childKey] : undefined
+                        const childList = Array.isArray(childState) ? childState : []
+                        const childLoading = childState === 'loading'
+                        const childError = childState && !Array.isArray(childState) && childState !== 'loading' ? (childState as { error: string }).error : null
+
+                        return (
+                          <div className="flex flex-col gap-1.5 w-fit min-w-[220px]">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs text-zinc-500">Parent page</span>
+                              <select
+                                disabled={!canEdit || !pagesLoaded || isSaving}
+                                value={draft ?? (mapping.target_id ?? '')}
+                                onChange={(e) => {
+                                  const id = e.target.value
+                                  if (!id) {
+                                    setConfluenceParentDraft((prev) => { const n = { ...prev }; delete n[mapping.id]; return n })
+                                    updateTarget(mapping.id, null)
+                                    return
+                                  }
+                                  setConfluenceParentDraft((prev) => ({ ...prev, [mapping.id]: id }))
+                                  updateTarget(mapping.id, id)
+                                  fetchConfluenceChildren(intId, id)
+                                }}
+                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                              >
+                                <option value="">{!pagesLoaded ? (pagesError ? 'Could not load' : 'Loading…') : 'Select a parent page…'}</option>
+                                {pagesLoaded && (pagesState as ConfluencePageItem[]).map((p) => (
+                                  <option key={p.id} value={p.id}>{p.title}</option>
+                                ))}
+                              </select>
+                              {pagesError && <p className="text-xs text-red-500">{pagesError}</p>}
+                            </div>
+                            {draft && (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-xs text-zinc-500">Sub-page <span className="text-zinc-400">(optional)</span></span>
+                                <select
+                                  disabled={!canEdit || childLoading || isSaving || childList.length === 0}
+                                  value={mapping.target_id && mapping.target_id !== draft ? mapping.target_id : ''}
+                                  onChange={(e) => { updateTarget(mapping.id, e.target.value || draft) }}
+                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                                >
+                                  <option value="">
+                                    {childLoading ? 'Loading…' : childError ? 'Could not load sub-pages' : childList.length === 0 ? 'No sub-pages' : 'Use parent page'}
+                                  </option>
+                                  {childList.map((c) => (
+                                    <option key={c.id} value={c.id}>{c.title}</option>
+                                  ))}
+                                </select>
+                                {childError && <p className="text-xs text-red-500">{childError}</p>}
+                              </div>
+                            )}
+                            {isSaving && spinner}
+                          </div>
+                        )
                       })() : (
                         <span className="text-xs text-zinc-400">—</span>
                       )}
@@ -953,6 +1094,8 @@ function prefillFromSuggestion(folderPath: string) {
                           setNewFolderNotionParentId('')
                           setNewFolderNotionParentKind('page')
                           setNewFolderNotionSubPageId('')
+                          setNewFolderConfluenceParentId('')
+                          setNewFolderConfluenceSubPageId('')
                         }}
                         className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                       >
@@ -1127,6 +1270,59 @@ function prefillFromSuggestion(folderPath: string) {
                                 >
                                   <option value="">
                                     {childLoading ? 'Loading…' : childError ? 'Could not load sub-pages' : childList.length === 0 ? 'No sub-pages' : (newFolderNotionParentKind === 'database' ? 'Use wiki root' : 'Use parent page')}
+                                  </option>
+                                  {childList.map((c) => (
+                                    <option key={c.id} value={c.id}>{c.title}</option>
+                                  ))}
+                                </select>
+                                {childError && <p className="text-xs text-red-500">{childError}</p>}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })() : newIntegration?.type === 'confluence' ? (() => {
+                        const pagesState = confluencePagesCache[newFolderIntegrationId]
+                        const pagesLoaded = Array.isArray(pagesState)
+                        const pagesError = pagesState && !Array.isArray(pagesState) && pagesState !== 'loading' ? (pagesState as { error: string }).error : null
+                        const childKey = newFolderConfluenceParentId ? `${newFolderIntegrationId}:${newFolderConfluenceParentId}` : null
+                        const childState = childKey ? confluenceChildrenCache[childKey] : undefined
+                        const childList = Array.isArray(childState) ? childState : []
+                        const childLoading = childState === 'loading'
+                        const childError = childState && !Array.isArray(childState) && childState !== 'loading' ? (childState as { error: string }).error : null
+
+                        return (
+                          <div className="flex flex-col gap-1.5 min-w-[220px]">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs text-zinc-500">Parent page</span>
+                              <select
+                                disabled={!pagesLoaded}
+                                value={newFolderConfluenceParentId}
+                                onChange={(e) => {
+                                  const id = e.target.value
+                                  setNewFolderConfluenceParentId(id)
+                                  setNewFolderConfluenceSubPageId('')
+                                  if (id) fetchConfluenceChildren(newFolderIntegrationId, id)
+                                }}
+                                className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                              >
+                                <option value="">{!pagesLoaded ? (pagesError ? 'Could not load' : 'Loading…') : 'Select a parent page…'}</option>
+                                {pagesLoaded && (pagesState as ConfluencePageItem[]).map((p) => (
+                                  <option key={p.id} value={p.id}>{p.title}</option>
+                                ))}
+                              </select>
+                              {pagesError && <p className="text-xs text-red-500">{pagesError}</p>}
+                            </div>
+                            {newFolderConfluenceParentId && (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-xs text-zinc-500">Sub-page <span className="text-zinc-400">(optional)</span></span>
+                                <select
+                                  disabled={childLoading || childList.length === 0}
+                                  value={newFolderConfluenceSubPageId}
+                                  onChange={(e) => setNewFolderConfluenceSubPageId(e.target.value)}
+                                  className="text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                                >
+                                  <option value="">
+                                    {childLoading ? 'Loading…' : childError ? 'Could not load sub-pages' : childList.length === 0 ? 'No sub-pages' : 'Use parent page'}
                                   </option>
                                   {childList.map((c) => (
                                     <option key={c.id} value={c.id}>{c.title}</option>
