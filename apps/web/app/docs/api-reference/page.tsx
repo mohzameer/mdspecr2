@@ -81,6 +81,8 @@ const NAV = [
   { label: 'Multiple integrations', href: '#multi' },
   { label: 'S3 integration', href: '#s3' },
   { label: 'Notion integration', href: '#notion' },
+  { label: 'ClickUp integration', href: '#clickup' },
+  { label: 'Confluence integration', href: '#confluence' },
   { label: 'Example scenarios', href: '#scenarios' },
   { label: 'Tell your agent', href: '#agent-prompt' },
 ]
@@ -876,12 +878,188 @@ mappings:
             </p>
 
             <h3 className="text-sm font-semibold">Connect a Notion integration</h3>
+            <p className="text-sm font-medium mt-2">Step 1 — Create a Notion integration</p>
             <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
-              <li>Create an internal integration at <a href="https://www.notion.so/my-integrations" target="_blank" rel="noreferrer" className="underline hover:text-foreground">notion.so/my-integrations</a> and grant it access to the page or database you want to publish under.</li>
-              <li>Go to <strong>Dashboard → Integrations → Connect → Notion</strong>.</li>
-              <li>Paste the integration token, choose <strong>Pages</strong> or <strong>Database rows</strong>, and provide the root page ID (Pages) or database ID (Database rows).</li>
-              <li>Click <strong>Connect Notion</strong>. mdspec runs a health check — for database mode, it resolves the data sources on the database and validates the required schema before saving credentials.</li>
+              <li>Go to <a href="https://www.notion.so/my-integrations" target="_blank" rel="noreferrer" className="underline hover:text-foreground">notion.so/my-integrations</a> and sign in with the account that owns the workspace.</li>
+              <li>Click <strong>+ New integration</strong>, enter a name (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mdspec</code>), and select the target workspace.</li>
+              <li>Under <strong>Capabilities</strong>, ensure <strong>Read content</strong>, <strong>Update content</strong>, and <strong>Insert content</strong> are all checked.</li>
+              <li>Click <strong>Save</strong>.</li>
             </ol>
+
+            <p className="text-sm font-medium mt-2">Step 2 — Copy the integration token</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>On the integration settings page, under <strong>Secrets</strong>, click <strong>Show</strong> then <strong>Copy</strong>.</li>
+              <li>The token starts with <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">ntn_</code> (newer workspaces) or <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">secret_</code>.</li>
+            </ol>
+
+            <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
+              <InfoIcon className="text-amber-600 dark:text-amber-400" />
+              <AlertTitle className="text-amber-900 dark:text-amber-200">You must share the page with the integration</AlertTitle>
+              <AlertDescription className="text-amber-900/80 dark:text-amber-200/80">
+                Notion does not grant integrations automatic access. Even with a valid token, the API returns <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">object not found</code> until you explicitly share the target page or database.
+              </AlertDescription>
+            </Alert>
+
+            <p className="text-sm font-medium mt-2">Step 3 — Share the target page or database with the integration</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>Open the target page or database in Notion.</li>
+              <li>Click <strong>…</strong> (top-right) → <strong>Connections → Add a connection</strong>.</li>
+              <li>Search for your integration by name and select it.</li>
+            </ol>
+            <p className="text-sm text-muted-foreground">Sub-pages of a shared page are automatically accessible — share only the top-level parent.</p>
+
+            <p className="text-sm font-medium mt-2">Step 4 — Get the page or database ID</p>
+            <p className="text-sm text-muted-foreground">
+              Paste the page or database URL directly into the connect form — mdspec extracts the ID automatically. Database URLs contain a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">?v=</code> parameter; mdspec detects this and switches to database mode.
+            </p>
+            <CodeBlock>{`# Example page URL — the 32-char hex at the end is the page ID
+https://www.notion.so/myworkspace/Engineering-Specs-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4`}</CodeBlock>
+
+            <p className="text-sm font-medium mt-2">Step 5 — Connect in mdspec</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>Go to <strong>Dashboard → Integrations → Connect → Notion</strong>.</li>
+              <li>Paste the integration token and the page or database URL.</li>
+              <li>Optionally select a sub-page from the dropdown to narrow where specs publish.</li>
+              <li>Click <strong>Save</strong>. mdspec validates against the Notion API before saving.</li>
+            </ol>
+
+            <Table
+              headers={['Error', 'Likely cause']}
+              rows={[
+                ['`object not found` / 401', 'Integration not shared with the page — repeat step 3'],
+                ['Could not extract page ID', 'Paste the full Notion page URL'],
+                ['No sub-pages visible', 'Integration lacks Insert / Update content capability'],
+              ]}
+            />
+          </section>
+
+          <Separator />
+
+          {/* ClickUp integration */}
+          <section id="clickup" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">ClickUp integration</h2>
+            <p className="text-sm text-muted-foreground">
+              ClickUp supports two publish modes: <strong>doc pages</strong> (specs become pages inside a ClickUp Doc) and <strong>tasks</strong> (specs become tasks in a list). The mode is configured per folder mapping in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> via the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">target</code> field.
+            </p>
+
+            <h3 className="text-sm font-semibold">Connect a ClickUp integration</h3>
+
+            <p className="text-sm font-medium mt-2">Step 1 — Generate your Personal API token</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>Sign in to <a href="https://app.clickup.com" target="_blank" rel="noreferrer" className="underline hover:text-foreground">app.clickup.com</a>.</li>
+              <li>Click your <strong>avatar</strong> (upper-right corner) → <strong>Settings</strong>.</li>
+              <li>In the left sidebar, scroll down and click <strong>Apps</strong>.</li>
+              <li>Under <strong>API Token</strong>, click <strong>Generate</strong> (or <strong>Regenerate</strong> if one already exists).</li>
+              <li>Copy the token — it starts with <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">pk_</code>.</li>
+            </ol>
+            <p className="text-sm text-muted-foreground">Your personal token grants the same access your account has in the browser and covers all workspaces your account belongs to.</p>
+
+            <p className="text-sm font-medium mt-2">Step 2 — Find your Workspace URL</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>While logged in to ClickUp, copy the URL from your browser address bar. It looks like:</li>
+            </ol>
+            <CodeBlock>{`https://app.clickup.com/90181844797/v/l/...`}</CodeBlock>
+            <p className="text-sm text-muted-foreground">
+              mdspec automatically extracts the numeric workspace ID (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">90181844797</code>) from the URL and displays it below the field for confirmation.
+            </p>
+
+            <p className="text-sm font-medium mt-2">Step 3 — Connect in mdspec</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>Go to <strong>Dashboard → Integrations → Connect → ClickUp</strong>.</li>
+              <li>Paste your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">pk_...</code> token and your full workspace URL.</li>
+              <li>Click <strong>Save</strong>.</li>
+            </ol>
+
+            <Table
+              headers={['Error', 'Likely cause']}
+              rows={[
+                ['Workspace ID not found', 'Paste the full https://app.clickup.com/... URL including the numeric segment'],
+                ['`401 Unauthorized`', 'Token was regenerated — generate a new one and reconnect'],
+                ['`403 Forbidden`', 'Account lacks access to the selected workspace or Doc'],
+              ]}
+            />
+
+            <h3 className="text-sm font-semibold pt-2">Frontmatter</h3>
+            <p className="text-sm text-muted-foreground">
+              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">clickup_id</code> in frontmatter to bind a spec to an existing ClickUp task or doc page. See <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a>.
+            </p>
+          </section>
+
+          <Separator />
+
+          {/* Confluence integration */}
+          <section id="confluence" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">Confluence integration</h2>
+            <p className="text-sm text-muted-foreground">
+              Specs are published as pages in a Confluence space. The space and parent page are configured via aliases in the dashboard, referenced from <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> as usual.
+            </p>
+
+            <h3 className="text-sm font-semibold">Connect a Confluence integration</h3>
+
+            <p className="text-sm font-medium mt-2">Step 1 — Generate an Atlassian API token</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>Go to <a href="https://id.atlassian.com/manage/api-tokens" target="_blank" rel="noreferrer" className="underline hover:text-foreground">id.atlassian.com/manage/api-tokens</a> and sign in.</li>
+              <li>Click <strong>Create API token</strong>, give it a label (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mdspec</code>), and set an expiry date.</li>
+              <li>Click <strong>Create</strong> then <strong>Copy to clipboard</strong> immediately — the token is shown only once.</li>
+            </ol>
+            <p className="text-sm text-muted-foreground">Tokens expire after 1 year by default. When it expires, revoke the old token, generate a new one, and reconnect the integration in the dashboard.</p>
+
+            <p className="text-sm font-medium mt-2">Step 2 — Find your Base URL</p>
+            <p className="text-sm text-muted-foreground">
+              Your base URL is the root Atlassian Cloud domain with no trailing path:
+            </p>
+            <CodeBlock>{`https://yourcompany.atlassian.net`}</CodeBlock>
+            <p className="text-sm text-muted-foreground">
+              Do not include <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/wiki</code> or any path after the domain — mdspec appends <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/wiki/rest/api/...</code> automatically.
+            </p>
+
+            <p className="text-sm font-medium mt-2">Step 3 — Find your Space key</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>In Confluence, navigate to the target space and click <strong>Space settings</strong> in the left sidebar.</li>
+              <li>The <strong>Space key</strong> is shown under <strong>Space details</strong> — a short uppercase string, e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">ENG</code>.</li>
+            </ol>
+            <p className="text-sm text-muted-foreground">Alternatively, read it from the URL:</p>
+            <CodeBlock>{`https://yourcompany.atlassian.net/wiki/spaces/ENG/...
+#                                               ^^^
+#                                           space key`}</CodeBlock>
+
+            <p className="text-sm font-medium mt-2">Step 4 — Check permissions</p>
+            <p className="text-sm text-muted-foreground">
+              The Atlassian account whose token you use must have <strong>Create and edit pages</strong> permission on the target space. Verify under <strong>Space settings → Permissions</strong>.
+            </p>
+
+            <p className="text-sm font-medium mt-2">Step 5 — Connect in mdspec</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>Go to <strong>Dashboard → Integrations → Connect → Confluence</strong>.</li>
+              <li>Fill in all four fields:</li>
+            </ol>
+            <Table
+              headers={['Field', 'Example']}
+              rows={[
+                ['Base URL', '`https://yourcompany.atlassian.net`'],
+                ['Email', 'The email on your Atlassian account'],
+                ['API token', 'The token copied in step 1'],
+                ['Space key', '`ENG`'],
+              ]}
+            />
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground" start={3}>
+              <li>Click <strong>Save</strong>. mdspec validates the space key and credentials before saving.</li>
+            </ol>
+
+            <Table
+              headers={['Error', 'Likely cause']}
+              rows={[
+                ['`Invalid credentials`', 'Wrong email, expired token, or extra whitespace in the token'],
+                ['Space not found', 'Space key is wrong or the account cannot see that space'],
+                ['Could not reach Confluence', 'Base URL has a trailing slash or extra path segment'],
+                ['`403 Forbidden`', 'Account lacks Create / Edit page permissions in the space'],
+              ]}
+            />
+
+            <h3 className="text-sm font-semibold pt-2">Frontmatter</h3>
+            <p className="text-sm text-muted-foreground">
+              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">confluence_page_id</code> in frontmatter to bind a spec to an existing Confluence page. See <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a>.
+            </p>
           </section>
 
           <Separator />

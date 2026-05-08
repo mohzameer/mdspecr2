@@ -42,7 +42,7 @@ You can find it in the browser when you open any Confluence page — copy everyt
 ## Step 3 — Find your Space key
 
 1. In Confluence, navigate to the space where you want mdspec to publish.
-2. Click **Space settings** in the left sidebar (or the gear icon).
+2. Click **Space settings** in the left sidebar.
 3. The **Space key** is shown under **Space details** — it is a short uppercase string, e.g. `ENG`, `DOCS`, or `PLATFRM`.
 
 Alternatively, look at the URL when browsing a space:
