@@ -19,7 +19,7 @@ type ConnectForm = {
     database_id: string
     data_source_id: string
   }
-  confluence: { base_url: string; email: string; token: string; space_key: string }
+  confluence: { space_url: string; base_url: string; email: string; token: string; space_key: string }
   clickup: { api_token: string; workspace_url: string }
   s3: { access_key_id: string; secret_access_key: string; bucket: string; region: string }
 }
@@ -30,6 +30,18 @@ type NotionSharedItem = { id: string; title: string; url?: string }
 function parseClickUpWorkspaceId(url: string): string | null {
   const match = url.match(/app\.clickup\.com\/(\d+)/)
   return match ? match[1] : null
+}
+
+function parseConfluenceSpaceUrl(url: string): { base_url: string; space_key: string } | null {
+  try {
+    const u = new URL(url.trim())
+    if (!u.protocol.startsWith('http')) return null
+    const base_url = `${u.protocol}//${u.host}`
+    const match = u.pathname.match(/\/wiki\/spaces\/([^/]+)/)
+    return { base_url, space_key: match ? match[1] : '' }
+  } catch {
+    return null
+  }
 }
 
 function formatNotionUuid(hex: string): string {
@@ -81,7 +93,7 @@ export default function IntegrationsPage() {
   const [connecting, setConnecting] = useState<IntegrationType | null>(null)
   const [form, setForm] = useState<ConnectForm>({
     notion: { token: '', root_page_id: '', mode: 'page', database_id: '', data_source_id: '' },
-    confluence: { base_url: '', email: '', token: '', space_key: '' },
+    confluence: { space_url: '', base_url: '', email: '', token: '', space_key: '' },
     clickup: { api_token: '', workspace_url: '' },
     s3: { access_key_id: '', secret_access_key: '', bucket: '', region: '' },
   })
@@ -264,7 +276,8 @@ export default function IntegrationsPage() {
 
     if (type === 'confluence') {
       setSaving(true)
-      const creds = form.confluence
+      const { base_url, email, token, space_key } = form.confluence
+      const creds = { base_url, email, token, space_key }
       const validateRes = await fetch('/api/integrations/confluence/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -459,7 +472,34 @@ export default function IntegrationsPage() {
                   )}
                   {type === 'confluence' && (
                     <>
-                      <Field label="Base URL" value={form.confluence.base_url} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, base_url: v } }); setConfluenceValidateError(null) }} placeholder="https://mycompany.atlassian.net" />
+                      <Field
+                        label="Space URL"
+                        value={form.confluence.space_url}
+                        onChange={(v) => {
+                          const parsed = parseConfluenceSpaceUrl(v)
+                          setForm({
+                            ...form,
+                            confluence: {
+                              ...form.confluence,
+                              space_url: v,
+                              base_url: parsed?.base_url ?? form.confluence.base_url,
+                              space_key: parsed?.space_key || form.confluence.space_key,
+                            },
+                          })
+                          setConfluenceValidateError(null)
+                        }}
+                        placeholder="https://mycompany.atlassian.net/wiki/spaces/ENG/..."
+                      />
+                      {form.confluence.space_url && (() => {
+                        const parsed = parseConfluenceSpaceUrl(form.confluence.space_url)
+                        if (!parsed) return <p className="text-xs text-yellow-600">Could not parse URL. Paste your Confluence space URL.</p>
+                        return (
+                          <p className="text-xs text-zinc-400">
+                            Detected: <span className="text-zinc-600 dark:text-zinc-300">{parsed.base_url}</span>
+                            {parsed.space_key && <> · Space: <span className="font-mono text-zinc-600 dark:text-zinc-300">{parsed.space_key}</span></>}
+                          </p>
+                        )
+                      })()}
                       <Field label="Email" value={form.confluence.email} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, email: v } }); setConfluenceValidateError(null) }} placeholder="you@company.com" type="email" />
                       <Field label="API token" value={form.confluence.token} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, token: v } }); setConfluenceValidateError(null) }} placeholder="Atlassian API token" />
                       <Field label="Space key" value={form.confluence.space_key} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, space_key: v } }); setConfluenceValidateError(null) }} placeholder="ENG" />

@@ -133,13 +133,13 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
 
   const spec = { path, content, frontmatter }
 
-  // Look up folder mapping for ClickUp routing (target_id, clickup_doc_id, folder name)
+  // Look up folder mapping for integrations that support per-folder parent override
   let folderMappingTargetId: string | null = null
   let folderMappingId: string | null = null
   let folderMappingClickupDocId: string | null = null
   let folderMappingClickupPageId: string | null = null
   let folderMappingPath: string | null = null
-  if (target_type === 'clickup') {
+  if (target_type === 'clickup' || target_type === 'confluence') {
     const { getAncestorFolders } = await import('../lib/folderHierarchy.js')
     const ancestors = getAncestorFolders(path).slice().reverse()
     if (ancestors.length > 0) {
@@ -158,10 +158,12 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
           const match = mappings.find((m) => m.folder_path.replace(/^\//, '').replace(/\/$/, '') === norm)
           if (match) {
             folderMappingTargetId = match.target_id ?? null
-            folderMappingId = match.id
-            folderMappingClickupDocId = match.clickup_doc_id ?? null
-            folderMappingClickupPageId = match.clickup_page_id ?? null
-            folderMappingPath = norm
+            if (target_type === 'clickup') {
+              folderMappingId = match.id
+              folderMappingClickupDocId = match.clickup_doc_id ?? null
+              folderMappingClickupPageId = match.clickup_page_id ?? null
+              folderMappingPath = norm
+            }
             break
           }
         }
@@ -199,7 +201,8 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
             space_key: credentials.space_key as string,
           },
           spec,
-          existingPageId
+          existingPageId,
+          folderMappingTargetId
         )
         break
 
