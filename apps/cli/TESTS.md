@@ -85,7 +85,7 @@ Verifies that `sync_all_on_first_run: true` causes all files to be included on t
 
 Tests `readMdspecMap()`, `readMdspecMapAt()`, `resolveConfigPaths()`, and `mergeConfigs()`.
 
-Covers YAML parsing, validation errors, path resolution (scope-relative → repo-relative), and merging multiple configs from different directories into a single publish payload.
+Covers YAML parsing, validation errors, path resolution (scope-relative → repo-relative), merging multiple configs from different directories, and `parent:` value parsing — including `alias:<name>`, `id:<nativeId>`, and bare values.
 
 ---
 
@@ -109,4 +109,4 @@ Verifies that `mdspeci init` creates a correctly structured `.mdspecmap` file, h
 
 Tests `publishCommand()` error responses.
 
-Covers server error codes (4xx, 5xx), network failures, and invalid config errors — verifying the CLI exits with non-zero status and prints a useful message in each case.
+Covers server error codes (4xx, 5xx), network failures, and invalid config errors — including the 422 `unresolved_aliases` response which lists each unresolved alias name and its closest suggestion. Verifies the CLI exits with non-zero status and prints a useful message in each case.
