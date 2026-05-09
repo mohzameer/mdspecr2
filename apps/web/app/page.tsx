@@ -73,7 +73,7 @@ export default async function LandingPage() {
           <IntegrationBadge label="S3" active />
           <IntegrationBadge label="Confluence" active />
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">Notion, ClickUp, S3 & Confluence — all available now</p>
+        <p className="mt-3 text-xs text-muted-foreground">Sync your GitHub repo to Notion, ClickUp, S3 & Confluence — automatically on every push</p>
       </section>
 
       <Separator className="max-w-5xl mx-auto" />

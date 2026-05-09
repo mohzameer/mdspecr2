@@ -594,64 +594,29 @@ On transient failures, the checkout service retries up to 3 times...`}</CodeBloc
             </p>
             <CodeBlock>{`---
 title: Checkout Retry Policy
-clickup_id: 86abc123
+id: 86abc123
 ---
 
 # Checkout Retry Policy
 
 On transient failures, the checkout service retries up to 3 times...`}</CodeBlock>
 
-            <h3 className="text-base font-semibold pt-2">Native ID keys</h3>
+            <h3 className="text-base font-semibold pt-2">Native ID key</h3>
             <p className="text-sm text-muted-foreground">
-              Each integration has a default frontmatter key. Setting it binds the spec to an existing remote page or task — mdspec adopts that ID instead of creating a new one. The file is authoritative: if the ID changes in frontmatter, the binding re-points on the next publish.
+              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id:</code> to bind a spec to an existing remote page, doc, or task. mdspec adopts that ID instead of creating a new record. The file is authoritative: if the ID changes in frontmatter, the binding re-points on the next publish. Works across all integrations — Notion page ID, Confluence page ID, ClickUp doc or task ID, S3 object key.
             </p>
-            <Table
-              headers={['Integration', 'Default key', 'Resolves to']}
-              rows={[
-                ['ClickUp', '`clickup_id`', 'Task ID (task_list mode) or doc page ID (doc mode)'],
-                ['Notion', '`notion_page_id`', 'Notion page ID'],
-                ['Confluence', '`confluence_page_id`', 'Confluence page ID'],
-                ['S3', '`s3_key`', 'Full object key (overrides the computed key)'],
-              ]}
-            />
             <p className="text-sm text-muted-foreground">
               <strong>ClickUp task_list mode:</strong> the value can be a custom task ID (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">CU-123</code>) — mdspec resolves it to a native task ID before adoption when the mapping has <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">custom_task_ids: true</code>.
             </p>
 
-            <h3 className="text-base font-semibold pt-2">Copy-paste snippets</h3>
+            <h3 className="text-base font-semibold pt-2">Copy-paste snippet</h3>
             <p className="text-sm text-muted-foreground">
-              Drop one of these at the top of your spec file, replace the ID, and publish:
+              Drop this at the top of your spec file, replace the ID, and publish:
             </p>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">ClickUp</p>
-                <CodeBlock>{`---
+            <CodeBlock>{`---
 title: My Spec
-clickup_id: 86abc123
+id: <native-id>
 ---`}</CodeBlock>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">Notion</p>
-                <CodeBlock>{`---
-title: My Spec
-notion_page_id: 1a2b3c4d5e6f7890
----`}</CodeBlock>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">Confluence</p>
-                <CodeBlock>{`---
-title: My Spec
-confluence_page_id: "123456789"
----`}</CodeBlock>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">S3</p>
-                <CodeBlock>{`---
-title: My Spec
-s3_key: docs/specs/my-spec.md
----`}</CodeBlock>
-              </div>
-            </div>
 
             <h3 className="text-base font-semibold pt-2">Title</h3>
             <p className="text-sm text-muted-foreground">
@@ -660,7 +625,7 @@ s3_key: docs/specs/my-spec.md
 
             <h3 className="text-base font-semibold pt-2">Renaming the keys (frontmatter_map)</h3>
             <p className="text-sm text-muted-foreground">
-              If your team already uses a different convention (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">task:</code> instead of <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">clickup_id:</code>), set <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">frontmatter_map</code> on the folder mapping. It accepts <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id</code> (native ID lookup) and, for ClickUp, <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">title</code>.
+              If your team already uses a different convention (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">task:</code> instead of <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id:</code>), set <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">frontmatter_map</code> on the folder mapping. It accepts <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id</code> (native ID lookup) and <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">title</code>.
             </p>
             <CodeBlock>{`mappings:
   - folder: docs
@@ -668,7 +633,7 @@ s3_key: docs/specs/my-spec.md
     target: task
     list_id: id:901812345
     frontmatter_map:
-      id: task          # look up "task:" instead of "clickup_id:"
+      id: task          # look up "task:" instead of "id:"
       title: heading    # look up "heading:" instead of "title:"`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
               Per-mapping <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">frontmatter_map</code> values can also be edited directly from the project map UI.
@@ -943,7 +908,7 @@ mappings:
 
             <h3 className="text-sm font-semibold">Frontmatter</h3>
             <p className="text-sm text-muted-foreground">
-              Both modes use the same <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">notion_page_id</code> frontmatter key to link a spec to an existing Notion page or row. See <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a>.
+              Both modes use the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id</code> frontmatter key to link a spec to an existing Notion page or row. See <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a>.
             </p>
 
             <h3 className="text-sm font-semibold">Connect a Notion integration</h3>
@@ -1050,7 +1015,7 @@ https://www.notion.so/myworkspace/Engineering-Specs-a1b2c3d4e5f6a1b2c3d4e5f6a1b2
 
             <h3 className="text-sm font-semibold pt-2">Frontmatter</h3>
             <p className="text-sm text-muted-foreground">
-              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">clickup_id</code> in frontmatter to bind a spec to an existing ClickUp task or doc page. See <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a>.
+              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id</code> in frontmatter to bind a spec to an existing ClickUp task or doc page. See <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a>.
             </p>
           </section>
 
@@ -1127,7 +1092,7 @@ https://www.notion.so/myworkspace/Engineering-Specs-a1b2c3d4e5f6a1b2c3d4e5f6a1b2
 
             <h3 className="text-sm font-semibold pt-2">Frontmatter</h3>
             <p className="text-sm text-muted-foreground">
-              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">confluence_page_id</code> in frontmatter to bind a spec to an existing Confluence page. See <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a>.
+              Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id</code> in frontmatter to bind a spec to an existing Confluence page. See <a href="#frontmatter" className="underline hover:text-foreground">Frontmatter</a>.
             </p>
           </section>
 
@@ -1347,85 +1312,175 @@ handbook/people/benefits.md`}</CodeBlock>
               It tells the agent to keep your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> in sync as it writes and moves spec files.
             </p>
             <p className="text-sm text-muted-foreground">This is a suggestion — adapt it to your project structure.</p>
-            <CodeBlock>{`This project uses mdspec to publish markdown spec files to external tools (Notion, ClickUp, S3, etc.).
+            <CodeBlock>{`This project uses mdspec to publish markdown spec files to external tools (Notion, ClickUp, Confluence, S3, etc.).
 
 Rules for working with spec files:
 
-1. Spec files are plain markdown. YAML frontmatter is optional — see rule 9 below.
-   Any .md file in a folder with a .mdspecmap file (or a .mdspecmap in any parent folder)
-   is automatically picked up by mdspec on the next CI run.
+────────────────────────────────────────
+SPEC FILES
+────────────────────────────────────────
 
-2. .mdspecmap files can live anywhere in the repo. A file governs the folder it lives in
-   and all subfolders. The nearest .mdspecmap ancestor wins for any given spec file.
-   Each .mdspecmap has two sections:
-   - mappings: — maps this folder (and optionally subfolders) to integrations
-   - specs:    — optional per-spec config, keyed by file path
+1. Spec files are plain markdown. Any .md file in a folder governed by a .mdspecmap is
+   automatically picked up by mdspec on the next CI run. YAML frontmatter is optional —
+   see rule 12 below.
 
-   The parent: field in mappings supports four forms:
-     parent: alias:<name>      # dashboard alias
-     parent: id:<nativeId>     # raw native ID (ClickUp space/list/doc ID, Notion page ID, etc.)
-     parent: link:<url>        # browser URL — CLI extracts the native ID at publish time
-     parent: <bare>            # tries alias first, falls back to raw ID
+────────────────────────────────────────
+.mdspecmap FILE STRUCTURE
+────────────────────────────────────────
 
-   For S3 integrations, the parent alias resolves to an S3 key prefix (the "parent directory").
-   Set maintain_hierarchy: true on an S3 mapping to preserve subfolder paths under that prefix
-   (default false flattens to the basename).
+2. A .mdspecmap file governs the folder it lives in and all subfolders (by default).
+   The nearest .mdspecmap ancestor wins for any given spec file — a subfolder map takes
+   full precedence over any ancestor map for files in that subtree.
 
-3. When you CREATE a new spec file:
-   - If it needs a custom title (different from the H1 heading or filename), add an entry:
+   When to create a new .mdspecmap:
+   - Put one in any subfolder that needs different integration, parent, or routing rules.
+   - Do NOT add a folder: key inside mappings — location IS the scope.
+
+3. Every .mdspecmap must start with:
+     version: 1
+
+   Top-level sections (all optional except mappings):
+     version:   (required) always 1
+     default:   fallback integration/parent/target/agent for mappings that omit them
+     mappings:  (required) list of routing rules
+     specs:     per-spec overrides, keyed by file path
+     sub_folders: controls recursion (see rule 6)
+
+────────────────────────────────────────
+MAPPINGS
+────────────────────────────────────────
+
+4. Each mapping entry routes this folder's specs to one integration. Fields:
+
+     integration:  notion | confluence | clickup | s3
+     parent:       where specs publish inside the target tool (see rule 5)
+     skip:         glob list of filenames/paths to exclude (see rule 7)
+     depth:        max subfolder depth — omit for unlimited, 1 = direct children only
+     agent:        agent template name to run before publishing
+     target:       (ClickUp only) document (default) or task
+     list_id:      (ClickUp task mode) id:<listId> — required when target: task
+     parent_doc:   (ClickUp doc mode) id:<docId> — specs publish as pages inside this doc
+     space_id:     (ClickUp) id:<spaceId> — space or folder containing the list/doc
+     custom_task_ids: (ClickUp task mode) true to use custom task IDs (e.g. ENG-1234)
+     maintain_hierarchy: (S3 only) true preserves subfolder paths under the alias prefix;
+                         false (default) flattens to the basename
+
+   Multiple mappings for the same folder = publishes to multiple integrations:
+     mappings:
+       - integration: notion
+         parent: alias:eng-docs
+       - integration: s3
+         parent: alias:eng-specs
+
+5. The parent: field supports four forms:
+     parent: alias:<name>   # dashboard alias (most common)
+     parent: id:<nativeId>  # raw native ID (ClickUp space/list/doc, Notion page ID, etc.)
+     parent: link:<url>     # browser URL — CLI extracts the native ID at publish time
+     parent: <bare>         # tries alias first, falls back to raw ID
+
+6. Recursion — sub_folders: controls which subfolders are included:
+     sub_folders: true      # (default/omitted) this folder and all subfolders recursively
+     sub_folders: false     # direct children only — equivalent to depth: 1
+     sub_folders:           # only the listed glob patterns (relative to this file's location)
+       - api/**
+       - guides/**
+
+   depth: caps recursion depth regardless of sub_folders:
+     depth: 1               # direct children only
+     depth: 2               # one level of nesting
+
+7. Skip patterns exclude files from publishing. Matched against filename AND path relative
+   to the .mdspecmap file's location:
+     skip:
+       - DRAFT_*.md         # by filename pattern
+       - _*.md
+       - "**/scratch/**"    # by path pattern (quote globs with **)
+
+8. default: sets fallback values for mappings that omit them:
+     default:
+       integration: clickup
+       parent: alias:eng-docs
+       target: document
+       agent: My Template
+
+   Per-mapping fields always override default. Mix freely:
+     default:
+       integration: clickup
+       parent: alias:eng-docs
+     mappings:
+       - {}                          # inherits both from default
+       - parent: alias:other-docs    # overrides parent only, inherits integration
+
+────────────────────────────────────────
+specs: SECTION
+────────────────────────────────────────
+
+9. When you CREATE a new spec file that needs a custom title, ID, or agent, add an entry:
      specs:
        path/to/new-file.md:
-         title: Human Readable Title
+         title: Human Readable Title    # overrides H1 heading and filename derivation
+         id: CU-123                     # binds to existing page/task in target tool
+         agent: My Template             # agent template for this file only
 
-4. When you CREATE a spec that should link to an existing page, doc, or task in the target tool:
-   - Add the native ID under the file path:
-     specs:
-       path/to/new-file.md:
-         id: CU-123        # ClickUp task/doc ID, Notion page ID, Confluence page ID, etc.
+   Title resolution order (highest priority first):
+     1. frontmatter title:
+     2. specs[path].title in .mdspecmap
+     3. First # H1 heading in the file
+     4. Filename (hyphens/underscores → spaces)
 
-5. When you RENAME or MOVE a spec file:
-   - Update the key in specs: to the new path if an entry exists.
-   - The old key becomes stale and the title/task config stops applying.
-   - Example:
-       # Before
-       specs:
-         docs/old-name.md:
-           title: My Spec
-           id: CU-123
+10. When you RENAME or MOVE a spec file:
+    - Update the key in specs: to the new path.
+    - The old key becomes stale — title overrides, agent, and ID bindings stop applying.
+    Example:
+      # Before
+      specs:
+        docs/old-name.md:
+          title: My Spec
+          id: CU-123
+      # After
+      specs:
+        docs/new-name.md:
+          title: My Spec
+          id: CU-123
 
-       # After rename to docs/new-name.md
-       specs:
-         docs/new-name.md:
-           title: My Spec
-           id: CU-123
+11. When you DELETE a spec file:
+    - Remove its entry from specs: if one exists.
+    - Do not remove the folder mapping — other files in the folder still use it.
 
-6. When you DELETE a spec file:
-   - Remove its entry from specs: if one exists.
-   - Do not remove the folder mapping — other files may still use it.
+    If a path contains spaces, quote the key:
+      specs:
+        "docs/my auth spec.md":
+          title: Auth Spec
+    Unquoted keys with spaces are invalid YAML and will cause a publish error.
 
-7. If a file path contains spaces, quote the key in .mdspecmap:
-     specs:
-       "docs/specs/my auth spec.md":
-         title: Auth Spec
-   Unquoted keys with spaces are invalid YAML and will cause the CLI to error.
+────────────────────────────────────────
+FRONTMATTER (per-file, overrides .mdspecmap)
+────────────────────────────────────────
 
-8. .mdspecmap is the centralized place for configuration, but per-file YAML frontmatter
-   is also supported — see rule 9.
+12. YAML frontmatter is optional. When present it takes precedence over .mdspecmap.
+    Allowed keys: title, id, agent. Any other key is a hard error.
 
-9. Optional YAML frontmatter (the file is the source of truth — overrides .mdspecmap):
-     ---
-     title: Human Readable Title
-     clickup_id: 86abc123        # or notion_page_id / confluence_page_id / s3_key
-     ---
-     # H1 here
+      ---
+      title: Human Readable Title
+      id: 86abc123     # native ID of an existing page, doc, or task in the target tool
+      agent: My Template
+      ---
+      # H1 here
 
-   - Frontmatter is stripped before publishing; remote docs never contain --- markers.
-   - Native ID keys (clickup_id, notion_page_id, confluence_page_id, s3_key) bind the
-     spec to an existing remote page/task. Changing the ID re-points the binding on the
-     next publish.
-   - title: in frontmatter overrides specs[].title in .mdspecmap and the body H1.
-   - To rename the keys (e.g. use \`task:\` instead of \`clickup_id:\`), set
-     \`frontmatter_map\` on the folder mapping in .mdspecmap.`}</CodeBlock>
+    - Frontmatter is stripped before publishing — the remote doc never contains --- markers.
+    - id: binds the spec to an existing remote page/task (all integrations).
+      Changing it re-points the binding on the next publish.
+    - title: overrides specs[].title in .mdspecmap and the body H1.
+    - agent: runs this template instead of the folder-level agent.
+    - To use a custom key name instead of id: (e.g. task:), set frontmatter_map on the
+      mapping in .mdspecmap:
+        mappings:
+          - integration: clickup
+            target: task
+            list_id: id:901812345
+            frontmatter_map:
+              id: task       # read "task:" from frontmatter instead of "id:"
+              title: heading # read "heading:" instead of "title:"`}</CodeBlock>
           </section>
         </main>
       </div>
