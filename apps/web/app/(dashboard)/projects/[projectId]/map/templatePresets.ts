@@ -323,4 +323,40 @@ Unresolved schema decisions or areas needing further design.
 
 Output clean markdown suitable for publishing to {{target_integration}}.`,
   },
+  {
+    id: 'runbook_template',
+    name: 'Incident Runbook Template',
+    description: 'Transforms a service or infrastructure spec into an operational runbook for on-call engineers.',
+    bestFor: 'Ops teams, PagerDuty context, Confluence',
+    instructions: `You are a technical documentation agent. Transform the provided spec into a practical incident runbook for on-call engineers. Write for someone paged at 2am who needs to diagnose and recover fast — be specific, be concrete, avoid filler.
+
+## Service Overview
+What does this service do? What is its role in the wider system? Who owns it?
+
+## Health Checks and Monitoring
+List the key signals that indicate this service is healthy — metrics, dashboards, logs, synthetic checks. Include alert names and what thresholds trigger them.
+
+## Common Failure Modes
+For each known or likely failure mode:
+- Symptom: what does it look like in alerts, logs, or user reports?
+- Cause: what typically causes this?
+- Impact: what breaks for users or downstream systems?
+
+## Diagnostic Steps
+Step-by-step instructions for triaging an incident — in order. Include specific commands, log queries, dashboard links, or API calls an on-call engineer should run.
+
+## Recovery Procedures
+Concrete remediation steps for each failure mode. Prefer specific commands or runnable actions over vague guidance. Note any steps that are destructive or require approval.
+
+## Escalation Path
+Who to contact if the on-call engineer cannot resolve the incident alone — names, roles, and how to reach them (Slack, PagerDuty, phone). Include SLA expectations for escalation response.
+
+## Rollback Procedure
+How to roll back a bad deployment or configuration change. Include the exact steps, who can approve a rollback, and how to verify the rollback succeeded.
+
+## Related Runbooks
+Links or references to runbooks for upstream and downstream services, or related failure scenarios.
+
+Output clean markdown suitable for publishing to {{target_integration}}.`,
+  },
 ]

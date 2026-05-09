@@ -1,5 +1,18 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import {
+  ClipboardList,
+  Layers,
+  Code2,
+  FileText,
+  UserCheck,
+  Shield,
+  Rocket,
+  Zap,
+  Database,
+  AlertTriangle,
+  type LucideIcon,
+} from 'lucide-react'
 
 export const metadata: Metadata = {
   title: "mdspec — Keep writing markdown. We'll handle the rest.",
@@ -137,6 +150,30 @@ export default async function LandingPage() {
 
       <Separator className="max-w-5xl mx-auto" />
 
+      {/* Agent Templates */}
+      <section className="px-6 py-20">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Agent templates</p>
+          <p className="text-center text-sm text-muted-foreground mb-10 max-w-xl mx-auto">
+            Assign a template to any folder and the agent transforms your spec before it publishes — no prompting required.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <TemplateCard icon={ClipboardList} name="Task" bestFor="Jira · ClickUp" />
+            <TemplateCard icon={Layers}        name="ADR" bestFor="Confluence · Notion" />
+            <TemplateCard icon={Code2}         name="API Reference" bestFor="Dev portals · Notion" />
+            <TemplateCard icon={FileText}      name="RFC" bestFor="Engineering review" />
+            <TemplateCard icon={UserCheck}     name="Onboarding Doc" bestFor="Team wikis · Notion" />
+            <TemplateCard icon={Shield}        name="Security Review" bestFor="Audits · Compliance" />
+            <TemplateCard icon={Rocket}        name="Release Notes" bestFor="Changelog · Notion" />
+            <TemplateCard icon={Zap}           name="Sprint Brief" bestFor="Sprint ceremonies" />
+            <TemplateCard icon={Database}      name="Data Model" bestFor="Schema wikis" />
+            <TemplateCard icon={AlertTriangle} name="Incident Runbook" bestFor="Ops · PagerDuty" />
+          </div>
+        </div>
+      </section>
+
+      <Separator className="max-w-5xl mx-auto" />
+
       {/* Security & compliance */}
       <section className="px-6 py-20">
         <div className="max-w-3xl mx-auto">
@@ -267,5 +304,19 @@ function Feature({ title, description }: { title: string; description: string })
         <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
       </CardContent>
     </Card>
+  )
+}
+
+function TemplateCard({ icon: Icon, name, bestFor }: { icon: LucideIcon; name: string; bestFor: string }) {
+  return (
+    <div className="group rounded-xl border border-border bg-card p-4 flex flex-col gap-3 hover:border-foreground/20 hover:shadow-sm transition-all duration-150">
+      <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-muted-foreground group-hover:text-foreground transition-colors">
+        <Icon size={16} strokeWidth={1.5} />
+      </div>
+      <div>
+        <p className="text-sm font-medium leading-snug">{name}</p>
+        <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{bestFor}</p>
+      </div>
+    </div>
   )
 }
