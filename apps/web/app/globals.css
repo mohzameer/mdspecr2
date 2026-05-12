@@ -117,6 +117,20 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+@keyframes travel-h {
+  0%   { left: -8px; opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { left: calc(100% + 8px); opacity: 0; }
+}
+
+@keyframes travel-v {
+  0%   { top: -8px; opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { top: calc(100% + 8px); opacity: 0; }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

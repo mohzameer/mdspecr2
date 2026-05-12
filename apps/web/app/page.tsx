@@ -11,6 +11,9 @@ import {
   Zap,
   Database,
   AlertTriangle,
+  HardDrive,
+  Workflow,
+  BookMarked,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -32,6 +35,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { HowItWorksFlow } from '@/components/HowItWorksFlow'
 import { createSupabaseServerClient } from '@/lib/db-server'
 
 export default async function LandingPage() {
@@ -77,6 +81,9 @@ export default async function LandingPage() {
           <a href="#how-it-works" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
             How it works
           </a>
+          <a href="#why" className={buttonVariants({ variant: 'ghost', size: 'lg' })}>
+            Why do I need this
+          </a>
         </div>
 
         {/* Integration badges */}
@@ -87,6 +94,35 @@ export default async function LandingPage() {
           <IntegrationBadge label="Confluence" active />
         </div>
         <p className="mt-3 text-xs text-muted-foreground">Sync your GitHub repo to Notion, ClickUp, S3 & Confluence — automatically on every push</p>
+      </section>
+
+      <Separator className="max-w-5xl mx-auto" />
+
+      {/* Why do I need this */}
+      <section id="why" className="px-6 py-20">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Why do I need this</p>
+          <p className="text-center text-sm text-muted-foreground mb-10 max-w-xl mx-auto">
+            Engineering teams don&apos;t need another docs tool. They need documentation that keeps pace with the codebase — automatically.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-6">
+            <WhyCard
+              icon={HardDrive}
+              title="Decouple Documentation from Your Repository"
+              description="As your project scales, markdown specs can quietly bloat your repository. mdspec offloads files directly to S3 on every push — keeping your codebase lean while your documentation remains versioned, accessible, and independently searchable."
+            />
+            <WhyCard
+              icon={Workflow}
+              title="Close the Loop on Agent-Driven Tasks"
+              description="Pair agent templates with your spec files and every push becomes a trigger for structured automation. Release notes, task summaries, and ADRs are generated and published without manual intervention — keeping your project management tools in sync with what your team is actually shipping."
+            />
+            <WhyCard
+              icon={BookMarked}
+              title="A Wiki That Reflects Reality"
+              description="Stop reconciling documentation by hand. Every time code ships, mdspec ensures your Confluence, Notion, or ClickUp wiki reflects the latest state of your project. No stale runbooks. No outdated specs. Just a single source of truth that updates itself."
+            />
+          </div>
+        </div>
       </section>
 
       <Separator className="max-w-5xl mx-auto" />
@@ -145,6 +181,19 @@ export default async function LandingPage() {
             <Feature title="Docs backup" description="Remove a file from the repo and it stays in the target tool. Published docs are never deleted automatically." />
             <Feature title="Team-friendly" description="Different teams can manage their own .mdspecmap files — separately or in a monorepo — and sync to the same destination." />
           </div>
+        </div>
+      </section>
+
+      <Separator className="max-w-5xl mx-auto" />
+
+      {/* Under the hood — interactive pipeline diagram */}
+      <section className="px-6 py-20">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Under the hood</p>
+          <p className="text-center text-sm text-muted-foreground mb-10 max-w-xl mx-auto">
+            Here&apos;s what actually happens between your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">git push</code> and a published doc — including the optional agent step that transforms your markdown before it lands anywhere.
+          </p>
+          <HowItWorksFlow />
         </div>
       </section>
 
@@ -302,6 +351,22 @@ function Feature({ title, description }: { title: string; description: string })
       <CardContent className="p-4">
         <h3 className="text-sm font-semibold mb-1">{title}</h3>
         <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function WhyCard({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
+  return (
+    <Card className="flex flex-col">
+      <CardContent className="p-6 flex flex-col gap-4 flex-1">
+        <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center text-muted-foreground">
+          <Icon size={20} strokeWidth={1.5} />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold leading-snug mb-2">{title}</h3>
+          <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
+        </div>
       </CardContent>
     </Card>
   )
