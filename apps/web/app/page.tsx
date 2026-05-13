@@ -152,7 +152,7 @@ export default async function LandingPage() {
               <div className="text-foreground">version: <span className="text-foreground">1</span></div>
               <div className="text-foreground">mappings:</div>
               <div className="text-muted-foreground ml-2">{'- '}<span className="text-foreground">integration: s3</span></div>
-              <div className="text-muted-foreground ml-4">parent: <span className="text-foreground">eng-bucket</span></div>
+              <div className="text-muted-foreground ml-4">parent: <span className="text-foreground">alias:eng-bucket</span><span className="text-muted-foreground ml-2">{' # alias → S3 key prefix in dashboard'}</span></div>
             </CardContent>
           </Card>
           <Card>
@@ -164,6 +164,9 @@ export default async function LandingPage() {
               <div className="text-muted-foreground ml-4">MDSPEC_TOKEN: <span className="text-foreground">{'${{ secrets.MDSPEC_TOKEN }}'}</span></div>
             </CardContent>
           </Card>
+          <p className="text-xs text-amber-600 dark:text-amber-500 text-center">
+            ⚠ The npm package is <code className="font-mono bg-amber-50 dark:bg-amber-950/40 px-1 rounded">mdspeci</code> (trailing i) — not <code className="font-mono bg-amber-50 dark:bg-amber-950/40 px-1 rounded">mdspec</code>. Running <code className="font-mono bg-amber-50 dark:bg-amber-950/40 px-1 rounded">npx mdspec</code> installs an unrelated third-party package and exposes your CI secrets to it.
+          </p>
         </div>
       </section>
 
@@ -178,7 +181,7 @@ export default async function LandingPage() {
 <Feature title="Skip patterns" description="Exclude files with glob patterns in .mdspecmap." />
 <Feature title="One repo, any number of integrations" description="Map different folders to different tools — one team's specs go to ClickUp, another's to S3, all from the same repo." />
             <Feature title="Agent layer" description="Transform specs post-publish with built-in templates like task summaries and release notes." />
-            <Feature title="Docs backup" description="Remove a file from the repo and it stays in the target tool. Published docs are never deleted automatically." />
+            <Feature title="Docs backup" description="Remove a file from the repo and it stays in the target tool. Published docs are not deleted automatically — manual cleanup in the target tool is required if you want to remove a published doc." />
             <Feature title="Team-friendly" description="Different teams can manage their own .mdspecmap files — separately or in a monorepo — and sync to the same destination." />
           </div>
         </div>
@@ -228,7 +231,7 @@ export default async function LandingPage() {
         <div className="max-w-3xl mx-auto">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Security & compliance</p>
           <p className="text-center text-sm text-muted-foreground mb-8">
-            mdspec runs on Vercel — SOC 2 Type II certified and ISO 27001 compliant infrastructure.
+            Hosted on Vercel (SOC 2 Type II certified, ISO 27001 compliant). mdspec does not currently hold its own certifications — the controls below describe our operational security choices.
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <Card>

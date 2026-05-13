@@ -143,20 +143,21 @@ export default function DocsPage() {
               Its location defines its scope — the folder it lives in and all subfolders will be synced according to the mappings declared inside it.
               All routing, IDs, titles, and task wiring live in these files. Spec files are plain markdown with no special syntax.
             </p>
-            <p className="text-sm text-muted-foreground">The file has three top-level sections:</p>
+            <p className="text-sm text-muted-foreground">The file has four top-level keys:</p>
             <Table
-              headers={['Section', 'Purpose']}
+              headers={['Key', 'Required', 'Purpose']}
               rows={[
-                ['`mappings`', 'Required. Maps folders to integrations.'],
-                ['`default`', 'Optional. Fallback integration and parent applied to any mapping that omits them.'],
-                ['`specs`', 'Optional. Per-spec config keyed by file path — title, agent, task link.'],
+                ['`version`', 'Yes', 'Schema version. Always `1`.'],
+                ['`mappings`', 'Yes', 'Routes specs in this folder to integrations.'],
+                ['`default`', 'No', 'Fallback integration, parent, target, and agent applied to any mapping that omits them.'],
+                ['`specs`', 'No', 'Per-spec config keyed by file path — title, agent, task link.'],
               ]}
             />
             <p className="text-sm text-muted-foreground">A full example:</p>
             <CodeBlock>{`# docs/specs/.mdspecmap
 version: 1
 
-sync_all_on_first_run: false
+sync_all_on_first_run: false   # see below
 
 # Optional — applies to all mappings that don't specify their own integration/parent
 default:
@@ -179,6 +180,20 @@ specs:
 
   docs/specs/sla-policy.md:
     id: CU-305`}</CodeBlock>
+            <h3 className="text-sm font-semibold">sync_all_on_first_run</h3>
+            <p className="text-sm text-muted-foreground">
+              <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">sync_all_on_first_run</code> controls what happens the very first time mdspec runs against a folder — before it has built up a ledger of previously published specs.
+            </p>
+            <Table
+              headers={['Value', 'Behaviour']}
+              rows={[
+                ['`true` (default)', 'All spec files in scope are published on the first run, regardless of git diff. Use this when you want mdspec to immediately populate the target tool.'],
+                ['`false`', 'Only files changed in the triggering commit are published on the first run. Useful when most specs already exist in the target tool and you want to avoid re-publishing everything.'],
+              ]}
+            />
+            <p className="text-sm text-muted-foreground">
+              A &ldquo;first run&rdquo; is when mdspec has no ledger entry for a given spec file. Switching integrations, creating a new project, or clearing the ledger can all trigger first-run behaviour for previously published specs.
+            </p>
           </section>
 
           <Separator />
@@ -373,19 +388,19 @@ mappings:
           <section id="default" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">default:</h2>
             <p className="text-sm text-muted-foreground">
-              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">default:</code> block sets a fallback integration and parent for any mapping that omits them. Useful when most or all folders publish to the same integration.
+              The <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">default:</code> block sets fallback values for <strong>integration</strong>, <strong>parent</strong>, <strong>target</strong>, and <strong>agent</strong> for any mapping that omits them. Useful when most or all folders publish to the same integration.
             </p>
             <Table
-              headers={['Field', 'What it does']}
+              headers={['Field', 'Inherits to', 'What it does']}
               rows={[
-                ['`integration`', 'Fallback integration type: clickup, notion, confluence, or s3.'],
-                ['`parent`', 'Fallback alias name used as the parent container.'],
-                ['`target`', 'Fallback target mode: document (default) or task.'],
-                ['`agent`', 'Fallback agent template applied to all mappings that don\'t specify one.'],
+                ['`integration`', 'mappings[].integration', 'Fallback integration type: clickup, notion, confluence, or s3.'],
+                ['`parent`', 'mappings[].parent', 'Fallback parent alias or ID.'],
+                ['`target`', 'mappings[].target', 'Fallback target mode: document (default) or task.'],
+                ['`agent`', 'mappings[].agent', 'Fallback agent template applied to all mappings that don\'t specify one.'],
               ]}
             />
             <p className="text-sm text-muted-foreground">
-              Per-mapping fields always win over the default. Set any field on a specific mapping to override only that field — the rest still inherit from <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">default:</code>.
+              Per-mapping fields always override the default. Set any field on a specific mapping to override only that field — the rest still inherit from <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">default:</code>. If neither the mapping nor <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">default:</code> provides a required field (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">integration</code>), the CLI errors at publish time and names the missing field.
             </p>
             <CodeBlock>{`# docs/specs/.mdspecmap
 default:
@@ -564,6 +579,29 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
             />
             <p className="text-sm text-muted-foreground">
               <strong>Finding your project ID:</strong> Go to Dashboard → Project → Settings → Overview. The project ID is shown at the top of the page. It looks like a short alphanumeric string (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">abc123</code>) and is distinct from your project name.
+            </p>
+
+            <h3 className="text-sm font-semibold">Project tokens</h3>
+            <p className="text-sm text-muted-foreground">
+              <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">MDSPEC_TOKEN</code> is a project-scoped token. It grants the holder the ability to publish specs via that project&apos;s configured integrations. It does not grant access to the dashboard, other projects, account settings, or billing.
+            </p>
+            <Table
+              headers={['Property', 'Detail']}
+              rows={[
+                ['Scope', 'Single project — cannot be used across projects'],
+                ['Permissions', 'Publish specs via the project\'s configured integrations only'],
+                ['Expiry', 'No automatic expiry — rotate manually if compromised'],
+                ['Dashboard access', 'None — the token cannot log in to the dashboard or read project config'],
+              ]}
+            />
+            <p className="text-sm font-medium text-muted-foreground mt-1">Rotation procedure</p>
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground pl-1">
+              <li>Go to Dashboard → Project → Settings → Tokens and generate a new token.</li>
+              <li>Update the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">MDSPEC_TOKEN</code> secret in your CI/CD system (e.g. GitHub Actions → Settings → Secrets).</li>
+              <li>Revoke the old token from the same Tokens page.</li>
+            </ol>
+            <p className="text-sm text-muted-foreground">
+              If you suspect a token has been leaked, revoke it immediately from the Tokens page — all subsequent publishes using that token will be rejected. Generate a new token and update your CI secret before the next push.
             </p>
           </section>
 

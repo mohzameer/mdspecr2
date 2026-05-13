@@ -11,6 +11,7 @@ The CLI package is \`mdspeci\` (note the trailing i) — invoke it as \`npx mdsp
 ## Docs
 
 - [Getting Started & Configuration Reference](https://mdspec.dev/docs/api-reference): Complete reference for .mdspecmap schema, CLI commands, frontmatter, integrations (S3, Notion, ClickUp, Confluence), CI setup, skip patterns, depth limiting, agent templates, and worked example scenarios.
+- [Machine-readable full reference](https://mdspec.dev/llms-full.txt): Condensed .mdspecmap schema, CLI reference, and integration details — optimised for LLM context windows.
 
 ## Optional
 

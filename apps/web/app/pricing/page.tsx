@@ -113,8 +113,9 @@ export default function PricingPage() {
 
         <Alert>
           <AlertDescription className="text-xs space-y-1">
+            <p><strong>14-day refund:</strong> Not satisfied? Request a full refund within 14 days of your initial Pro purchase — email <a href="mailto:zameer@xadlabs.com" className="underline">zameer@xadlabs.com</a>. See <Link href="/terms" className="underline">Terms §4</Link>. Renewal charges and requests after 14 days are not eligible.</p>
             <p><strong>Monthly plan:</strong> Cancel any time. Billing continues until end of the current period.</p>
-            <p><strong>Annual plan:</strong> Rate locked for the full billing year. No partial refunds.</p>
+            <p><strong>Annual plan:</strong> Rate locked for the full billing year. No partial refunds after the 14-day window.</p>
           </AlertDescription>
         </Alert>
       </div>

@@ -12,7 +12,7 @@ export default function PrivacyPolicyPage() {
 
       <main className="px-6 py-16 max-w-3xl mx-auto">
         <h1 className="text-3xl font-semibold tracking-tight mb-2">Privacy Policy</h1>
-        <p className="text-sm text-muted-foreground mb-10">Last updated: May 8, 2026</p>
+        <p className="text-sm text-muted-foreground mb-10">Last updated: May 13, 2026</p>
 
         <div className="space-y-8 text-sm leading-relaxed">
           <p className="text-muted-foreground">
@@ -21,7 +21,7 @@ export default function PrivacyPolicyPage() {
 
           <Section title="1. Information We Collect">
             <p>We collect information you provide directly when creating an account, including your name, email address, and profile details. We also store the project metadata, organisation settings, and configuration you create on the platform.</p>
-            <p className="mt-3">Specification content itself is <strong className="text-foreground">never stored</strong> on our servers — it flows directly from your CI pipeline to your connected target tool (e.g. ClickUp, S3). Only the metadata required to route and track that content is retained.</p>
+            <p className="mt-3">Specification content is processed <strong className="text-foreground">transiently</strong> — it passes through our API to be routed, optionally transformed by an agent template, and forwarded to your target tool (e.g. ClickUp, S3). It is not durably stored on our servers. When an agent template is configured, spec content is also sent to Anthropic&apos;s Claude API for transformation before publishing. Only content hashes and metadata required for change detection and routing are retained in our ledger.</p>
           </Section>
 
           <Section title="2. Google User Data">
@@ -53,7 +53,34 @@ export default function PrivacyPolicyPage() {
             <p className="mt-4 text-xs text-muted-foreground">mdspec&apos;s use of Google user data complies with the <a href="https://developers.google.com/terms/api-services-user-data-policy" className="underline hover:text-foreground transition-colors" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
           </Section>
 
-          <Section title="3. How We Use Your Information">
+          <Section title="3. GitHub User Data">
+            <p>mdspec offers &ldquo;Continue with GitHub&rdquo; as an authentication option. When you use this feature, we access the following GitHub user data via OAuth:</p>
+
+            <h3 className="text-sm font-semibold text-foreground mt-4 mb-1">Data Accessed</h3>
+            <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+              <li>Your GitHub account email address</li>
+              <li>Your GitHub display name</li>
+              <li>Your GitHub avatar URL</li>
+            </ul>
+            <p className="mt-2">We request only the read-only <code className="text-foreground font-mono text-xs bg-muted px-1 py-0.5 rounded">user:email</code> and public profile scopes. We do not access repositories, organizations, or any other GitHub resource.</p>
+
+            <h3 className="text-sm font-semibold text-foreground mt-4 mb-1">Data Usage</h3>
+            <p>GitHub user data is used solely to authenticate you and create or identify your mdspec account. Your email address is used as your account identifier. Your display name and avatar may be shown within the mdspec interface. We do not use this data for advertising, profiling, or any purpose beyond providing the mdspec service.</p>
+
+            <h3 className="text-sm font-semibold text-foreground mt-4 mb-1">Data Sharing</h3>
+            <p>GitHub user data received via OAuth is stored in <strong className="text-foreground">Supabase</strong> and is not shared with any other third party. We do not sell, rent, or transfer GitHub user data to advertisers or data brokers.</p>
+
+            <h3 className="text-sm font-semibold text-foreground mt-4 mb-1">Data Storage &amp; Protection</h3>
+            <p>GitHub profile data is stored in Supabase, protected by Row Level Security (RLS) policies. Only you and authorised members of your organisations can access your account data. All data is transmitted over HTTPS.</p>
+
+            <h3 className="text-sm font-semibold text-foreground mt-4 mb-1">Data Retention &amp; Deletion</h3>
+            <p>GitHub user data is retained for as long as your mdspec account is active. To request deletion, email us at{' '}
+              <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">zameer@xadlabs.com</a>
+              {' '}or delete your account from account settings. Data will be permanently removed within 30 days of the request.
+            </p>
+          </Section>
+
+          <Section title="4. How We Use Your Information">
             <p>We use your information exclusively to provide, maintain, and improve the mdspec service. This includes:</p>
             <ul className="list-disc list-inside mt-2 space-y-1 text-muted-foreground">
               <li>Authenticating your access and managing sessions</li>
@@ -64,7 +91,7 @@ export default function PrivacyPolicyPage() {
             </ul>
           </Section>
 
-          <Section title="4. Information Sharing">
+          <Section title="5. Information Sharing">
             <p>We do not sell your personal information. We share information only with trusted third-party providers strictly necessary to deliver the service:</p>
             <ul className="list-disc list-inside mt-2 space-y-1 text-muted-foreground">
               <li><strong className="text-foreground">Supabase</strong> — database and authentication</li>
@@ -75,15 +102,15 @@ export default function PrivacyPolicyPage() {
             <p className="mt-3">Each provider is bound by confidentiality obligations and their own privacy standards.</p>
           </Section>
 
-          <Section title="5. Data Security">
+          <Section title="6. Data Security">
             <p>Your data is protected by Row Level Security (RLS) policies enforced at the database layer. Only authorised members of your projects and organisations can access your private data. All data is transmitted over HTTPS.</p>
           </Section>
 
-          <Section title="6. Data Retention">
+          <Section title="7. Data Retention">
             <p>We retain your account data for as long as your account is active. If you delete your account, your personal data and project metadata will be permanently removed within 30 days, except where retention is required by law.</p>
           </Section>
 
-          <Section title="7. Your Rights">
+          <Section title="8. Your Rights">
             <p>You have the right to access, correct, export, or delete your account and associated data at any time. To exercise any of these rights, contact us at{' '}
               <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
                 zameer@xadlabs.com
@@ -92,15 +119,15 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="8. Cookies">
+          <Section title="9. Cookies">
             <p>We use strictly necessary session cookies to keep you authenticated. We do not use tracking or advertising cookies.</p>
           </Section>
 
-          <Section title="9. Governing Law &amp; Jurisdiction">
+          <Section title="10. Governing Law &amp; Jurisdiction">
             <p>This Privacy Policy and any matters relating to the collection and use of your data are governed by the laws of Sri Lanka and shall be resolved exclusively in the courts of Sri Lanka.</p>
           </Section>
 
-          <Section title="10. Contact">
+          <Section title="11. Contact">
             <p>
               Questions about this policy? Email us at{' '}
               <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
