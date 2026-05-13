@@ -12,7 +12,7 @@ export default function TermsOfServicePage() {
 
       <main className="px-6 py-16 max-w-3xl mx-auto">
         <h1 className="text-3xl font-semibold tracking-tight mb-2">Terms of Service</h1>
-        <p className="text-sm text-muted-foreground mb-10">Last updated: April 25, 2025</p>
+        <p className="text-sm text-muted-foreground mb-10">Last updated: May 13, 2026</p>
 
         <div className="space-y-8 text-sm leading-relaxed">
           <p className="text-muted-foreground">

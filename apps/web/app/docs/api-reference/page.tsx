@@ -535,6 +535,13 @@ jobs:
           {/* CLI reference */}
           <section id="cli" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">CLI reference</h2>
+            <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
+              <InfoIcon className="text-amber-600 dark:text-amber-400" />
+              <AlertTitle className="text-amber-900 dark:text-amber-200">The CLI package is <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">mdspeci</code> — note the trailing i</AlertTitle>
+              <AlertDescription className="text-amber-900/80 dark:text-amber-200/80">
+                The product is <strong>mdspec</strong> but the npm package and CLI binary are <strong>mdspeci</strong>. Always invoke it as <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">npx mdspeci</code> — <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">npx mdspec</code> will install an unrelated package.
+              </AlertDescription>
+            </Alert>
             <CodeBlock>{`# Publish specs (reads .mdspecmap, detects changes, syncs)
 npx mdspeci publish --project <project-id>
 
@@ -552,9 +559,12 @@ npx mdspeci init --project <project-id>`}</CodeBlock>
               rows={[
                 ['`MDSPEC_TOKEN`', 'Yes', 'Project token — generate in Dashboard → Project → Settings → Tokens'],
                 ['`GITHUB_EVENT_BEFORE`', 'No', 'Previous commit SHA. Set automatically by GitHub Actions.'],
-                ['`MDSPEC_API_URL`', 'No', 'API base URL. Defaults to https://mdspec.dev'],
+                ['`MDSPEC_API_URL`', 'No', 'API base URL. Defaults to https://mdspec.dev. Internal override — not intended for general use.'],
               ]}
             />
+            <p className="text-sm text-muted-foreground">
+              <strong>Finding your project ID:</strong> Go to Dashboard → Project → Settings → Overview. The project ID is shown at the top of the page. It looks like a short alphanumeric string (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">abc123</code>) and is distinct from your project name.
+            </p>
           </section>
 
           <Separator />
@@ -628,8 +638,7 @@ id: <native-id>
               If your team already uses a different convention (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">task:</code> instead of <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id:</code>), set <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">frontmatter_map</code> on the folder mapping. It accepts <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id</code> (native ID lookup) and <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">title</code>.
             </p>
             <CodeBlock>{`mappings:
-  - folder: docs
-    integration: clickup
+  - integration: clickup
     target: task
     list_id: id:901812345
     frontmatter_map:
@@ -670,14 +679,10 @@ mappings:
     skip:
       - DRAFT_*.md        # skip drafts by filename
       - _*.md             # skip private files
-      - "**/scratch/**"   # skip scratch subdirectory (path relative to this file)
-
-  # Subfolder override with its own skip list
-  - folder: internal
-    integration: notion
-    parent: alias:api-internal
-    skip:
-      - README.md`}</CodeBlock>
+      - "**/scratch/**"   # skip scratch subdirectory (path relative to this file)`}</CodeBlock>
+            <p className="text-sm text-muted-foreground">
+              To apply a different skip list to a subfolder, place a separate <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> inside that subfolder — there is no <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">folder:</code> key in mappings.
+            </p>
             <p className="text-sm text-muted-foreground">
               Patterns are matched against both the filename and the path <em>relative to the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> file&apos;s location</em>, not from the repo root.
             </p>
@@ -691,9 +696,9 @@ mappings:
             <p className="text-sm text-muted-foreground">
               By default, a mapping syncs all files recursively. Use <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">depth</code> to cap how deep mdspec looks.
             </p>
-            <CodeBlock>{`mappings:
-  - folder: docs/specs
-    integration: notion
+            <CodeBlock>{`# docs/specs/.mdspecmap
+mappings:
+  - integration: notion
     parent: eng-docs
     depth: 1          # only docs/specs/*.md — subdirectories ignored`}</CodeBlock>
             <Table
@@ -714,17 +719,15 @@ mappings:
             <p className="text-sm text-muted-foreground">
               The same folder can sync to multiple integrations by adding multiple mappings with the same folder path:
             </p>
-            <CodeBlock>{`mappings:
-  - folder: docs/architecture
-    integration: notion
+            <CodeBlock>{`# docs/architecture/.mdspecmap
+mappings:
+  - integration: notion
     parent: alias:arch-docs
 
-  - folder: docs/architecture
-    integration: confluence
+  - integration: confluence
     parent: id:12345678
 
-  - folder: docs/architecture
-    integration: s3
+  - integration: s3
     parent: alias:eng-specs`}</CodeBlock>
             <p className="text-sm text-muted-foreground">
               Each spec is published independently to all three. Failure on one does not block the others.
@@ -843,7 +846,7 @@ mappings:
               <li>Click <strong>Next</strong>, name the policy (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mdspec-s3-acme-specs</code>), and click <strong>Create policy</strong>.</li>
             </ol>
             <p className="text-sm text-muted-foreground">
-              The three object-level permissions cover publishing. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:ListBucket</code> on the bucket resource (not the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/*</code> path) is used by the web UI to populate the parent folder dropdown on the mapping page — without it the dropdown falls back to a text input.
+              <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:PutObject</code> and <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:GetObject</code> are used for publishing. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:DeleteObject</code> is used <em>only</em> to clean up the Connect-time sentinel object mdspec puts to validate credentials — published spec objects are never deleted (see <a href="#s3" className="underline hover:text-foreground">No deletion</a> behaviour). <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">s3:ListBucket</code> on the bucket resource (not the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">/*</code> path) is used by the web UI to populate the parent folder dropdown — without it the dropdown falls back to a text input.
             </p>
 
             <p className="text-sm font-medium mt-2">Step 3 — Create an IAM user and attach the policy</p>
@@ -1458,7 +1461,8 @@ FRONTMATTER (per-file, overrides .mdspecmap)
 ────────────────────────────────────────
 
 12. YAML frontmatter is optional. When present it takes precedence over .mdspecmap.
-    Allowed keys: title, id, agent. Any other key is a hard error.
+    Allowed keys: title, id, agent. Other keys are preserved on the artifact but ignored
+    by adapters unless mapped explicitly via frontmatter_map.
 
       ---
       title: Human Readable Title

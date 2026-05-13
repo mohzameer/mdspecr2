@@ -159,9 +159,9 @@ export default async function LandingPage() {
             <CardContent className="p-6 font-mono text-sm overflow-x-auto">
               <div className="text-muted-foreground mb-2"># .github/workflows/mdspec.yml</div>
               <div className="text-muted-foreground">- name: <span className="text-foreground">Publish specs</span></div>
-              <div className="text-muted-foreground ml-2">run: <span className="text-foreground">npx mdspeci publish --project ${'${PROJECT_ID}'}</span></div>
+              <div className="text-muted-foreground ml-2">run: <span className="text-foreground">{'npx mdspeci publish --project ${PROJECT_ID}'}</span></div>
               <div className="text-muted-foreground ml-2">env:</div>
-              <div className="text-muted-foreground ml-4">MDSPEC_TOKEN: <span className="text-foreground">${'${{ secrets.MDSPEC_TOKEN }}'}</span></div>
+              <div className="text-muted-foreground ml-4">MDSPEC_TOKEN: <span className="text-foreground">{'${{ secrets.MDSPEC_TOKEN }}'}</span></div>
             </CardContent>
           </Card>
         </div>
@@ -312,6 +312,7 @@ export default async function LandingPage() {
             <a href="https://blog.mdspec.dev" className="hover:text-foreground transition-colors">Blog</a>
             <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
+            <Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link>
             <Link href="/login" className="hover:text-foreground transition-colors">Sign in</Link>
           </div>
         </div>
