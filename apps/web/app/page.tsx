@@ -1,16 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import {
-  ClipboardList,
-  Layers,
-  Code2,
-  FileText,
-  UserCheck,
-  Shield,
-  Rocket,
-  Zap,
-  Database,
-  AlertTriangle,
   HardDrive,
   Workflow,
   BookMarked,
@@ -36,6 +26,7 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { HowItWorksFlow } from '@/components/HowItWorksFlow'
+import { AgentTemplatesSection } from '@/components/AgentTemplatesSection'
 import { createSupabaseServerClient } from '@/lib/db-server'
 
 export default async function LandingPage() {
@@ -209,18 +200,7 @@ export default async function LandingPage() {
           <p className="text-center text-sm text-muted-foreground mb-10 max-w-xl mx-auto">
             Assign a template to any folder and the agent transforms your spec before it publishes — no prompting required.
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <TemplateCard icon={ClipboardList} name="Task" bestFor="Jira · ClickUp" />
-            <TemplateCard icon={Layers}        name="ADR" bestFor="Confluence · Notion" />
-            <TemplateCard icon={Code2}         name="API Reference" bestFor="Dev portals · Notion" />
-            <TemplateCard icon={FileText}      name="RFC" bestFor="Engineering review" />
-            <TemplateCard icon={UserCheck}     name="Onboarding Doc" bestFor="Team wikis · Notion" />
-            <TemplateCard icon={Shield}        name="Security Review" bestFor="Audits · Compliance" />
-            <TemplateCard icon={Rocket}        name="Release Notes" bestFor="Changelog · Notion" />
-            <TemplateCard icon={Zap}           name="Sprint Brief" bestFor="Sprint ceremonies" />
-            <TemplateCard icon={Database}      name="Data Model" bestFor="Schema wikis" />
-            <TemplateCard icon={AlertTriangle} name="Incident Runbook" bestFor="Ops · PagerDuty" />
-          </div>
+          <AgentTemplatesSection />
         </div>
       </section>
 
@@ -376,16 +356,3 @@ function WhyCard({ icon: Icon, title, description }: { icon: LucideIcon; title: 
   )
 }
 
-function TemplateCard({ icon: Icon, name, bestFor }: { icon: LucideIcon; name: string; bestFor: string }) {
-  return (
-    <div className="group rounded-xl border border-border bg-card p-4 flex flex-col gap-3 hover:border-foreground/20 hover:shadow-sm transition-all duration-150">
-      <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-muted-foreground group-hover:text-foreground transition-colors">
-        <Icon size={16} strokeWidth={1.5} />
-      </div>
-      <div>
-        <p className="text-sm font-medium leading-snug">{name}</p>
-        <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{bestFor}</p>
-      </div>
-    </div>
-  )
-}
