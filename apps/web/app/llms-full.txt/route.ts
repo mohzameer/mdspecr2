@@ -10,8 +10,11 @@ mdspec syncs markdown spec files from your GitHub repo to external tools (Notion
 
 ## .mdspecmap file
 
-A .mdspecmap file governs the folder it lives in and all subfolders. Its location is its scope — no \`folder:\` key is used inside mappings. Three top-level sections:
+JSON Schema: https://mdspec.dev/mdspecmap.schema.json
 
+A .mdspecmap file governs the folder it lives in and all subfolders. Its location is its scope — no \`folder:\` key is used inside mappings. Four top-level keys:
+
+- \`version\` (required, always \`1\`): schema version — must be present or the CLI will reject the file
 - \`mappings\` (required): routes specs to integrations
 - \`default\` (optional): fallback integration/parent/target/agent for mappings that omit them
 - \`specs\` (optional): per-spec overrides keyed by file path
@@ -22,7 +25,7 @@ A .mdspecmap file governs the folder it lives in and all subfolders. Its locatio
 # docs/specs/.mdspecmap
 version: 1
 
-sync_all_on_first_run: false
+sync_all_on_first_run: false   # optional, default true — see sync_all_on_first_run section below
 
 default:
   integration: clickup
@@ -108,6 +111,37 @@ Title resolution order (highest first): frontmatter title → specs[path].title 
 
 ---
 
+## sync_all_on_first_run
+
+Optional top-level boolean (default: \`true\`). Controls what happens the first time mdspec encounters a folder with no prior publish history.
+
+| Value | Behaviour |
+|-------|-----------|
+| \`true\` (default) | All spec files in scope are published on first run, regardless of git diff |
+| \`false\` | Only files changed in the triggering commit are published on first run |
+
+Set to \`false\` when most specs already exist in the target tool and you want to avoid re-publishing everything.
+
+---
+
+## frontmatter_map
+
+Optional field on a mapping. Renames the frontmatter keys mdspec reads for \`id\` and \`title\`, so teams can use their existing key conventions without renaming every spec file.
+
+\`\`\`yaml
+mappings:
+  - integration: clickup
+    target: task
+    list_id: id:901812345
+    frontmatter_map:
+      id: task          # read "task:" frontmatter key instead of "id:"
+      title: heading    # read "heading:" frontmatter key instead of "title:"
+\`\`\`
+
+Applies per-mapping. Omit to use the default keys (\`id\` and \`title\`).
+
+---
+
 ## CI setup
 
 \`\`\`yaml
@@ -161,7 +195,7 @@ id: 86abc123
 # Spec content here
 \`\`\`
 
-Frontmatter is stripped before publishing. id: binds the spec to an existing remote page/task. Use frontmatter_map on a mapping to rename the id or title key.
+Frontmatter is stripped before publishing. id: binds the spec to an existing remote page/task. Use frontmatter_map on a mapping to rename the id or title key (see frontmatter_map section above).
 
 ---
 

@@ -171,8 +171,8 @@ export default async function LandingPage() {
             <Feature title="Git-native" description="Change detection via git diff. Only modified specs are published. Distribution files live in the repo — version-controlled and easy to manage." />
 <Feature title="Skip patterns" description="Exclude files with glob patterns in .mdspecmap." />
 <Feature title="One repo, any number of integrations" description="Map different folders to different tools — one team's specs go to ClickUp, another's to S3, all from the same repo." />
-            <Feature title="Agent layer" description="Transform specs post-publish with built-in templates like task summaries and release notes." />
-            <Feature title="Docs backup" description="Remove a file from the repo and it stays in the target tool. Published docs are not deleted automatically — manual cleanup in the target tool is required if you want to remove a published doc." />
+            <Feature title="Agent layer" description="Transform specs before publishing with built-in templates like task summaries and release notes." />
+            <Feature title="Append-only publishing" description="Removing a file from the repo does not delete it from the target tool — mdspec only adds and updates. Manual cleanup in the target tool is required to remove a published doc." />
             <Feature title="Team-friendly" description="Different teams can manage their own .mdspecmap files — separately or in a monorepo — and sync to the same destination." />
           </div>
         </div>
@@ -293,6 +293,9 @@ export default async function LandingPage() {
             <Link href="/docs/api-reference" className="hover:text-foreground transition-colors">Docs</Link>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
             <a href="https://blog.mdspec.dev" className="hover:text-foreground transition-colors">Blog</a>
+            <Link href="/changelog" className="hover:text-foreground transition-colors">Changelog</Link>
+            <Link href="/security" className="hover:text-foreground transition-colors">Security</Link>
+            <Link href="/status" className="hover:text-foreground transition-colors">Status</Link>
             <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
             <Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link>

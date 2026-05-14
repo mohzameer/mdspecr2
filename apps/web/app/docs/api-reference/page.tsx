@@ -72,6 +72,7 @@ const NAV = [
   { label: 'parent: link: prefix', href: '#parent-link' },
   { label: 'default:', href: '#default' },
   { label: 'specs:', href: '#specs' },
+  { label: 'Aliases', href: '#aliases' },
   { label: 'Generating the file', href: '#generating' },
   { label: 'CI setup', href: '#ci' },
   { label: 'CLI reference', href: '#cli' },
@@ -142,6 +143,13 @@ export default function DocsPage() {
               A <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> file can be placed in any folder in your repo.
               Its location defines its scope — the folder it lives in and all subfolders will be synced according to the mappings declared inside it.
               All routing, IDs, titles, and task wiring live in these files. Spec files are plain markdown with no special syntax.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              JSON Schema:{' '}
+              <a href="/mdspecmap.schema.json" className="font-mono text-xs underline hover:text-foreground">
+                mdspec.dev/mdspecmap.schema.json
+              </a>
+              {' '}— paste into your IDE settings for schema-backed autocomplete and validation.
             </p>
             <p className="text-sm text-muted-foreground">The file has four top-level keys:</p>
             <Table
@@ -483,7 +491,61 @@ mappings:
 
             <h3 className="text-sm font-semibold">id: adoption details</h3>
             <p className="text-sm text-muted-foreground">
-              On first publish of a spec with an <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id:</code> entry, mdspec looks up that ID in the target tool and adopts the existing page, doc, or task — updating it rather than creating a new one. Works across all integrations: Notion page ID, Confluence page ID, ClickUp doc or task ID. The native ID is stored in the mdspec ledger and subsequent publishes update the same record without re-resolving. Remove the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id:</code> field to have mdspec create a new record on the next publish.
+              On first publish of a spec with an <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id:</code> entry, mdspec looks up that ID in the target tool and adopts the existing page, doc, or task — updating it rather than creating a new one. The native ID is stored in the mdspec ledger and subsequent publishes update the same record without re-resolving. Remove the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">id:</code> field to have mdspec create a new record on the next publish.
+            </p>
+            <h3 className="text-sm font-semibold">id: format per integration</h3>
+            <Table
+              headers={['Integration', 'id: value', 'Where to find it']}
+              rows={[
+                ['Notion', '32-char hex page ID (e.g. `a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4`)', 'Last segment of the page URL, or Share → Copy link'],
+                ['Confluence', 'Numeric page ID (e.g. `123456`)', 'Page → ··· → Page Information → URL bar'],
+                ['ClickUp (doc page)', 'Native doc page ID', 'From the page URL in the ClickUp Docs viewer'],
+                ['ClickUp (task, custom IDs)', 'Custom task ID (e.g. `CU-182`)', 'Shown in the task title in ClickUp'],
+                ['ClickUp (task, native)', 'Native task ID', 'From the task URL: `/t/<taskId>`'],
+                ['S3', 'Not applicable — S3 has no adopt-by-ID concept; key is always computed from path', '—'],
+              ]}
+            />
+          </section>
+
+          <Separator />
+
+          {/* Aliases */}
+          <section id="aliases" className="scroll-mt-20 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight">Aliases</h2>
+            <p className="text-sm text-muted-foreground">
+              An <strong>alias</strong> is a short name you define in the dashboard that maps to a location in the target tool — a Notion page, a Confluence page, a ClickUp space or doc, or an S3 key prefix. Aliases decouple your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> files from raw integration IDs, so you can rename a target in the dashboard without touching every map file in your repo.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Reference an alias in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> with the <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">alias:</code> prefix:
+            </p>
+            <CodeBlock>{`mappings:
+  - integration: notion
+    parent: alias:eng-docs   # resolves to the page ID stored under "eng-docs" in the dashboard`}</CodeBlock>
+
+            <h3 className="text-sm font-semibold">Creating and managing aliases</h3>
+            <p className="text-sm text-muted-foreground">
+              Aliases are scoped to a single integration. Each connected integration has its own alias list.
+            </p>
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground pl-1">
+              <li>Go to <strong>Dashboard → Integrations → [your integration] → Aliases</strong>.</li>
+              <li>Click <strong>Add alias</strong>, enter a short name (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">eng-docs</code>), and pick the target container from the dropdown.</li>
+              <li>Save. The alias is immediately available in any <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code> that uses that integration.</li>
+            </ol>
+
+            <h3 className="text-sm font-semibold">What each integration stores as the alias target</h3>
+            <Table
+              headers={['Integration', 'Alias resolves to']}
+              rows={[
+                ['Notion', 'Page ID of the target parent page or database'],
+                ['Confluence', 'Page ID of the target parent page in the configured space'],
+                ['ClickUp', 'Space ID, list ID, or doc ID — set when creating the alias'],
+                ['S3', 'Key prefix (e.g. `docs/specs/`). Leave blank to publish at bucket root.'],
+              ]}
+            />
+
+            <h3 className="text-sm font-semibold">Missing alias behaviour</h3>
+            <p className="text-sm text-muted-foreground">
+              If a mapping references an alias that does not exist in the dashboard, the publish is hard-blocked — no specs are sent. The CLI error names the alias and the integration it belongs to. Fix by creating the alias in the dashboard or correcting the name in <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.mdspecmap</code>.
             </p>
           </section>
 
@@ -519,6 +581,15 @@ mappings:
           {/* CI setup */}
           <section id="ci" className="scroll-mt-20 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight">Step 2 — Add the CI action</h2>
+            <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
+              <InfoIcon className="text-amber-600 dark:text-amber-400" />
+              <AlertTitle className="text-amber-900 dark:text-amber-200">
+                The npm package is <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">mdspeci</code> — note the trailing i
+              </AlertTitle>
+              <AlertDescription className="text-amber-900/80 dark:text-amber-200/80">
+                The product is <strong>mdspec</strong> but the npm package and CLI binary are <strong>mdspeci</strong>. Running <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">npx mdspec</code> (without the i) installs an unrelated third-party package and will expose your <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">MDSPEC_TOKEN</code> — a production credential with publish rights — to that package. Always use <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">npx mdspeci</code>.
+              </AlertDescription>
+            </Alert>
             <p className="text-sm text-muted-foreground">
               Add this to your GitHub Actions workflow at <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.github/workflows/mdspec.yml</code>:
             </p>
@@ -554,7 +625,7 @@ jobs:
               <InfoIcon className="text-amber-600 dark:text-amber-400" />
               <AlertTitle className="text-amber-900 dark:text-amber-200">The CLI package is <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">mdspeci</code> — note the trailing i</AlertTitle>
               <AlertDescription className="text-amber-900/80 dark:text-amber-200/80">
-                The product is <strong>mdspec</strong> but the npm package and CLI binary are <strong>mdspeci</strong>. Always invoke it as <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">npx mdspeci</code> — <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">npx mdspec</code> will install an unrelated package.
+                The product is <strong>mdspec</strong> but the npm package and CLI binary are <strong>mdspeci</strong>. Running <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">npx mdspec</code> (without the i) installs an unrelated third-party package and will expose your <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">MDSPEC_TOKEN</code> to it. Always use <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">npx mdspeci</code>.
               </AlertDescription>
             </Alert>
             <CodeBlock>{`# Publish specs (reads .mdspecmap, detects changes, syncs)
