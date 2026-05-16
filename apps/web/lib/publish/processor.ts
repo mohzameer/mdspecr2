@@ -487,7 +487,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
   // never want to be stuck updating a page in the wrong place. Database
   // mode is exempt: rows are parented by data_source, not page, and the
   // page-id parent check doesn't apply.
-  if (target_type === 'notion' && existingPageId && credentials.mode !== 'database') {
+  if (target_type === 'notion' && existingPageId) {
     const expectedParentId = ctx.folderMappingTargetId ?? (credentials.root_page_id as string | undefined) ?? null
     if (expectedParentId) {
       const parentRes = await getNotionPageParentId(credentials.token as string, existingPageId)
@@ -558,10 +558,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
       result = await publishToNotion(
         {
           token: credentials.token as string,
-          root_page_id: ctx.folderMappingTargetId ?? (credentials.root_page_id as string),
-          mode: credentials.mode as 'page' | 'database' | undefined,
-          database_id: credentials.database_id as string | undefined,
-          data_source_id: credentials.data_source_id as string | undefined,
+          root_page_id: ctx.folderMappingTargetId ?? (credentials.root_page_id as string | undefined),
         },
         specPayload,
         existingPageId

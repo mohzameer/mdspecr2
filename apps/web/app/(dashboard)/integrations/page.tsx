@@ -16,16 +16,12 @@ type ConnectForm = {
   notion: {
     token: string
     root_page_id: string
-    mode: 'page' | 'database'
-    database_id: string
-    data_source_id: string
   }
   confluence: { space_url: string; base_url: string; email: string; token: string; space_key: string }
   clickup: { api_token: string; workspace_url: string }
   s3: { access_key_id: string; secret_access_key: string; bucket: string; region: string }
 }
 
-type NotionDataSource = { id: string; name: string }
 type NotionSharedItem = { id: string; title: string; url?: string }
 
 function parseClickUpWorkspaceId(url: string): string | null {
@@ -93,7 +89,7 @@ export default function IntegrationsPage() {
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState<IntegrationType | null>(null)
   const [form, setForm] = useState<ConnectForm>({
-    notion: { token: '', root_page_id: '', mode: 'page', database_id: '', data_source_id: '' },
+    notion: { token: '', root_page_id: '' },
     confluence: { space_url: '', base_url: '', email: '', token: '', space_key: '' },
     clickup: { api_token: '', workspace_url: '' },
     s3: { access_key_id: '', secret_access_key: '', bucket: '', region: '' },
@@ -103,7 +99,6 @@ export default function IntegrationsPage() {
   const [s3ValidateError, setS3ValidateError] = useState<string | null>(null)
   const [notionValidateError, setNotionValidateError] = useState<string | null>(null)
   const [confluenceValidateError, setConfluenceValidateError] = useState<string | null>(null)
-  const [notionDataSources, setNotionDataSources] = useState<NotionDataSource[] | null>(null)
   const [notionChildren, setNotionChildren] = useState<NotionSharedItem[] | null>(null)
   const [loadingChildren, setLoadingChildren] = useState(false)
   const [childrenError, setChildrenError] = useState<string | null>(null)
@@ -111,7 +106,7 @@ export default function IntegrationsPage() {
   const loadedParentRef = useRef<string | null>(null)
   const [notionOAuthSetup, setNotionOAuthSetup] = useState(false)
   const [oauthError, setOauthError] = useState<string | null>(null)
-  const [notionSharedItems, setNotionSharedItems] = useState<{ pages: NotionSharedItem[]; databases: NotionSharedItem[] } | null>(null)
+  const [notionSharedItems, setNotionSharedItems] = useState<{ pages: NotionSharedItem[] } | null>(null)
   const [loadingShared, setLoadingShared] = useState(false)
   const searchParams = useSearchParams()
 
@@ -157,7 +152,7 @@ export default function IntegrationsPage() {
       body: JSON.stringify({ token: form.notion.token }),
     })
       .then((r) => r.json())
-      .then((data) => { if (data.ok) setNotionSharedItems({ pages: data.pages ?? [], databases: data.databases ?? [] }) })
+      .then((data) => { if (data.ok) setNotionSharedItems({ pages: data.pages ?? [] }) })
       .catch(() => {})
       .finally(() => setLoadingShared(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -165,26 +160,22 @@ export default function IntegrationsPage() {
 
   useEffect(() => {
     if (!form.notion.token) return
-    const isDatabase = form.notion.mode === 'database'
-    const raw = isDatabase ? form.notion.database_id : form.notion.root_page_id
-    const parsed = parseNotionInput(raw)
+    const parsed = parseNotionInput(form.notion.root_page_id)
     if (!parsed) return
     if (loadedParentRef.current === parsed.id) return
 
     let cancelled = false
-    const parentId = parsed.id
-    const parentKind = isDatabase ? 'database' : 'page'
     const token = form.notion.token
+    loadedParentRef.current = parsed.id
     setLoadingChildren(true)
     setChildrenError(null)
-    loadedParentRef.current = parentId
 
     const timer = setTimeout(async () => {
       try {
         const res = await fetch('/api/integrations/notion/children', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, parent_id: parentId, parent_kind: parentKind }),
+          body: JSON.stringify({ token, parent_id: parsed.id, parent_kind: 'page' }),
         })
         const body = await res.json()
         if (cancelled) return
@@ -202,7 +193,7 @@ export default function IntegrationsPage() {
     }, 400)
 
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [form.notion.token, form.notion.root_page_id, form.notion.database_id, form.notion.mode])
+  }, [form.notion.token, form.notion.root_page_id])
 
 
   async function fetchIntegrations() {
@@ -228,25 +219,18 @@ export default function IntegrationsPage() {
 
     if (type === 'notion') {
       setSaving(true)
-      const { token, root_page_id, mode, database_id, data_source_id } = form.notion
+      const { token, root_page_id } = form.notion
       const parsedRoot = root_page_id ? parseNotionInput(root_page_id) : null
-      if (mode !== 'database' && !parsedRoot) {
+      if (!parsedRoot) {
         setNotionValidateError('Could not extract a Notion page ID. Paste the page URL or its ID.')
         setSaving(false)
         return
       }
-      const parsedDb = mode === 'database' ? parseNotionInput(database_id) : null
-      if (mode === 'database' && !parsedDb) {
-        setNotionValidateError('Could not extract a Notion database ID.')
-        setSaving(false)
-        return
-      }
-      const resolvedRootId = notionSubPageId || parsedRoot?.id
-      const resolvedDatabaseId = parsedDb?.id
+      const resolvedRootId = notionSubPageId || parsedRoot.id
       const validateRes = await fetch('/api/integrations/notion/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, root_page_id: resolvedRootId, mode, database_id: mode === 'database' ? resolvedDatabaseId : undefined, data_source_id: mode === 'database' ? data_source_id || undefined : undefined }),
+        body: JSON.stringify({ token, root_page_id: resolvedRootId, oauth_flow: notionOAuthSetup || undefined }),
       })
       const validateBody = await validateRes.json()
       if (!validateBody.ok) {
@@ -254,16 +238,7 @@ export default function IntegrationsPage() {
         setSaving(false)
         return
       }
-      if (validateBody.needs_pick) {
-        setNotionDataSources(validateBody.data_sources)
-        setNotionValidateError('This database has multiple data sources. Pick one and click Save again.')
-        setSaving(false)
-        return
-      }
-      const resolvedDataSourceId = validateBody.mode === 'database' ? validateBody.data_source_id : undefined
-      const credentials = mode === 'database'
-        ? { token, mode, database_id: resolvedDatabaseId, data_source_id: resolvedDataSourceId }
-        : { token, root_page_id: resolvedRootId, mode }
+      const credentials = { token, root_page_id: resolvedRootId }
       await fetch('/api/integrations/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -272,7 +247,6 @@ export default function IntegrationsPage() {
       await fetchIntegrations()
       setConnecting(null)
       setSaving(false)
-      setNotionDataSources(null)
       setNotionOAuthSetup(false)
       window.history.replaceState({}, '', '/integrations')
       return
@@ -458,131 +432,81 @@ export default function IntegrationsPage() {
                                 }
                                 onChange={(e) => {
                                   const val = e.target.value
-                                  setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren()
-                                  if (!val) {
-                                    setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: '', database_id: '', data_source_id: '' } })
-                                  } else if (val.startsWith('database:')) {
-                                    setForm({ ...form, notion: { ...form.notion, mode: 'database', database_id: val.slice('database:'.length), root_page_id: '', data_source_id: '' } })
-                                  } else {
-                                    setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: val.slice('page:'.length), database_id: '', data_source_id: '' } })
-                                  }
+                                  setNotionValidateError(null); resetNotionChildren()
+                                  setForm({ ...form, notion: { ...form.notion, root_page_id: val.startsWith('page:') ? val.slice('page:'.length) : '' } })
                                 }}
                                 className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                               >
-                                <option value="">{loadingShared ? 'Loading pages…' : 'Select a page or database…'}</option>
-                                {notionSharedItems && notionSharedItems.pages.length > 0 && (
-                                  <optgroup label="Pages">
-                                    {notionSharedItems.pages.map((p) => (
-                                      <option key={p.id} value={`page:${p.id}`}>{p.title}</option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                                {notionSharedItems && notionSharedItems.databases.length > 0 && (
-                                  <optgroup label="Databases">
-                                    {notionSharedItems.databases.map((d) => (
-                                      <option key={d.id} value={`database:${d.id}`}>{d.title}</option>
-                                    ))}
-                                  </optgroup>
-                                )}
+                                <option value="">{loadingShared ? 'Loading pages…' : 'Select a page…'}</option>
+                                {notionSharedItems?.pages.map((p) => (
+                                  <option key={p.id} value={`page:${p.id}`}>{p.title}</option>
+                                ))}
                               </select>
                             </div>
                           )}
                         </>
                       ) : (
-                        <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v, root_page_id: '', database_id: '', data_source_id: '' } }); setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren() }} placeholder="ntn_... or secret_..." />
+                        <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v, root_page_id: '' } }); setNotionValidateError(null); resetNotionChildren() }} placeholder="ntn_... or secret_..." />
                       )}
                       {!notionOAuthSetup && (
                         <>
                           <Field
-                            label="Notion link or ID"
-                            value={form.notion.mode === 'database' ? form.notion.database_id : form.notion.root_page_id}
+                            label="Root page link or ID"
+                            value={form.notion.root_page_id}
                             onChange={(v) => {
-                              const parsed = parseNotionInput(v)
-                              if (parsed?.isDatabase) {
-                                setForm({ ...form, notion: { ...form.notion, mode: 'database', database_id: v, root_page_id: '', data_source_id: '' } })
-                              } else if (parsed) {
-                                setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: v, database_id: '', data_source_id: '' } })
-                              } else if (form.notion.mode === 'database') {
-                                setForm({ ...form, notion: { ...form.notion, database_id: v } })
-                              } else {
-                                setForm({ ...form, notion: { ...form.notion, root_page_id: v } })
-                              }
-                              setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren()
+                              setForm({ ...form, notion: { ...form.notion, root_page_id: v } })
+                              setNotionValidateError(null); resetNotionChildren()
                             }}
-                            placeholder="Paste a Notion page or database link"
+                            placeholder="Paste a Notion page link or ID"
                           />
                           {(() => {
-                            const v = form.notion.mode === 'database' ? form.notion.database_id : form.notion.root_page_id
+                            const v = form.notion.root_page_id
                             if (!v) return null
                             const parsed = parseNotionInput(v)
                             if (!parsed) return <p className="text-xs text-yellow-600">Could not extract an ID. Paste the page URL or its 32-char ID.</p>
                             return (
                               <p className="text-xs text-zinc-400">
-                                Detected: <span className="text-zinc-600 dark:text-zinc-300">{parsed.isDatabase ? 'Database' : 'Page'}</span>
-                                {' · ID: '}
-                                <span className="font-mono text-zinc-600 dark:text-zinc-300">{parsed.id}</span>
+                                Page ID: <span className="font-mono text-zinc-600 dark:text-zinc-300">{parsed.id}</span>
                               </p>
                             )
                           })()}
                         </>
                       )}
-                      {!notionDataSources && (() => {
-                        const isDatabase = form.notion.mode === 'database'
-                        const raw = isDatabase ? form.notion.database_id : form.notion.root_page_id
-                        const parsed = parseNotionInput(raw)
+                      {(() => {
+                        const parsed = parseNotionInput(form.notion.root_page_id)
                         if (!parsed) return null
-                        const labelHint = isDatabase ? 'Sub-page (optional — pick a wiki entry to publish under)' : 'Sub-page (optional)'
-                        const defaultLabel = isDatabase ? 'Publish as new rows' : 'Use parent page'
                         return (
                           <div>
-                            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">{labelHint}</label>
+                            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Publish under sub-page <span className="font-normal text-zinc-400">(optional)</span></label>
                             <select
                               value={notionSubPageId}
                               onChange={(e) => {
-                                const id = e.target.value
-                                setNotionSubPageId(id)
+                                setNotionSubPageId(e.target.value)
                                 setNotionValidateError(null)
-                                if (id && isDatabase) {
-                                  setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: id, database_id: '', data_source_id: '' } })
-                                  setNotionDataSources(null)
-                                }
                               }}
                               disabled={loadingChildren || !notionChildren || notionChildren.length === 0}
                               className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                             >
                               <option value="">
                                 {loadingChildren
-                                  ? 'Loading sub-pages…'
+                                  ? 'Loading pages…'
                                   : childrenError
-                                  ? 'Could not load sub-pages'
+                                  ? 'Could not load pages'
                                   : !notionChildren || notionChildren.length === 0
-                                  ? `No sub-pages found — ${defaultLabel.toLowerCase()}`
-                                  : defaultLabel}
+                                  ? 'Publish directly under root page'
+                                  : 'Publish directly under root page'}
                               </option>
                               {notionChildren?.map((p) => (
                                 <option key={p.id} value={p.id}>{p.title}</option>
                               ))}
                             </select>
                             {childrenError && <p className="text-xs text-red-500 mt-1">{childrenError}</p>}
+                            <p className="text-xs text-zinc-400 mt-1.5">
+                              To publish to a specific section of your workspace, create a dedicated page in Notion and share it with this integration. It will appear here after re-authorizing.
+                            </p>
                           </div>
                         )
                       })()}
-                      {form.notion.mode === 'database' && notionDataSources && notionDataSources.length > 0 && (
-                        <div>
-                          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Data source</label>
-                          <select
-                            value={form.notion.data_source_id}
-                            onChange={(e) => { setForm({ ...form, notion: { ...form.notion, data_source_id: e.target.value } }); setNotionValidateError(null) }}
-                            required
-                            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                          >
-                            <option value="">Select a data source…</option>
-                            {notionDataSources.map((ds) => (
-                              <option key={ds.id} value={ds.id}>{ds.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
                       {notionValidateError && <p className="text-xs text-red-500">{notionValidateError}</p>}
                       <p className="text-xs text-zinc-400">Credentials are verified against the Notion API before saving.</p>
                     </>
@@ -663,7 +587,7 @@ export default function IntegrationsPage() {
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                       {saving ? (type === 's3' || type === 'confluence' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); setNotionDataSources(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>

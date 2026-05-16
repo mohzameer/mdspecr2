@@ -8,9 +8,6 @@ const BLOCK_BATCH = 100
 export interface NotionCredentials {
   token: string
   root_page_id?: string
-  mode?: 'page' | 'database'
-  database_id?: string
-  data_source_id?: string
 }
 
 interface SpecPayload {
@@ -144,40 +141,6 @@ async function publishAsPage(
   return { page_id: page.id, page_url: (page as any).url ?? `https://notion.so/${page.id}` }
 }
 
-async function publishAsDatabaseRow(
-  notion: Client,
-  credentials: NotionCredentials,
-  spec: SpecPayload,
-  existingPageId?: string | null
-): Promise<PublishResult> {
-  if (!credentials.data_source_id) {
-    throw new Error('Notion database mode requires data_source_id in credentials')
-  }
-
-  const title = getSpecTitle(spec.path, spec.frontmatter)
-  const blocks = mdToNotionBlocks(spec.content)
-  const properties = {
-    Name: { title: [{ type: 'text', text: { content: title } }] },
-    Content: { rich_text: richText(spec.content) },
-  }
-
-  if (existingPageId) {
-    await notion.pages.update({ page_id: existingPageId, properties: properties as any })
-    await clearChildren(notion, existingPageId)
-    await appendInChunks(notion, existingPageId, blocks)
-    const page = await notion.pages.retrieve({ page_id: existingPageId })
-    return { page_id: existingPageId, page_url: (page as any).url ?? `https://notion.so/${existingPageId}` }
-  }
-
-  const page = await notion.pages.create({
-    parent: { type: 'data_source_id', data_source_id: credentials.data_source_id } as any,
-    properties: properties as any,
-    children: blocks.slice(0, BLOCK_BATCH) as any,
-  })
-  await appendInChunks(notion, page.id, blocks, BLOCK_BATCH)
-  return { page_id: page.id, page_url: (page as any).url ?? `https://notion.so/${page.id}` }
-}
-
 export async function publishToNotion(
   credentials: NotionCredentials,
   spec: SpecPayload,
@@ -185,11 +148,6 @@ export async function publishToNotion(
   folderMappingTargetId?: string | null
 ): Promise<PublishResult> {
   const notion = new Client({ auth: credentials.token, notionVersion: NOTION_API_VERSION })
-
-  if (credentials.mode === 'database') {
-    return publishAsDatabaseRow(notion, credentials, spec, existingPageId)
-  }
-
   const rootPageId = folderMappingTargetId ?? credentials.root_page_id
   if (!rootPageId) throw new Error('No Notion destination configured. Set a parent page in the folder mapping or during integration setup.')
   return publishAsPage(notion, { ...credentials, root_page_id: rootPageId }, spec, existingPageId)

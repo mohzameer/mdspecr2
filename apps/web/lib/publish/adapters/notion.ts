@@ -7,9 +7,6 @@ const BLOCK_BATCH = 100
 export interface NotionCredentials {
   token: string
   root_page_id?: string
-  mode?: 'page' | 'database'
-  database_id?: string
-  data_source_id?: string
 }
 
 interface SpecPayload {
@@ -149,65 +146,12 @@ export async function getNotionPageParentId(
   }
 }
 
-async function findTitlePropertyName(notion: Client, dataSourceId: string): Promise<string> {
-  const dataSource = (await notion.request({ path: `data_sources/${dataSourceId}`, method: 'get' })) as { properties?: Record<string, { type?: string }> }
-  const props = dataSource.properties ?? {}
-  for (const key of Object.keys(props)) {
-    if (props[key]?.type === 'title') return key
-  }
-  throw new Error('Notion database has no title property')
-}
-
-async function publishAsDatabaseRow(
-  notion: Client,
-  credentials: NotionCredentials,
-  spec: SpecPayload,
-  existingPageId?: string | null
-): Promise<PublishResult> {
-  if (!credentials.data_source_id) {
-    throw new Error('Notion database mode requires data_source_id in credentials')
-  }
-
-  const blocks = mdToNotionBlocks(spec.content)
-  const titleKey = await findTitlePropertyName(notion, credentials.data_source_id)
-  const properties = {
-    [titleKey]: { title: [{ type: 'text', text: { content: spec.resolvedTitle } }] },
-  }
-
-  if (existingPageId) {
-    await notion.pages.update({ page_id: existingPageId, properties: properties as any })
-    await clearChildren(notion, existingPageId)
-    await appendInChunks(notion, existingPageId, blocks)
-    const page = await notion.pages.retrieve({ page_id: existingPageId })
-    return { page_id: existingPageId, page_url: (page as any).url ?? `https://notion.so/${existingPageId}` }
-  }
-
-  const page = await notion.pages.create({
-    parent: { type: 'data_source_id', data_source_id: credentials.data_source_id } as any,
-    properties: properties as any,
-    children: blocks.slice(0, BLOCK_BATCH) as any,
-  })
-  await appendInChunks(notion, page.id, blocks, BLOCK_BATCH)
-  return { page_id: page.id, page_url: (page as any).url ?? `https://notion.so/${page.id}` }
-}
-
 export async function publishToNotion(
   credentials: NotionCredentials,
   spec: SpecPayload,
   existingPageId?: string | null
 ): Promise<PublishResult> {
   const notion = new Client({ auth: credentials.token, notionVersion: NOTION_API_VERSION })
-
-  if (credentials.mode === 'database') {
-    // When a per-folder parent override is present (from .mdspecmap `parent: id:...`),
-    // publish as a page under that parent. Pass null for existingPageId because the
-    // stored ID (if any) points to a database row under a different parent — abandon it
-    // and create fresh under the correct page.
-    if (credentials.root_page_id) {
-      return publishAsPage(notion, credentials, spec, null)
-    }
-    return publishAsDatabaseRow(notion, credentials, spec, existingPageId)
-  }
   return publishAsPage(notion, credentials, spec, existingPageId)
 }
 
@@ -218,15 +162,11 @@ export async function publishToNotion(
 export interface NotionValidateInput {
   token: string
   root_page_id?: string
-  mode?: 'page' | 'database'
-  database_id?: string
-  data_source_id?: string
+  oauth_flow?: boolean
 }
 
 export type NotionValidateResult =
-  | { ok: true; mode: 'page' }
-  | { ok: true; mode: 'database'; data_source_id: string }
-  | { ok: true; mode: 'database'; needs_pick: true; data_sources: Array<{ id: string; name: string }> }
+  | { ok: true }
   | { ok: false; error: string }
 
 function notionErrorMessage(err: unknown, fallback: string): string {
@@ -246,7 +186,6 @@ export interface NotionSharedItem {
 export interface NotionSharedResult {
   ok: true
   pages: NotionSharedItem[]
-  databases: NotionSharedItem[]
 }
 
 function extractPageTitle(page: unknown): string {
@@ -361,20 +300,16 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
       const res = (await notion.search({
         page_size: 100,
         start_cursor: cursor,
+        filter: { value: 'page', property: 'object' },
       } as never)) as { results: Array<Record<string, unknown>>; next_cursor?: string | null; has_more?: boolean }
       for (const item of res.results) {
-        const obj = item.object as string
+        if ((item.object as string) !== 'page') continue
         const id = item.id as string
         const url = item.url as string | undefined
-        const parent = (item as { parent?: { type?: string; page_id?: string; database_id?: string } }).parent
-        const parentId = parent?.page_id ?? parent?.database_id ?? null
-        if (obj === 'page') {
-          itemMap.set(id, { id, title: extractPageTitle(item), url, parentId, kind: 'page' })
-          if (parentId && !itemMap.has(parentId)) parentQueue.push(parentId)
-        } else if (obj === 'database') {
-          itemMap.set(id, { id, title: extractDatabaseTitle(item), url, parentId, kind: 'database' })
-          if (parentId && !itemMap.has(parentId)) parentQueue.push(parentId)
-        }
+        const parent = (item as { parent?: { type?: string; page_id?: string } }).parent
+        const parentId = parent?.page_id ?? null
+        itemMap.set(id, { id, title: extractPageTitle(item), url, parentId, kind: 'page' })
+        if (parentId && !itemMap.has(parentId)) parentQueue.push(parentId)
       }
       cursor = res.has_more ? (res.next_cursor ?? undefined) : undefined
     } while (cursor)
@@ -410,9 +345,8 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
   // fall back to showing everything returned by search so the user isn't left with an empty list.
   const candidates = rootItems.length > 0 ? rootItems : allAccessible
 
-  const pages = candidates.filter((i) => i.kind === 'page').map(({ id, title, url }) => ({ id, title, url }))
-  const databases = candidates.filter((i) => i.kind === 'database').map(({ id, title, url }) => ({ id, title, url }))
-  return { ok: true, pages, databases }
+  const pages = candidates.map(({ id, title, url }) => ({ id, title, url }))
+  return { ok: true, pages }
 }
 
 export async function validateNotionCredentials(input: NotionValidateInput): Promise<NotionValidateResult> {
@@ -421,64 +355,19 @@ export async function validateNotionCredentials(input: NotionValidateInput): Pro
   }
   const notion = new Client({ auth: input.token, notionVersion: NOTION_API_VERSION })
 
-  if (input.mode !== 'database') {
-    if (!input.root_page_id) {
-      // Token-only — just verify it works
-      try {
-        await notion.users.me({})
-      } catch (err) {
-        return { ok: false, error: notionErrorMessage(err, 'Could not verify Notion token.') }
-      }
-      return { ok: true, mode: 'page' }
-    }
+  // For OAuth flow, the search already confirmed token + page access — skip page retrieve.
+  if (!input.root_page_id || input.oauth_flow) {
     try {
-      await notion.pages.retrieve({ page_id: input.root_page_id })
+      await notion.users.me({})
     } catch (err) {
-      return { ok: false, error: notionErrorMessage(err, 'Could not reach Notion.') }
+      return { ok: false, error: notionErrorMessage(err, 'Could not verify Notion token.') }
     }
-    return { ok: true, mode: 'page' }
+    return { ok: true }
   }
-
-  if (!input.database_id) {
-    return { ok: false, error: 'database_id is required for database mode' }
-  }
-
-  let database: { data_sources?: Array<{ id: string; name: string }> }
   try {
-    database = (await notion.databases.retrieve({ database_id: input.database_id })) as never
+    await notion.pages.retrieve({ page_id: input.root_page_id })
   } catch (err) {
-    return { ok: false, error: notionErrorMessage(err, 'Database not found.') }
+    return { ok: false, error: notionErrorMessage(err, 'Could not reach Notion.') }
   }
-
-  const dataSources = (database.data_sources ?? []).map((d) => ({ id: d.id, name: d.name }))
-  if (dataSources.length === 0) {
-    return { ok: false, error: 'No data sources found on this database.' }
-  }
-
-  let resolvedId: string
-  if (input.data_source_id) {
-    if (!dataSources.some((d) => d.id === input.data_source_id)) {
-      return { ok: false, error: 'The specified data_source_id does not belong to this database.' }
-    }
-    resolvedId = input.data_source_id
-  } else if (dataSources.length === 1) {
-    resolvedId = dataSources[0].id
-  } else {
-    return { ok: true, mode: 'database', needs_pick: true, data_sources: dataSources }
-  }
-
-  let dataSource: { properties?: Record<string, { type?: string }> }
-  try {
-    dataSource = await notion.request({ path: `data_sources/${resolvedId}`, method: 'get' })
-  } catch (err) {
-    return { ok: false, error: notionErrorMessage(err, 'Could not read the data source schema.') }
-  }
-
-  const properties = dataSource.properties ?? {}
-  const hasTitle = Object.values(properties).some((p) => p?.type === 'title')
-  if (!hasTitle) {
-    return { ok: false, error: 'Database has no title property.' }
-  }
-
-  return { ok: true, mode: 'database', data_source_id: resolvedId }
+  return { ok: true }
 }

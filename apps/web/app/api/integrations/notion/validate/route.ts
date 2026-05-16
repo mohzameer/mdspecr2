@@ -7,8 +7,8 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
-  const { token, root_page_id, mode, database_id, data_source_id } = await request.json()
+  const { token, root_page_id, oauth_flow } = await request.json()
 
-  const result = await validateNotionCredentials({ token, root_page_id, mode, database_id, data_source_id })
+  const result = await validateNotionCredentials({ token, root_page_id, oauth_flow })
   return NextResponse.json(result, { status: result.ok ? 200 : 400 })
 }

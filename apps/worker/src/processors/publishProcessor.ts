@@ -183,9 +183,6 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
           {
             token: credentials.token as string,
             root_page_id: credentials.root_page_id as string | undefined,
-            mode: credentials.mode as 'page' | 'database' | undefined,
-            database_id: credentials.database_id as string | undefined,
-            data_source_id: credentials.data_source_id as string | undefined,
           },
           spec,
           existingPageId,
