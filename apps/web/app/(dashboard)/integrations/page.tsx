@@ -423,13 +423,7 @@ export default function IntegrationsPage() {
                               <select
                                 required
                                 disabled={loadingShared}
-                                value={
-                                  form.notion.mode === 'database'
-                                    ? `database:${form.notion.database_id}`
-                                    : form.notion.root_page_id
-                                    ? `page:${form.notion.root_page_id}`
-                                    : ''
-                                }
+                                value={form.notion.root_page_id ? `page:${form.notion.root_page_id}` : ''}
                                 onChange={(e) => {
                                   const val = e.target.value
                                   setNotionValidateError(null); resetNotionChildren()
