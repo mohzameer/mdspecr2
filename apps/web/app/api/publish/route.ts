@@ -373,7 +373,10 @@ export async function POST(request: Request) {
         // Resolve integration_id — prefer alias resolution, fall back to type lookup
         let integrationId: string | undefined
         if (bestMapping.parent && resolvedAliases.has(bestMapping.parent)) {
-          integrationId = resolvedAliases.get(bestMapping.parent)!.integration_id
+          const aliasIntegrationId = resolvedAliases.get(bestMapping.parent)!.integration_id
+          // Only use the alias's integration if it is currently connected
+          const connectedIds = new Set(activeIntegrations.map((i) => i.id))
+          if (connectedIds.has(aliasIntegrationId)) integrationId = aliasIntegrationId
         } else {
           integrationId = integrationByType.get(intType)
         }
