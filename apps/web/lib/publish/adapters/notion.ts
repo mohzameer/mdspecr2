@@ -351,8 +351,9 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
   if (!token) return { ok: false, error: 'token is required' }
   const notion = new Client({ auth: token, notionVersion: NOTION_API_VERSION })
 
-  type RawItem = NotionSharedItem & { parentId: string | null; kind: 'page' | 'database' }
-  const allItems: RawItem[] = []
+  type RawItem = { id: string; title: string; url?: string; parentId: string | null; kind: 'page' | 'database' }
+  const itemMap = new Map<string, RawItem>()
+  const parentQueue: string[] = []
 
   try {
     let cursor: string | undefined
@@ -368,9 +369,11 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
         const parent = (item as { parent?: { type?: string; page_id?: string; database_id?: string } }).parent
         const parentId = parent?.page_id ?? parent?.database_id ?? null
         if (obj === 'page') {
-          allItems.push({ id, title: extractPageTitle(item), url, parentId, kind: 'page' })
+          itemMap.set(id, { id, title: extractPageTitle(item), url, parentId, kind: 'page' })
+          if (parentId && !itemMap.has(parentId)) parentQueue.push(parentId)
         } else if (obj === 'database') {
-          allItems.push({ id, title: extractDatabaseTitle(item), url, parentId, kind: 'database' })
+          itemMap.set(id, { id, title: extractDatabaseTitle(item), url, parentId, kind: 'database' })
+          if (parentId && !itemMap.has(parentId)) parentQueue.push(parentId)
         }
       }
       cursor = res.has_more ? (res.next_cursor ?? undefined) : undefined
@@ -379,14 +382,36 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
     return { ok: false, error: notionErrorMessage(err, 'Could not search Notion.') }
   }
 
-  // Root items are those whose parent was not itself shared — i.e., the items
-  // the user explicitly selected in the OAuth dialog.
-  const accessibleIds = new Set(allItems.map((i) => i.id))
-  const rootItems = allItems.filter((i) => !i.parentId || !accessibleIds.has(i.parentId))
+  // Fetch parents that search didn't return. If retrievable, they're accessible
+  // (OAuth-granted) pages whose own parents are outside the integration's scope —
+  // i.e. the true root grants. If not retrievable, they're outside the scope entirely.
+  const visited = new Set<string>()
+  while (parentQueue.length > 0) {
+    const id = parentQueue.shift()!
+    if (visited.has(id) || itemMap.has(id)) continue
+    visited.add(id)
+    try {
+      const page = (await notion.pages.retrieve({ page_id: id })) as Record<string, unknown>
+      const parent = (page as { parent?: { type?: string; page_id?: string } }).parent
+      const parentId = parent?.page_id ?? null
+      itemMap.set(id, { id, title: extractPageTitle(page), url: page.url as string | undefined, parentId, kind: 'page' })
+      if (parentId && !itemMap.has(parentId)) parentQueue.push(parentId)
+    } catch {
+      // not accessible — outside integration scope, marks boundary
+    }
+  }
 
-  const pages = rootItems.filter((i) => i.kind === 'page').map(({ id, title, url }) => ({ id, title, url }))
-  const databases = rootItems.filter((i) => i.kind === 'database').map(({ id, title, url }) => ({ id, title, url }))
+  // Root grants: accessible items whose parent is not in the accessible set.
+  // These are exactly the pages/databases the user selected in the OAuth dialog.
+  const allAccessible = Array.from(itemMap.values())
+  const rootItems = allAccessible.filter((i) => !i.parentId || !itemMap.has(i.parentId))
 
+  // If root resolution found nothing (e.g. Notion didn't index the granted pages),
+  // fall back to showing everything returned by search so the user isn't left with an empty list.
+  const candidates = rootItems.length > 0 ? rootItems : allAccessible
+
+  const pages = candidates.filter((i) => i.kind === 'page').map(({ id, title, url }) => ({ id, title, url }))
+  const databases = candidates.filter((i) => i.kind === 'database').map(({ id, title, url }) => ({ id, title, url }))
   return { ok: true, pages, databases }
 }
 
