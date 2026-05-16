@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server'
 
 const CONTENT = `# mdspec — Configuration & CLI Reference
 
-> Keep writing markdown. We'll handle the rest.
+> Audit-ready, git-native markdown publishing for engineering teams.
 
-mdspec syncs markdown spec files from your GitHub repo to external tools (Notion, ClickUp, Confluence, S3) on every push. Configuration lives in .mdspecmap files placed in any folder of your repo. The CLI is invoked as \`npx mdspeci\` (the npm package is \`mdspeci\`, with a trailing i).
+mdspec publishes markdown spec files to Notion, ClickUp, Confluence, or S3 on every commit or merge — deterministically, with a full audit trail. Configuration lives in yml files placed in any folder of your repo. The CLI is invoked as \`npx mdspeci\` (the npm package is \`mdspeci\`, with a trailing i).
 
 ---
 

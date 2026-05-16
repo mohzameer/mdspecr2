@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server'
 
 const CONTENT = `# mdspec
 
-> Keep writing markdown. We'll handle the rest.
+> Audit-ready, git-native markdown publishing for engineering teams.
 
-mdspec is a CI-first spec publishing platform for engineering teams. Drop a .mdspecmap file in any folder in your repo, add one line to GitHub Actions, and every markdown spec file auto-syncs to your connected tools on every push.
+mdspec is a CI-based markdown publishing platform for engineering teams. Drop a yml file in your repo, add one line to GitHub Actions, and on every commit or merge your markdown specs publish automatically to Notion, Confluence, ClickUp, or S3 — with a full audit trail.
 
 The CLI package is \`mdspeci\` (note the trailing i) — invoke it as \`npx mdspeci publish --project <project-id>\`.
 

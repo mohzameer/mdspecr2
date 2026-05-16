@@ -8,14 +8,14 @@ import {
 } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: "mdspec — Keep writing markdown. We'll handle the rest.",
+  title: "mdspec — Audit-ready, git-native markdown publishing for engineering teams",
   description:
-    "Push markdown specs from CI. Auto-sync to ClickUp, S3, Notion, and Confluence. Git-native markdown CMS for engineering teams — free to start.",
+    "Drop a yml file in your repo, add one line to GitHub Actions, and on every commit or merge your markdown specs publish to Notion, Confluence, ClickUp, or S3 — with a full audit trail. Free to start.",
   alternates: { canonical: "https://mdspec.dev" },
   openGraph: {
-    title: "mdspec — Keep writing markdown. We'll handle the rest.",
+    title: "mdspec — Audit-ready, git-native markdown publishing for engineering teams",
     description:
-      "Push markdown specs from CI. Auto-sync to ClickUp, S3, Notion, and Confluence. Free to start.",
+      "On every commit or merge, your markdown specs publish automatically to Notion, Confluence, ClickUp, or S3 — audit-ready, git-native, free to start.",
     url: "https://mdspec.dev",
   },
 }
