@@ -230,7 +230,7 @@ export default function IntegrationsPage() {
       setSaving(true)
       const { token, root_page_id, mode, database_id, data_source_id } = form.notion
       const parsedRoot = root_page_id ? parseNotionInput(root_page_id) : null
-      if (!notionOAuthSetup && mode !== 'database' && !parsedRoot) {
+      if (mode !== 'database' && !parsedRoot) {
         setNotionValidateError('Could not extract a Notion page ID. Paste the page URL or its ID.')
         setSaving(false)
         return
@@ -445,10 +445,10 @@ export default function IntegrationsPage() {
                           </p>
                           {form.notion.token && (
                             <div>
-                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
-                                Default root page <span className="text-zinc-400 font-normal">(optional — can be overridden per folder)</span>
-                              </label>
+                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Default root page</label>
                               <select
+                                required
+                                disabled={loadingShared}
                                 value={
                                   form.notion.mode === 'database'
                                     ? `database:${form.notion.database_id}`
@@ -467,10 +467,9 @@ export default function IntegrationsPage() {
                                     setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: val.slice('page:'.length), database_id: '', data_source_id: '' } })
                                   }
                                 }}
-                                disabled={loadingShared}
                                 className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
                               >
-                                <option value="">{loadingShared ? 'Loading pages…' : 'None — set per folder mapping'}</option>
+                                <option value="">{loadingShared ? 'Loading pages…' : 'Select a page or database…'}</option>
                                 {notionSharedItems && notionSharedItems.pages.length > 0 && (
                                   <optgroup label="Pages">
                                     {notionSharedItems.pages.map((p) => (
