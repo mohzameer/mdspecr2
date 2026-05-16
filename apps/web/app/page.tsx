@@ -73,7 +73,7 @@ export default async function LandingPage() {
             How it works
           </a>
           <a href="#why" className={buttonVariants({ variant: 'ghost', size: 'lg' })}>
-            Why do I need this
+            Why your team needs it
           </a>
         </div>
 
@@ -84,15 +84,29 @@ export default async function LandingPage() {
           <IntegrationBadge label="S3" active />
           <IntegrationBadge label="Confluence" active />
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">Sync your GitHub repo to Notion, ClickUp, S3 & Confluence — automatically on every push</p>
+        <p className="mt-3 text-xs text-muted-foreground">Team-scale publishing with a full audit trail — deterministic on every merge</p>
       </section>
 
       <Separator className="max-w-5xl mx-auto" />
 
-      {/* Why do I need this */}
+      {/* How it works */}
+      <section id="how-it-works" className="px-6 py-20">
+        <div className="max-w-3xl mx-auto">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">How it works</p>
+          <div className="grid sm:grid-cols-3 gap-6">
+            <Step number="1" title="Connect an integration" description="Sign up, create a project, and connect your integrations." />
+            <Step number="2" title="Place your .mdspecmap" description="Drop a .mdspecmap into any folder you want to sync — its location defines its scope." />
+            <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs." />
+          </div>
+        </div>
+      </section>
+
+      <Separator className="max-w-5xl mx-auto" />
+
+      {/* Why your team needs it */}
       <section id="why" className="px-6 py-20">
         <div className="max-w-5xl mx-auto">
-          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Why do I need this</p>
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Why your team needs it</p>
           <p className="text-center text-sm text-muted-foreground mb-10 max-w-xl mx-auto">
             Engineering teams don&apos;t need another docs tool. They need documentation that keeps pace with the codebase — automatically.
           </p>
@@ -112,20 +126,6 @@ export default async function LandingPage() {
               title="A Wiki That Reflects Reality"
               description="Stop reconciling documentation by hand. Every time code ships, mdspec ensures your Confluence, Notion, or ClickUp wiki reflects the latest state of your project. No stale runbooks. No outdated specs. Just a single source of truth that updates itself."
             />
-          </div>
-        </div>
-      </section>
-
-      <Separator className="max-w-5xl mx-auto" />
-
-      {/* How it works */}
-      <section id="how-it-works" className="px-6 py-20">
-        <div className="max-w-3xl mx-auto">
-          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-8 text-center">How it works</p>
-          <div className="grid sm:grid-cols-3 gap-6">
-            <Step number="1" title="Connect an integration" description="Sign up, create a project, and connect your integrations." />
-            <Step number="2" title="Place your .mdspecmap" description="Drop a .mdspecmap into any folder you want to sync — its location defines its scope." />
-            <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs." />
           </div>
         </div>
       </section>
