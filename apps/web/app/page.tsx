@@ -63,7 +63,7 @@ export default async function LandingPage() {
           <span className="text-muted-foreground">We&apos;ll handle the rest.</span>
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
-          Drop a mapping file in your repo, add one line to GitHub Actions, and on every commit or merge your markdown files land exactly where your team needs them — Notion, Confluence, ClickUp, S3, or any combination. Published as clean docs or agent-transformed into release notes, task summaries, and more. No GitHub code access needed.
+          <span className="underline">Drop a mapping file</span> in your repo, <span className="underline">add one line</span> to GitHub Actions, and <span className="underline">on every commit or merge</span> your markdown files land exactly where your team needs them — Notion, Confluence, ClickUp, S3, or <span className="underline">any combination</span>. Published as <span className="underline">clean docs or agent-transformed</span> into release notes, task summaries, and more. <span className="underline">No GitHub code access</span> needed.
         </p>
 <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'} className={buttonVariants({ size: 'lg' })}>
