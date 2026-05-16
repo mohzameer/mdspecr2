@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 type IntegrationType = 'notion' | 'confluence' | 'clickup' | 's3'
 
@@ -108,6 +109,35 @@ export default function IntegrationsPage() {
   const [childrenError, setChildrenError] = useState<string | null>(null)
   const [notionSubPageId, setNotionSubPageId] = useState<string>('')
   const loadedParentRef = useRef<string | null>(null)
+  const [notionOAuthSetup, setNotionOAuthSetup] = useState(false)
+  const [oauthError, setOauthError] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    const setup = searchParams.get('setup')
+    const error = searchParams.get('error')
+
+    if (error === 'notion_denied') setOauthError('Notion authorization was cancelled.')
+    if (error === 'notion_state') setOauthError('Authorization failed (state mismatch). Please try again.')
+    if (error === 'notion_token') setOauthError('Could not exchange the Notion authorization code. Please try again.')
+
+    if (setup !== 'notion') return
+    setNotionOAuthSetup(true)
+    setConnecting('notion')
+
+    fetch('/api/integrations/notion/pending-token')
+      .then(async (r) => {
+        if (!r.ok) throw new Error('no pending token')
+        return r.json()
+      })
+      .then((data) => {
+        if (data.token) {
+          setForm((f) => ({ ...f, notion: { ...f.notion, token: data.token } }))
+        }
+      })
+      .catch(() => setOauthError('Session expired or cookies were cleared. Please click Connect again.'))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function resetNotionChildren() {
     setNotionChildren(null)
@@ -226,6 +256,8 @@ export default function IntegrationsPage() {
       setConnecting(null)
       setSaving(false)
       setNotionDataSources(null)
+      setNotionOAuthSetup(false)
+      window.history.replaceState({}, '', '/integrations')
       return
     }
 
@@ -357,6 +389,14 @@ export default function IntegrationsPage() {
                           Disconnect
                         </button>
                       ) : (
+                        type === 'notion' ? (
+                          <a
+                            href="/api/integrations/notion/authorize"
+                            className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
+                          >
+                            Connect
+                          </a>
+                        ) : (
                         <button
                           onClick={() => {
                             setConnecting(connecting === type ? null : type)
@@ -367,6 +407,7 @@ export default function IntegrationsPage() {
                         >
                           Connect
                         </button>
+                        )
                       )}
                     </>
                   )}
@@ -377,7 +418,16 @@ export default function IntegrationsPage() {
                 <form onSubmit={(e) => connect(type, e)} className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
                   {type === 'notion' && (
                     <>
-                      <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v, root_page_id: '', database_id: '', data_source_id: '' } }); setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren() }} placeholder="ntn_... or secret_..." />
+                      {oauthError && <p className="text-xs text-red-500">{oauthError}</p>}
+                      {notionOAuthSetup ? (
+                        <p className="text-xs text-zinc-500">
+                          {form.notion.token
+                            ? <span className="text-green-600 dark:text-green-400">Notion authorized via OAuth. Pick a page to publish into.</span>
+                            : 'Loading authorization…'}
+                        </p>
+                      ) : (
+                        <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v, root_page_id: '', database_id: '', data_source_id: '' } }); setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren() }} placeholder="ntn_... or secret_..." />
+                      )}
                       <Field
                         label="Notion link or ID"
                         value={form.notion.mode === 'database' ? form.notion.database_id : form.notion.root_page_id}
@@ -546,7 +596,7 @@ export default function IntegrationsPage() {
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                       {saving ? (type === 's3' || type === 'confluence' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); setNotionDataSources(null); resetNotionChildren() }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); setNotionDataSources(null); resetNotionChildren(); setNotionOAuthSetup(false); setOauthError(null); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>
