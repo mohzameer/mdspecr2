@@ -106,19 +106,9 @@ const REQUIRED_ENV = [
   'SUPABASE_SERVICE_KEY',
 ]
 
-const OPTIONAL_ENV = [
-  'OPENAI_API_KEY',
-  'OPENAI_MODEL',
-  'OPENAI_BASE_URL',
-]
-
 createServer((req, res) => {
   if (req.url === '/health') {
     const required = REQUIRED_ENV.map((key) => ({
-      key,
-      set: !!process.env[key],
-    }))
-    const optional = OPTIONAL_ENV.map((key) => ({
       key,
       set: !!process.env[key],
     }))
@@ -128,7 +118,7 @@ createServer((req, res) => {
     res.end(JSON.stringify({
       status: allRequiredSet ? 'ok' : 'misconfigured',
       uptime: process.uptime(),
-      env: { required, optional },
+      env: { required },
     }, null, 2))
   } else {
     res.writeHead(404)

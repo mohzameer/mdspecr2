@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { randomUUID } from 'crypto'
 import { cookies } from 'next/headers'
 import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
 import { storeCredentials, deleteCredentials } from '@/lib/credentials'
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     .eq('type', type)
     .maybeSingle()
 
-  const secretId = await storeCredentials(service, credentials, `integration:${orgId}:${type}`)
+  const secretId = await storeCredentials(service, credentials, `integration:${orgId}:${type}:${randomUUID()}`)
 
   const { error } = await service
     .from('integrations')

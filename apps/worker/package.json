@@ -13,8 +13,7 @@
     "@notionhq/client": "^2.2.15",
     "@supabase/supabase-js": "^2.99.3",
     "axios": "^1.7.0",
-    "bullmq": "^5.71.0",
-    "openai": "^4.104.0"
+    "bullmq": "^5.71.0"
   },
   "devDependencies": {
     "@types/node": "^20",
