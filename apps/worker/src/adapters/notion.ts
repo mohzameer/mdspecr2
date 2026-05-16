@@ -7,7 +7,7 @@ const BLOCK_BATCH = 100
 
 export interface NotionCredentials {
   token: string
-  root_page_id: string
+  root_page_id?: string
   mode?: 'page' | 'database'
   database_id?: string
   data_source_id?: string
@@ -181,12 +181,16 @@ async function publishAsDatabaseRow(
 export async function publishToNotion(
   credentials: NotionCredentials,
   spec: SpecPayload,
-  existingPageId?: string | null
+  existingPageId?: string | null,
+  folderMappingTargetId?: string | null
 ): Promise<PublishResult> {
   const notion = new Client({ auth: credentials.token, notionVersion: NOTION_API_VERSION })
 
   if (credentials.mode === 'database') {
     return publishAsDatabaseRow(notion, credentials, spec, existingPageId)
   }
-  return publishAsPage(notion, credentials, spec, existingPageId)
+
+  const rootPageId = folderMappingTargetId ?? credentials.root_page_id
+  if (!rootPageId) throw new Error('No Notion destination configured. Set a parent page in the folder mapping or during integration setup.')
+  return publishAsPage(notion, { ...credentials, root_page_id: rootPageId }, spec, existingPageId)
 }

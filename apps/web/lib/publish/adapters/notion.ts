@@ -351,9 +351,8 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
   if (!token) return { ok: false, error: 'token is required' }
   const notion = new Client({ auth: token, notionVersion: NOTION_API_VERSION })
 
-  const pageMap = new Map<string, NotionSharedItem>()
-  const databases: NotionSharedItem[] = []
-  const ancestorQueue: string[] = []
+  type RawItem = NotionSharedItem & { parentId: string | null; kind: 'page' | 'database' }
+  const allItems: RawItem[] = []
 
   try {
     let cursor: string | undefined
@@ -366,12 +365,12 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
         const obj = item.object as string
         const id = item.id as string
         const url = item.url as string | undefined
+        const parent = (item as { parent?: { type?: string; page_id?: string; database_id?: string } }).parent
+        const parentId = parent?.page_id ?? parent?.database_id ?? null
         if (obj === 'page') {
-          if (!pageMap.has(id)) pageMap.set(id, { id, title: extractPageTitle(item), url })
-          const parentId = parentPageId(item)
-          if (parentId && !pageMap.has(parentId)) ancestorQueue.push(parentId)
+          allItems.push({ id, title: extractPageTitle(item), url, parentId, kind: 'page' })
         } else if (obj === 'database') {
-          databases.push({ id, title: extractDatabaseTitle(item), url })
+          allItems.push({ id, title: extractDatabaseTitle(item), url, parentId, kind: 'database' })
         }
       }
       cursor = res.has_more ? (res.next_cursor ?? undefined) : undefined
@@ -380,22 +379,13 @@ export async function searchNotionShared(token: string): Promise<NotionSharedRes
     return { ok: false, error: notionErrorMessage(err, 'Could not search Notion.') }
   }
 
-  const visited = new Set<string>()
-  while (ancestorQueue.length > 0) {
-    const id = ancestorQueue.shift()!
-    if (visited.has(id) || pageMap.has(id)) continue
-    visited.add(id)
-    try {
-      const page = (await notion.pages.retrieve({ page_id: id })) as Record<string, unknown>
-      pageMap.set(id, { id, title: extractPageTitle(page), url: page.url as string | undefined })
-      const grandparent = parentPageId(page)
-      if (grandparent && !pageMap.has(grandparent)) ancestorQueue.push(grandparent)
-    } catch {
-      // ancestor not accessible to integration — skip silently
-    }
-  }
+  // Root items are those whose parent was not itself shared — i.e., the items
+  // the user explicitly selected in the OAuth dialog.
+  const accessibleIds = new Set(allItems.map((i) => i.id))
+  const rootItems = allItems.filter((i) => !i.parentId || !accessibleIds.has(i.parentId))
 
-  const pages = Array.from(pageMap.values())
+  const pages = rootItems.filter((i) => i.kind === 'page').map(({ id, title, url }) => ({ id, title, url }))
+  const databases = rootItems.filter((i) => i.kind === 'database').map(({ id, title, url }) => ({ id, title, url }))
 
   return { ok: true, pages, databases }
 }
@@ -404,15 +394,20 @@ export async function validateNotionCredentials(input: NotionValidateInput): Pro
   if (!input.token) {
     return { ok: false, error: 'token is required' }
   }
-  if (input.mode !== 'database' && !input.root_page_id) {
-    return { ok: false, error: 'root_page_id is required for page mode' }
-  }
-
   const notion = new Client({ auth: input.token, notionVersion: NOTION_API_VERSION })
 
   if (input.mode !== 'database') {
+    if (!input.root_page_id) {
+      // Token-only — just verify it works
+      try {
+        await notion.users.me({})
+      } catch (err) {
+        return { ok: false, error: notionErrorMessage(err, 'Could not verify Notion token.') }
+      }
+      return { ok: true, mode: 'page' }
+    }
     try {
-      await notion.pages.retrieve({ page_id: input.root_page_id! })
+      await notion.pages.retrieve({ page_id: input.root_page_id })
     } catch (err) {
       return { ok: false, error: notionErrorMessage(err, 'Could not reach Notion.') }
     }
