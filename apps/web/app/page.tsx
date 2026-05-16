@@ -57,15 +57,15 @@ export default async function LandingPage() {
 
       {/* Hero */}
       <section className="px-6 min-h-[calc(100dvh-57px)] max-w-3xl mx-auto text-center flex flex-col items-center justify-center">
-        <Badge variant="outline" className="mb-6">CI-first spec publishing</Badge>
+        <Badge variant="outline" className="mb-6 text-sm px-4 py-1">Audit-ready, git-native, CI-based markdown publishing for engineering teams</Badge>
         <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-tight">
           Keep writing markdown.<br />
           <span className="text-muted-foreground">We&apos;ll handle the rest.</span>
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
-          Drop a mapping file in your repo, add one line to GitHub Actions, and every markdown file lands exactly where your team needs it — published as clean docs or agent-transformed into release notes, task summaries, and more. No GitHub code access needed.
+          Drop a mapping file in your repo, add one line to GitHub Actions, and every markdown file lands exactly where your team needs it — Notion, Confluence, ClickUp, S3, or any combination. Published as clean docs or agent-transformed into release notes, task summaries, and more. No GitHub code access needed.
         </p>
-        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
+<div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'} className={buttonVariants({ size: 'lg' })}>
             {isLoggedIn ? 'Go to dashboard' : 'Get started free'}
           </Link>
@@ -84,7 +84,6 @@ export default async function LandingPage() {
           <IntegrationBadge label="S3" active />
           <IntegrationBadge label="Confluence" active />
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">Team-scale publishing with a full audit trail — deterministic on every merge</p>
       </section>
 
       <Separator className="max-w-5xl mx-auto" />
