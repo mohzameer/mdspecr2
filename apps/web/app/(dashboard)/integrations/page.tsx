@@ -111,6 +111,8 @@ export default function IntegrationsPage() {
   const loadedParentRef = useRef<string | null>(null)
   const [notionOAuthSetup, setNotionOAuthSetup] = useState(false)
   const [oauthError, setOauthError] = useState<string | null>(null)
+  const [notionSharedItems, setNotionSharedItems] = useState<{ pages: NotionSharedItem[]; databases: NotionSharedItem[] } | null>(null)
+  const [loadingShared, setLoadingShared] = useState(false)
   const searchParams = useSearchParams()
 
   useEffect(() => {
@@ -145,6 +147,21 @@ export default function IntegrationsPage() {
     setNotionSubPageId('')
     loadedParentRef.current = null
   }
+
+  useEffect(() => {
+    if (!notionOAuthSetup || !form.notion.token) return
+    setLoadingShared(true)
+    fetch('/api/integrations/notion/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: form.notion.token }),
+    })
+      .then((r) => r.json())
+      .then((data) => { if (data.ok) setNotionSharedItems({ pages: data.pages ?? [], databases: data.databases ?? [] }) })
+      .catch(() => {})
+      .finally(() => setLoadingShared(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notionOAuthSetup, form.notion.token])
 
   useEffect(() => {
     if (!form.notion.token) return
@@ -420,11 +437,58 @@ export default function IntegrationsPage() {
                     <>
                       {oauthError && <p className="text-xs text-red-500">{oauthError}</p>}
                       {notionOAuthSetup ? (
-                        <p className="text-xs text-zinc-500">
-                          {form.notion.token
-                            ? <span className="text-green-600 dark:text-green-400">Notion authorized. Set a destination page per folder in your project mappings.</span>
-                            : 'Loading authorization…'}
-                        </p>
+                        <>
+                          <p className="text-xs text-zinc-500">
+                            {form.notion.token
+                              ? <span className="text-green-600 dark:text-green-400">Notion authorized via OAuth.</span>
+                              : 'Loading authorization…'}
+                          </p>
+                          {form.notion.token && (
+                            <div>
+                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+                                Default root page <span className="text-zinc-400 font-normal">(optional — can be overridden per folder)</span>
+                              </label>
+                              <select
+                                value={
+                                  form.notion.mode === 'database'
+                                    ? `database:${form.notion.database_id}`
+                                    : form.notion.root_page_id
+                                    ? `page:${form.notion.root_page_id}`
+                                    : ''
+                                }
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren()
+                                  if (!val) {
+                                    setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: '', database_id: '', data_source_id: '' } })
+                                  } else if (val.startsWith('database:')) {
+                                    setForm({ ...form, notion: { ...form.notion, mode: 'database', database_id: val.slice('database:'.length), root_page_id: '', data_source_id: '' } })
+                                  } else {
+                                    setForm({ ...form, notion: { ...form.notion, mode: 'page', root_page_id: val.slice('page:'.length), database_id: '', data_source_id: '' } })
+                                  }
+                                }}
+                                disabled={loadingShared}
+                                className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                              >
+                                <option value="">{loadingShared ? 'Loading pages…' : 'None — set per folder mapping'}</option>
+                                {notionSharedItems && notionSharedItems.pages.length > 0 && (
+                                  <optgroup label="Pages">
+                                    {notionSharedItems.pages.map((p) => (
+                                      <option key={p.id} value={`page:${p.id}`}>{p.title}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {notionSharedItems && notionSharedItems.databases.length > 0 && (
+                                  <optgroup label="Databases">
+                                    {notionSharedItems.databases.map((d) => (
+                                      <option key={d.id} value={`database:${d.id}`}>{d.title}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <Field label="Integration token" value={form.notion.token} onChange={(v) => { setForm({ ...form, notion: { ...form.notion, token: v, root_page_id: '', database_id: '', data_source_id: '' } }); setNotionValidateError(null); setNotionDataSources(null); resetNotionChildren() }} placeholder="ntn_... or secret_..." />
                       )}
@@ -600,7 +664,7 @@ export default function IntegrationsPage() {
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                       {saving ? (type === 's3' || type === 'confluence' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); setNotionDataSources(null); resetNotionChildren(); setNotionOAuthSetup(false); setOauthError(null); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); setNotionDataSources(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>
