@@ -1024,57 +1024,26 @@ mappings:
             </p>
 
             <h3 className="text-sm font-semibold">Connect a Notion integration</h3>
-            <p className="text-sm font-medium mt-2">Step 1 — Create a Notion integration</p>
+            <p className="text-sm font-medium mt-2">Step 1 — Connect via OAuth</p>
             <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
-              <li>Go to <a href="https://www.notion.so/my-integrations" target="_blank" rel="noreferrer" className="underline hover:text-foreground">notion.so/my-integrations</a> and sign in with the account that owns the workspace.</li>
-              <li>Click <strong>+ New integration</strong>, enter a name (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mdspec</code>), and select the target workspace.</li>
-              <li>Under <strong>Capabilities</strong>, ensure <strong>Read content</strong>, <strong>Update content</strong>, and <strong>Insert content</strong> are all checked.</li>
+              <li>Go to <strong>Dashboard → Integrations → Notion → Connect</strong>.</li>
+              <li>You are redirected to Notion. Approve the permissions for your workspace.</li>
+              <li>You are returned to mdspec automatically.</li>
+            </ol>
+
+            <p className="text-sm font-medium mt-2">Step 2 — Pick a root page</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+              <li>After authorizing, select the Notion page where specs will be published from the dropdown.</li>
               <li>Click <strong>Save</strong>.</li>
             </ol>
-
-            <p className="text-sm font-medium mt-2">Step 2 — Copy the integration token</p>
-            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
-              <li>On the integration settings page, under <strong>Secrets</strong>, click <strong>Show</strong> then <strong>Copy</strong>.</li>
-              <li>The token starts with <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">ntn_</code> (newer workspaces) or <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">secret_</code>.</li>
-            </ol>
-
-            <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
-              <InfoIcon className="text-amber-600 dark:text-amber-400" />
-              <AlertTitle className="text-amber-900 dark:text-amber-200">You must share the page with the integration</AlertTitle>
-              <AlertDescription className="text-amber-900/80 dark:text-amber-200/80">
-                Notion does not grant integrations automatic access. Even with a valid token, the API returns <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">object not found</code> until you explicitly share the target page or database.
-              </AlertDescription>
-            </Alert>
-
-            <p className="text-sm font-medium mt-2">Step 3 — Share the target page or database with the integration</p>
-            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
-              <li>Open the target page or database in Notion.</li>
-              <li>Click <strong>…</strong> (top-right) → <strong>Connections → Add a connection</strong>.</li>
-              <li>Search for your integration by name and select it.</li>
-            </ol>
-            <p className="text-sm text-muted-foreground">Sub-pages of a shared page are automatically accessible — share only the top-level parent.</p>
-
-            <p className="text-sm font-medium mt-2">Step 4 — Get the page or database ID</p>
-            <p className="text-sm text-muted-foreground">
-              Paste the page or database URL directly into the connect form — mdspec extracts the ID automatically. Database URLs contain a <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">?v=</code> parameter; mdspec detects this and switches to database mode.
-            </p>
-            <CodeBlock>{`# Example page URL — the 32-char hex at the end is the page ID
-https://www.notion.so/myworkspace/Engineering-Specs-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4`}</CodeBlock>
-
-            <p className="text-sm font-medium mt-2">Step 5 — Connect in mdspec</p>
-            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
-              <li>Go to <strong>Dashboard → Integrations → Connect → Notion</strong>.</li>
-              <li>Paste the integration token and the page or database URL.</li>
-              <li>Optionally select a sub-page from the dropdown to narrow where specs publish.</li>
-              <li>Click <strong>Save</strong>. mdspec validates against the Notion API before saving.</li>
-            </ol>
+            <p className="text-sm text-muted-foreground">Specs publish as nested sub-pages under the root page, mirroring your repo folder structure.</p>
 
             <Table
               headers={['Error', 'Likely cause']}
               rows={[
-                ['`object not found` / 401', 'Integration not shared with the page — repeat step 3'],
-                ['Could not extract page ID', 'Paste the full Notion page URL'],
-                ['No sub-pages visible', 'Integration lacks Insert / Update content capability'],
+                ['Authorization cancelled', 'Denied permissions on the Notion consent screen — try again and approve'],
+                ['Session expired', 'Took too long after authorizing — click Connect to restart'],
+                ['No pages visible in dropdown', 'The authorized workspace has no pages — create one in Notion first'],
               ]}
             />
           </section>
@@ -1090,37 +1059,23 @@ https://www.notion.so/myworkspace/Engineering-Specs-a1b2c3d4e5f6a1b2c3d4e5f6a1b2
 
             <h3 className="text-sm font-semibold">Connect a ClickUp integration</h3>
 
-            <p className="text-sm font-medium mt-2">Step 1 — Generate your Personal API token</p>
+            <p className="text-sm font-medium mt-2">Step 1 — Connect via OAuth</p>
             <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
-              <li>Sign in to <a href="https://app.clickup.com" target="_blank" rel="noreferrer" className="underline hover:text-foreground">app.clickup.com</a>.</li>
-              <li>Click your <strong>avatar</strong> (upper-right corner) → <strong>Settings</strong>.</li>
-              <li>In the left sidebar, scroll down and click <strong>Apps</strong>.</li>
-              <li>Under <strong>API Token</strong>, click <strong>Generate</strong> (or <strong>Regenerate</strong> if one already exists).</li>
-              <li>Copy the token — it starts with <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">pk_</code>.</li>
+              <li>Go to <strong>Dashboard → Integrations → ClickUp → Connect</strong>.</li>
+              <li>You are redirected to ClickUp. Approve access for your account.</li>
+              <li>You are returned to mdspec automatically.</li>
             </ol>
-            <p className="text-sm text-muted-foreground">Your personal token grants the same access your account has in the browser and covers all workspaces your account belongs to.</p>
 
-            <p className="text-sm font-medium mt-2">Step 2 — Find your Workspace URL</p>
-            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
-              <li>While logged in to ClickUp, copy the URL from your browser address bar. It looks like:</li>
-            </ol>
-            <CodeBlock>{`https://app.clickup.com/90181844797/v/l/...`}</CodeBlock>
+            <p className="text-sm font-medium mt-2">Step 2 — Pick a workspace (if prompted)</p>
             <p className="text-sm text-muted-foreground">
-              mdspec automatically extracts the numeric workspace ID (e.g. <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">90181844797</code>) from the URL and displays it below the field for confirmation.
+              If your account belongs to multiple ClickUp workspaces, mdspec shows a picker. Select the workspace you want to publish into and click <strong>Save</strong>. If you only have one workspace, this step is skipped and the connection completes automatically.
             </p>
-
-            <p className="text-sm font-medium mt-2">Step 3 — Connect in mdspec</p>
-            <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
-              <li>Go to <strong>Dashboard → Integrations → Connect → ClickUp</strong>.</li>
-              <li>Paste your <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">pk_...</code> token and your full workspace URL.</li>
-              <li>Click <strong>Save</strong>.</li>
-            </ol>
 
             <Table
               headers={['Error', 'Likely cause']}
               rows={[
-                ['Workspace ID not found', 'Paste the full https://app.clickup.com/... URL including the numeric segment'],
-                ['`401 Unauthorized`', 'Token was regenerated — generate a new one and reconnect'],
+                ['Authorization cancelled', 'Denied permissions on the ClickUp consent screen — try again and approve'],
+                ['No workspaces found', 'The authorized account has no ClickUp workspaces'],
                 ['`403 Forbidden`', 'Account lacks access to the selected workspace or Doc'],
               ]}
             />
