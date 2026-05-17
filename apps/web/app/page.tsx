@@ -122,8 +122,8 @@ export default async function LandingPage() {
             />
             <WhyCard
               icon={BookMarked}
-              title="A Wiki That Reflects Reality"
-              description="Stop reconciling documentation by hand. Every time code ships, mdspec ensures your Confluence, Notion, or ClickUp wiki reflects the latest state of your project. No stale runbooks. No outdated specs. Just a single source of truth that updates itself."
+              title="Integrations That Scale Without the Overhead"
+              description="Keeping up with changing API interfaces across Confluence, Notion, and ClickUp is a maintenance burden your team shouldn't carry. mdspec handles rate limiting, retry logic, and guaranteed delivery so syncs are safe and reliable — without you rebuilding that infrastructure every time a vendor ships a breaking change."
             />
           </div>
         </div>
