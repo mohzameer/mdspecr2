@@ -108,15 +108,46 @@ export default function IntegrationsPage() {
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [notionSharedItems, setNotionSharedItems] = useState<{ pages: NotionSharedItem[] } | null>(null)
   const [loadingShared, setLoadingShared] = useState(false)
+  const [clickupOAuthSetup, setClickupOAuthSetup] = useState(false)
+  const [clickupWorkspaces, setClickupWorkspaces] = useState<{ id: string; name: string }[]>([])
+  const [clickupPendingToken, setClickupPendingToken] = useState<string>('')
+  const [clickupWorkspaceId, setClickupWorkspaceId] = useState<string>('')
   const searchParams = useSearchParams()
 
   useEffect(() => {
     const setup = searchParams.get('setup')
     const error = searchParams.get('error')
+    const clickup = searchParams.get('clickup')
 
     if (error === 'notion_denied') setOauthError('Notion authorization was cancelled.')
     if (error === 'notion_state') setOauthError('Authorization failed (state mismatch). Please try again.')
     if (error === 'notion_token') setOauthError('Could not exchange the Notion authorization code. Please try again.')
+    if (error === 'clickup_denied') setOauthError('ClickUp authorization was cancelled.')
+    if (error === 'clickup_token') setOauthError('Could not connect to ClickUp. Please try again.')
+    if (error === 'clickup_no_workspace') setOauthError('No ClickUp workspaces found on this account.')
+
+    if (clickup === 'connected') {
+      fetchIntegrations()
+      window.history.replaceState({}, '', '/integrations')
+      return
+    }
+
+    if (setup === 'clickup') {
+      setClickupOAuthSetup(true)
+      setConnecting('clickup')
+      fetch('/api/integrations/clickup/pending')
+        .then(async (r) => {
+          if (!r.ok) throw new Error()
+          return r.json()
+        })
+        .then((data) => {
+          setClickupPendingToken(data.token)
+          setClickupWorkspaces(data.workspaces ?? [])
+          if (data.workspaces?.length === 1) setClickupWorkspaceId(data.workspaces[0].id)
+        })
+        .catch(() => setOauthError('Session expired or cookies were cleared. Please click Connect again.'))
+      return
+    }
 
     if (setup !== 'notion') return
     setNotionOAuthSetup(true)
@@ -253,6 +284,29 @@ export default function IntegrationsPage() {
     }
 
     if (type === 'clickup') {
+      if (clickupOAuthSetup) {
+        if (!clickupWorkspaceId) {
+          setUrlError('Select a workspace to continue.')
+          return
+        }
+        setSaving(true)
+        const credentials = { api_token: clickupPendingToken, workspace_id: clickupWorkspaceId }
+        await fetch('/api/integrations/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, credentials: JSON.stringify(credentials), config: credentials }),
+        })
+        await fetchIntegrations()
+        setConnecting(null)
+        setSaving(false)
+        setClickupOAuthSetup(false)
+        setClickupWorkspaces([])
+        setClickupPendingToken('')
+        setClickupWorkspaceId('')
+        window.history.replaceState({}, '', '/integrations')
+        return
+      }
+
       const workspaceId = parseClickUpWorkspaceId(form.clickup.workspace_url)
       if (!workspaceId) {
         setUrlError('Could not find a workspace ID in that URL. Paste your full ClickUp workspace URL.')
@@ -383,6 +437,13 @@ export default function IntegrationsPage() {
                         type === 'notion' ? (
                           <a
                             href="/api/integrations/notion/authorize"
+                            className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
+                          >
+                            Connect
+                          </a>
+                        ) : type === 'clickup' ? (
+                          <a
+                            href="/api/integrations/clickup/authorize"
                             className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
                           >
                             Connect
@@ -544,27 +605,52 @@ export default function IntegrationsPage() {
                   )}
                   {type === 'clickup' && (
                     <>
-                      <Field
-                        label="Personal API token"
-                        value={form.clickup.api_token}
-                        onChange={(v) => setForm({ ...form, clickup: { ...form.clickup, api_token: v } })}
-                        placeholder="pk_..."
-                      />
-                      <Field
-                        label="Workspace URL"
-                        value={form.clickup.workspace_url}
-                        onChange={(v) => { setForm({ ...form, clickup: { ...form.clickup, workspace_url: v } }); setUrlError(null) }}
-                        placeholder="https://app.clickup.com/90181844797/..."
-                      />
-                      {form.clickup.workspace_url && (
-                        <p className="text-xs text-zinc-400">
-                          {parseClickUpWorkspaceId(form.clickup.workspace_url)
-                            ? <>Workspace ID: <span className="font-mono text-zinc-600 dark:text-zinc-300">{parseClickUpWorkspaceId(form.clickup.workspace_url)}</span></>
-                            : <span className="text-yellow-600">Paste your full ClickUp workspace URL to auto-detect the ID.</span>
-                          }
-                        </p>
+                      {clickupOAuthSetup ? (
+                        <>
+                          <p className="text-xs text-green-600 dark:text-green-400">ClickUp authorized via OAuth.</p>
+                          {clickupWorkspaces.length > 1 && (
+                            <div>
+                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Workspace</label>
+                              <select
+                                required
+                                value={clickupWorkspaceId}
+                                onChange={(e) => { setClickupWorkspaceId(e.target.value); setUrlError(null) }}
+                                className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                              >
+                                <option value="">Select a workspace…</option>
+                                {clickupWorkspaces.map((w) => (
+                                  <option key={w.id} value={w.id}>{w.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {urlError && <p className="text-xs text-red-500">{urlError}</p>}
+                        </>
+                      ) : (
+                        <>
+                          <Field
+                            label="Personal API token"
+                            value={form.clickup.api_token}
+                            onChange={(v) => setForm({ ...form, clickup: { ...form.clickup, api_token: v } })}
+                            placeholder="pk_..."
+                          />
+                          <Field
+                            label="Workspace URL"
+                            value={form.clickup.workspace_url}
+                            onChange={(v) => { setForm({ ...form, clickup: { ...form.clickup, workspace_url: v } }); setUrlError(null) }}
+                            placeholder="https://app.clickup.com/90181844797/..."
+                          />
+                          {form.clickup.workspace_url && (
+                            <p className="text-xs text-zinc-400">
+                              {parseClickUpWorkspaceId(form.clickup.workspace_url)
+                                ? <>Workspace ID: <span className="font-mono text-zinc-600 dark:text-zinc-300">{parseClickUpWorkspaceId(form.clickup.workspace_url)}</span></>
+                                : <span className="text-yellow-600">Paste your full ClickUp workspace URL to auto-detect the ID.</span>
+                              }
+                            </p>
+                          )}
+                          {urlError && <p className="text-xs text-red-500">{urlError}</p>}
+                        </>
                       )}
-                      {urlError && <p className="text-xs text-red-500">{urlError}</p>}
                     </>
                   )}
                   {type === 's3' && (
@@ -581,7 +667,7 @@ export default function IntegrationsPage() {
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                       {saving ? (type === 's3' || type === 'confluence' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); setClickupOAuthSetup(false); setClickupWorkspaces([]); setClickupPendingToken(''); setClickupWorkspaceId(''); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>
