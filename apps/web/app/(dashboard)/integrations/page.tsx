@@ -426,14 +426,7 @@ export default function IntegrationsPage() {
                   ) : (
                     <>
                       <span className={`text-xs font-medium capitalize ${statusColors[status]}`}>{status}</span>
-                      {status !== 'disconnected' ? (
-                        <button
-                          onClick={() => disconnect(type)}
-                          className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
-                        >
-                          Disconnect
-                        </button>
-                      ) : (
+                      {status === 'disconnected' ? (
                         type === 'notion' ? (
                           <a
                             href="/api/integrations/notion/authorize"
@@ -449,17 +442,54 @@ export default function IntegrationsPage() {
                             Connect
                           </a>
                         ) : (
-                        <button
-                          onClick={() => {
-                            setConnecting(connecting === type ? null : type)
-                            setUrlError(null)
-                            setS3ValidateError(null)
-                          }}
-                          className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
-                        >
-                          Connect
-                        </button>
+                          <button
+                            onClick={() => {
+                              setConnecting(connecting === type ? null : type)
+                              setUrlError(null)
+                              setS3ValidateError(null)
+                            }}
+                            className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
+                          >
+                            Connect
+                          </button>
                         )
+                      ) : (
+                        <>
+                          {status === 'unhealthy' && (
+                            type === 'notion' ? (
+                              <a
+                                href="/api/integrations/notion/authorize"
+                                className="rounded-md bg-yellow-600 hover:bg-yellow-700 px-3 py-1.5 text-xs font-medium text-white transition-colors"
+                              >
+                                Reconnect
+                              </a>
+                            ) : type === 'clickup' ? (
+                              <a
+                                href="/api/integrations/clickup/authorize"
+                                className="rounded-md bg-yellow-600 hover:bg-yellow-700 px-3 py-1.5 text-xs font-medium text-white transition-colors"
+                              >
+                                Reconnect
+                              </a>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setConnecting(connecting === type ? null : type)
+                                  setUrlError(null)
+                                  setS3ValidateError(null)
+                                }}
+                                className="rounded-md bg-yellow-600 hover:bg-yellow-700 px-3 py-1.5 text-xs font-medium text-white transition-colors"
+                              >
+                                Reconnect
+                              </button>
+                            )
+                          )}
+                          <button
+                            onClick={() => disconnect(type)}
+                            className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
+                          >
+                            Disconnect
+                          </button>
+                        </>
                       )}
                     </>
                   )}

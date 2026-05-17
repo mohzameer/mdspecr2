@@ -159,7 +159,17 @@ export function ActivityFeed({ projectId, orgId, initialItems }: ActivityFeedPro
           )}
 
           {item.last_error && (
-            <p className="text-xs text-red-500 mt-0.5 truncate">{item.last_error}</p>
+            /auth error|401|403/i.test(item.last_error) ? (
+              <p className="text-xs text-red-500 mt-0.5">
+                Authentication failed —{' '}
+                <a href="/integrations" className="underline hover:text-red-700 dark:hover:text-red-300">
+                  reconnect this integration
+                </a>
+                {' '}to resume syncing.
+              </p>
+            ) : (
+              <p className="text-xs text-red-500 mt-0.5 truncate">{item.last_error}</p>
+            )
           )}
         </div>
       ))}

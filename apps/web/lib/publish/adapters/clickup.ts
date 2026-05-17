@@ -123,7 +123,10 @@ export async function getClickUpTaskListId(
     return { ok: true, listId }
   } catch (err) {
     const status = (err as { response?: { status?: number } }).response?.status
-    if (status === 404 || status === 400) return { ok: false, missing: true }
+    // 404/400: task not found. 401/403: task belongs to a different account —
+    // treat as stale so the self-heal clears the pointer; the actual publish
+    // will surface a genuine auth failure if the token is bad.
+    if (status === 404 || status === 400 || status === 401 || status === 403) return { ok: false, missing: true }
     throw err
   }
 }
