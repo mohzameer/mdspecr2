@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { randomUUID } from 'crypto'
 import { cookies } from 'next/headers'
 import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
 import { storeCredentials, deleteCredentials } from '@/lib/credentials'
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
       .eq('type', 'clickup')
       .maybeSingle()
 
-    const secretId = await storeCredentials(service, JSON.stringify(credentials), `integration:${orgId}:clickup`)
+    const secretId = await storeCredentials(service, JSON.stringify(credentials), `integration:${orgId}:clickup:${randomUUID()}`)
 
     await service.from('integrations').upsert(
       { org_id: orgId, type: 'clickup', status: 'connected', credentials_secret_id: secretId, credentials: '', config: credentials, updated_at: new Date().toISOString() },
