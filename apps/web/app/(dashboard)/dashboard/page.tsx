@@ -16,12 +16,18 @@ export default async function DashboardPage() {
     .single()
   if (userData?.role === 'admin') redirect('/admin')
 
-  const cookieStore = await cookies()
-  const currentOrgId = cookieStore.get('current_org_id')?.value
+  // Check actual org membership — cookie alone isn't reliable for new users
+  const { count: orgCount } = await supabase
+    .from('org_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.id)
 
-  if (!currentOrgId) {
+  if (!orgCount) {
     redirect('/onboarding')
   }
+
+  const cookieStore = await cookies()
+  const currentOrgId = cookieStore.get('current_org_id')?.value ?? ''
 
   const [{ count: specCount }, { count: projectCount }, { data: recentActivity }] =
     await Promise.all([
