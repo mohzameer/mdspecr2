@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { createSupabaseServerClient } from '@/lib/db-server'
+import { resolveOrgId } from '@/lib/resolveOrgId'
 
 export async function POST(request: NextRequest) {
   const supabase = await createSupabaseServerClient()
@@ -8,7 +9,7 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const cookieStore = await cookies()
-  const orgId = cookieStore.get('current_org_id')?.value
+  const orgId = await resolveOrgId(supabase, user.id, cookieStore)
   if (!orgId) return NextResponse.json({ error: 'no org selected' }, { status: 400 })
 
   // Check org admin/owner

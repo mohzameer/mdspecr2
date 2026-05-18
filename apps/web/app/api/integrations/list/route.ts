@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createSupabaseServerClient } from '@/lib/db-server'
+import { resolveOrgId } from '@/lib/resolveOrgId'
 
 export async function GET() {
   const supabase = await createSupabaseServerClient()
@@ -9,8 +10,8 @@ export async function GET() {
   if (!user) return NextResponse.json([], { status: 401 })
 
   const cookieStore = await cookies()
-  const orgId = cookieStore.get('current_org_id')?.value
-  console.log('[integrations/list] orgId:', orgId ?? null)
+  const orgId = await resolveOrgId(supabase, user.id, cookieStore)
+  console.log('[integrations/list] orgId:', orgId)
   if (!orgId) return NextResponse.json([])
 
   const { data, error } = await supabase

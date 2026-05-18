@@ -29,11 +29,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const cookieOrgId = cookieStore.get('current_org_id')?.value ?? null
   const currentOrg = orgs.find((o) => o.id === cookieOrgId) ?? orgs[0] ?? null
 
-  // If the cookie points to an org the user no longer belongs to, correct it
-  if (currentOrg && cookieOrgId !== currentOrg.id) {
-    cookieStore.set('current_org_id', currentOrg.id, { path: '/', httpOnly: false, sameSite: 'lax' })
-  }
-
   console.log('[layout] cookie org_id:', cookieOrgId, 'resolved org:', currentOrg?.id ?? null)
 
   // Fetch projects for current org

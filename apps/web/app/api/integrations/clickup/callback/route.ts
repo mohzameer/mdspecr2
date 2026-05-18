@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { cookies } from 'next/headers'
 import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
 import { storeCredentials, deleteCredentials } from '@/lib/credentials'
+import { resolveOrgId } from '@/lib/resolveOrgId'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
 
   // Single workspace — connect directly without showing a picker
   if (workspaces.length === 1) {
-    const orgId = cookieStore.get('current_org_id')?.value
+    const orgId = await resolveOrgId(supabase, user.id, cookieStore)
     if (!orgId) {
       base.searchParams.set('error', 'clickup_token')
       return NextResponse.redirect(base)
