@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { createSupabaseServerClient } from '@/lib/db-server'
+import { resolveOrgId } from '@/lib/resolveOrgId'
 import type { Project } from '@/lib/types'
 import { NewProjectButton } from './NewProjectButton'
 
@@ -11,7 +12,7 @@ export default async function ProjectsPage() {
   if (!user) redirect('/login')
 
   const cookieStore = await cookies()
-  const currentOrgId = cookieStore.get('current_org_id')?.value
+  const currentOrgId = await resolveOrgId(supabase, user.id, cookieStore)
 
   if (!currentOrgId) redirect('/dashboard')
 

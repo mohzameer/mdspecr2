@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
+import { resolveOrgId } from '@/lib/resolveOrgId'
 import { ActivityFeed } from '@/components/ActivityFeed'
 
 export default async function DashboardPage() {
@@ -27,7 +28,7 @@ export default async function DashboardPage() {
   }
 
   const cookieStore = await cookies()
-  const currentOrgId = cookieStore.get('current_org_id')?.value ?? ''
+  const currentOrgId = await resolveOrgId(supabase, user.id, cookieStore) ?? ''
 
   const [{ count: specCount }, { count: projectCount }, { data: recentActivity }] =
     await Promise.all([
