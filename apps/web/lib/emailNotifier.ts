@@ -44,34 +44,32 @@ function fileName(path: string): string {
 
 function specRow(spec: SyncResultSpec): string {
   const name = spec.title || fileName(spec.path)
-  const pathLabel = `<span style="font-size:11px;color:#71717a;">${spec.path}</span>`
 
   const destination = spec.external_url
-    ? `<a href="${spec.external_url}" style="color:#3b82f6;text-decoration:none;">View →</a>`
-    : `<span style="color:#a1a1aa;">—</span>`
+    ? `<a href="${spec.external_url}" style="color:#3b82f6;text-decoration:none;font-size:13px;">View &#8594;</a>`
+    : `<span style="color:#a1a1aa;font-size:13px;">&#8212;</span>`
 
-  const badge =
-    spec.status === 'published'
-      ? `<span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;background:#dcfce7;color:#16a34a;">Published</span>`
-      : `<span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;background:#fee2e2;color:#dc2626;">Failed</span>`
+  const badgeColor = spec.status === 'published' ? '#16a34a' : '#dc2626'
+  const badgeBg    = spec.status === 'published' ? '#dcfce7' : '#fee2e2'
+  const badgeText  = spec.status === 'published' ? 'Published' : 'Failed'
 
   const errorRow =
     spec.status !== 'published' && spec.last_error
       ? `<tr>
-          <td colspan="3" style="padding:4px 16px 10px 16px;font-size:11px;color:#dc2626;font-family:ui-monospace,monospace;word-break:break-all;">
-            ${spec.last_error}
-          </td>
+          <td colspan="3" style="padding:0 16px 10px 16px;font-size:11px;color:#dc2626;font-family:ui-monospace,monospace;word-break:break-all;">${spec.last_error}</td>
         </tr>`
       : ''
 
   return `
     <tr style="border-top:1px solid #f4f4f5;">
-      <td style="padding:10px 16px 4px 16px;vertical-align:top;">
-        <div style="font-size:13px;font-weight:500;color:#18181b;">${name}</div>
-        <div style="margin-top:2px;">${pathLabel}</div>
+      <td width="58%" style="padding:10px 8px 4px 16px;vertical-align:top;">
+        <div style="font-size:13px;font-weight:500;color:#18181b;margin:0 0 2px 0;">${name}</div>
+        <div style="font-size:11px;color:#71717a;">${spec.path}</div>
       </td>
-      <td style="padding:10px 16px 4px 16px;vertical-align:top;font-size:13px;white-space:nowrap;">${destination}</td>
-      <td style="padding:10px 16px 4px 16px;vertical-align:top;text-align:right;white-space:nowrap;">${badge}</td>
+      <td width="24%" style="padding:10px 8px 4px 8px;vertical-align:top;">${destination}</td>
+      <td width="18%" style="padding:10px 16px 4px 8px;vertical-align:top;text-align:right;">
+        <span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${badgeBg};color:${badgeColor};">${badgeText}</span>
+      </td>
     </tr>${errorRow}`
 }
 
@@ -81,27 +79,24 @@ function integrationSection(group: SyncResultGroup): string {
   const succeeded = group.specs.filter((s) => s.status === 'published').length
   const failed = group.specs.filter((s) => s.status !== 'published').length
 
-  const pill = failed > 0
-    ? `<span style="font-size:11px;font-weight:600;color:#dc2626;">${succeeded} published · ${failed} failed</span>`
-    : `<span style="font-size:11px;font-weight:600;color:#16a34a;">${succeeded} published</span>`
+  const pillColor = failed > 0 ? '#dc2626' : '#16a34a'
+  const pillText  = failed > 0
+    ? `${succeeded} published &bull; ${failed} failed`
+    : `${succeeded} published`
 
   const rows = group.specs.map(specRow).join('')
 
   return `
-    <!-- Integration header -->
     <tr>
-      <td style="background:#f4f4f5;border-top:1px solid #e4e4e7;padding:8px 16px;">
+      <td colspan="3" style="background:#f4f4f5;border-top:1px solid #e4e4e7;padding:0;">
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
-            <td style="font-size:12px;font-weight:700;color:#3f3f46;text-transform:uppercase;letter-spacing:0.06em;">
-              ${icon}&nbsp;${label}
-            </td>
-            <td align="right">${pill}</td>
+            <td style="padding:8px 16px;font-size:12px;font-weight:700;color:#3f3f46;text-transform:uppercase;letter-spacing:0.06em;">${icon}&nbsp;${label}</td>
+            <td style="padding:8px 16px;text-align:right;font-size:11px;font-weight:600;color:${pillColor};">${pillText}</td>
           </tr>
         </table>
       </td>
     </tr>
-    <!-- Specs -->
     ${rows}`
 }
 
@@ -115,7 +110,7 @@ function buildHtml(params: SendSyncEmailParams): string {
   const summaryColor = totalFailed > 0 ? '#dc2626' : '#16a34a'
   const summaryText =
     totalFailed > 0
-      ? `${totalSucceeded} published &nbsp;·&nbsp; <span style="color:#dc2626;">${totalFailed} failed</span>`
+      ? `${totalSucceeded} published &bull; <span style="color:#dc2626;">${totalFailed} failed</span>`
       : `${totalSucceeded} of ${totalSpecs} published successfully`
 
   const integrationNames = groups.map((g) => TARGET_LABELS[g.target_type] ?? g.target_type).join(', ')
@@ -162,7 +157,7 @@ function buildHtml(params: SendSyncEmailParams): string {
             <td style="background:#ffffff;padding:24px 28px 8px 28px;border-left:1px solid #e4e4e7;border-right:1px solid #e4e4e7;">
               <div style="font-size:18px;font-weight:600;color:#18181b;">${projectName}</div>
               <div style="margin-top:4px;font-size:13px;color:#71717a;">
-                → <strong style="color:#3f3f46;">${integrationNames}</strong> &nbsp;·&nbsp; ${date}
+                &#8594; <strong style="color:#3f3f46;">${integrationNames}</strong> &bull; ${date}
               </div>
             </td>
           </tr>
@@ -170,9 +165,13 @@ function buildHtml(params: SendSyncEmailParams): string {
           <!-- Summary pill -->
           <tr>
             <td style="background:#ffffff;padding:12px 28px 20px 28px;border-left:1px solid #e4e4e7;border-right:1px solid #e4e4e7;">
-              <div style="display:inline-block;padding:6px 14px;border-radius:9999px;font-size:13px;font-weight:600;border:1.5px solid ${summaryColor}33;background:${totalFailed > 0 ? '#fff1f2' : '#f0fdf4'};color:${summaryColor};">
-                ${summaryText}
-              </div>
+              <table cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 14px;border-radius:10px;font-size:13px;font-weight:600;background:${totalFailed > 0 ? '#fff1f2' : '#f0fdf4'};color:${summaryColor};">
+                    ${summaryText}
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 
