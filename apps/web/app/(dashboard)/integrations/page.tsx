@@ -172,10 +172,6 @@ export default function IntegrationsPage() {
           const { access_token, refresh_token, expires_at, sites } = data
           setConfluencePending({ access_token, refresh_token, expires_at })
           setConfluenceSites(sites ?? [])
-          if (sites?.length === 1) {
-            setConfluenceSelectedSite(sites[0])
-            loadConfluenceSpaces(access_token, sites[0].id)
-          }
         })
         .catch(() => setOauthError('Session expired or cookies were cleared. Please click Connect again.'))
       return
@@ -688,7 +684,7 @@ export default function IntegrationsPage() {
                       {confluenceOAuthSetup ? (
                         <>
                           <p className="text-xs text-green-600 dark:text-green-400">Confluence authorized via OAuth.</p>
-                          {confluenceSites.length > 1 && (
+                          {confluenceSites.length > 0 && (
                             <div>
                               <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Atlassian site</label>
                               <select

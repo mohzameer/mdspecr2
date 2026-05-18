@@ -9,8 +9,13 @@ export async function GET() {
 
   const cookieStore = await cookies()
   const raw = cookieStore.get('confluence_pending')?.value
-  if (!raw) return NextResponse.json({ error: 'no pending data' }, { status: 404 })
+  if (!raw) {
+    console.log('[confluence/pending] no cookie found')
+    return NextResponse.json({ error: 'no pending data' }, { status: 404 })
+  }
 
+  const parsed = JSON.parse(raw)
+  console.log('[confluence/pending] returning sites:', JSON.stringify(parsed.sites))
   cookieStore.delete('confluence_pending')
-  return NextResponse.json(JSON.parse(raw))
+  return NextResponse.json(parsed)
 }
