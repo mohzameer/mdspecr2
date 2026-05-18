@@ -8,6 +8,44 @@ export interface ConfluenceCredentials {
   space_key: string
 }
 
+export interface ConfluenceOAuthCredentials {
+  base_url: string
+  cloud_id: string
+  access_token: string
+  refresh_token: string
+  expires_at: string
+  space_key: string
+}
+
+export type AnyConfluenceCredentials = ConfluenceCredentials | ConfluenceOAuthCredentials
+
+export function isOAuthCredentials(c: AnyConfluenceCredentials): c is ConfluenceOAuthCredentials {
+  return 'access_token' in c
+}
+
+export async function refreshConfluenceToken(
+  creds: ConfluenceOAuthCredentials
+): Promise<ConfluenceOAuthCredentials> {
+  const res = await fetch('https://auth.atlassian.com/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'refresh_token',
+      client_id: process.env.ATLASSIAN_CLIENT_ID,
+      client_secret: process.env.ATLASSIAN_CLIENT_SECRET,
+      refresh_token: creds.refresh_token,
+    }),
+  })
+  if (!res.ok) throw new Error(`Atlassian token refresh failed: ${res.status}`)
+  const { access_token, refresh_token, expires_in } = await res.json()
+  return {
+    ...creds,
+    access_token,
+    refresh_token,
+    expires_at: new Date(Date.now() + expires_in * 1000).toISOString(),
+  }
+}
+
 function mdToConfluenceStorage(markdown: string): string {
   const lines = markdown.split('\n')
   const html: string[] = []
@@ -46,49 +84,44 @@ function mdToConfluenceStorage(markdown: string): string {
   return html.join('\n')
 }
 
-function auth(creds: ConfluenceCredentials) {
-  return { username: creds.email, password: creds.token }
+function axiosAuth(creds: AnyConfluenceCredentials) {
+  if (isOAuthCredentials(creds)) {
+    return { headers: { Authorization: `Bearer ${creds.access_token}` } }
+  }
+  return { auth: { username: creds.email, password: creds.token } }
 }
 
 async function findOrCreatePage(
-  creds: ConfluenceCredentials,
+  creds: AnyConfluenceCredentials,
   title: string,
   parentId: string | null,
   body?: string
 ): Promise<string> {
   const base = creds.base_url.replace(/\/$/, '')
 
-  // Search for existing page
   const searchRes = await axios.get(`${base}/wiki/rest/api/content`, {
-    auth: auth(creds),
-    params: {
-      title,
-      spaceKey: creds.space_key,
-      expand: 'version',
-    },
+    ...axiosAuth(creds),
+    params: { title, spaceKey: creds.space_key, expand: 'version' },
   })
 
   if (searchRes.data.results?.length > 0) {
     return searchRes.data.results[0].id as string
   }
 
-  // Create new page
   const createPayload: Record<string, unknown> = {
     type: 'page',
     title,
     space: { key: creds.space_key },
     body: { storage: { value: body ?? `<p>${title}</p>`, representation: 'storage' } },
   }
-  if (parentId) {
-    createPayload.ancestors = [{ id: parentId }]
-  }
+  if (parentId) createPayload.ancestors = [{ id: parentId }]
 
-  const res = await axios.post(`${base}/wiki/rest/api/content`, createPayload, { auth: auth(creds) })
+  const res = await axios.post(`${base}/wiki/rest/api/content`, createPayload, { ...axiosAuth(creds) })
   return res.data.id as string
 }
 
 export async function publishToConfluence(
-  credentials: ConfluenceCredentials,
+  credentials: AnyConfluenceCredentials,
   spec: { path: string; content: string; frontmatter: Record<string, unknown> },
   existingPageId?: string | null,
   parentPageId?: string | null
@@ -137,7 +170,7 @@ export async function publishToConfluence(
             version: { number: version },
             body: { storage: { value: storage, representation: 'storage' } },
           },
-          { auth: auth(credentials) }
+          { ...axiosAuth(credentials) }
         )
         return {
           page_id: activePageId,

@@ -58,7 +58,7 @@ export default async function LandingPage() {
 
       {/* Hero */}
       <section className="px-6 min-h-[calc(100dvh-57px)] max-w-3xl mx-auto text-center flex flex-col items-center justify-center">
-        <Badge variant="outline" className="mb-6 text-sm px-4 py-2 h-auto whitespace-normal overflow-visible text-center leading-relaxed max-w-xs sm:max-w-none">Audit-ready, git-native, CI-based markdown publishing for engineering teams</Badge>
+        <Badge variant="outline" className="mb-6 text-sm px-4 py-2 h-auto whitespace-normal overflow-visible text-center leading-relaxed max-w-xs sm:max-w-none">Audit-ready, git-native, CI-based markdown publishing</Badge>
         <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-tight">
           Keep writing markdown.<br />
           <span className="text-muted-foreground">We&apos;ll handle the rest.</span>

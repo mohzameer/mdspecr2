@@ -112,6 +112,13 @@ export default function IntegrationsPage() {
   const [clickupWorkspaces, setClickupWorkspaces] = useState<{ id: string; name: string }[]>([])
   const [clickupPendingToken, setClickupPendingToken] = useState<string>('')
   const [clickupWorkspaceId, setClickupWorkspaceId] = useState<string>('')
+  const [confluenceOAuthSetup, setConfluenceOAuthSetup] = useState(false)
+  const [confluencePending, setConfluencePending] = useState<{ access_token: string; refresh_token: string; expires_at: string } | null>(null)
+  const [confluenceSites, setConfluenceSites] = useState<{ id: string; url: string; name: string }[]>([])
+  const [confluenceSelectedSite, setConfluenceSelectedSite] = useState<{ id: string; url: string; name: string } | null>(null)
+  const [confluenceSpaces, setConfluenceSpaces] = useState<{ key: string; name: string }[]>([])
+  const [confluenceLoadingSpaces, setConfluenceLoadingSpaces] = useState(false)
+  const [confluenceSpaceKey, setConfluenceSpaceKey] = useState<string>('')
   const searchParams = useSearchParams()
 
   useEffect(() => {
@@ -125,6 +132,10 @@ export default function IntegrationsPage() {
     if (error === 'clickup_denied') setOauthError('ClickUp authorization was cancelled.')
     if (error === 'clickup_token') setOauthError('Could not connect to ClickUp. Please try again.')
     if (error === 'clickup_no_workspace') setOauthError('No ClickUp workspaces found on this account.')
+    if (error === 'confluence_denied') setOauthError('Confluence authorization was cancelled.')
+    if (error === 'confluence_state') setOauthError('Authorization failed (state mismatch). Please try again.')
+    if (error === 'confluence_token') setOauthError('Could not connect to Confluence. Please try again.')
+    if (error === 'confluence_no_site') setOauthError('No Confluence sites found on this Atlassian account.')
 
     if (clickup === 'connected') {
       fetchIntegrations()
@@ -149,6 +160,27 @@ export default function IntegrationsPage() {
       return
     }
 
+    if (setup === 'confluence') {
+      setConfluenceOAuthSetup(true)
+      setConnecting('confluence')
+      fetch('/api/integrations/confluence/pending')
+        .then(async (r) => {
+          if (!r.ok) throw new Error()
+          return r.json()
+        })
+        .then((data) => {
+          const { access_token, refresh_token, expires_at, sites } = data
+          setConfluencePending({ access_token, refresh_token, expires_at })
+          setConfluenceSites(sites ?? [])
+          if (sites?.length === 1) {
+            setConfluenceSelectedSite(sites[0])
+            loadConfluenceSpaces(access_token, sites[0].id)
+          }
+        })
+        .catch(() => setOauthError('Session expired or cookies were cleared. Please click Connect again.'))
+      return
+    }
+
     if (setup !== 'notion') return
     setNotionOAuthSetup(true)
     setConnecting('notion')
@@ -166,6 +198,21 @@ export default function IntegrationsPage() {
       .catch(() => setOauthError('Session expired or cookies were cleared. Please click Connect again.'))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  function loadConfluenceSpaces(accessToken: string, cloudId: string) {
+    setConfluenceLoadingSpaces(true)
+    setConfluenceSpaces([])
+    setConfluenceSpaceKey('')
+    fetch('/api/integrations/confluence/spaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: accessToken, cloud_id: cloudId }),
+    })
+      .then((r) => r.json())
+      .then((data) => { if (data.ok) setConfluenceSpaces(data.spaces ?? []) })
+      .catch(() => {})
+      .finally(() => setConfluenceLoadingSpaces(false))
+  }
 
   function resetNotionChildren() {
     setNotionChildren(null)
@@ -351,6 +398,36 @@ export default function IntegrationsPage() {
       return
     }
 
+    if (type === 'confluence' && confluenceOAuthSetup) {
+      if (!confluenceSelectedSite || !confluenceSpaceKey) {
+        setConfluenceValidateError('Select a site and space to continue.')
+        return
+      }
+      setSaving(true)
+      const credentials = {
+        ...confluencePending,
+        base_url: confluenceSelectedSite.url,
+        cloud_id: confluenceSelectedSite.id,
+        space_key: confluenceSpaceKey,
+      }
+      await fetch('/api/integrations/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, credentials: JSON.stringify(credentials), config: { base_url: confluenceSelectedSite.url, space_key: confluenceSpaceKey } }),
+      })
+      await fetchIntegrations()
+      setConnecting(null)
+      setSaving(false)
+      setConfluenceOAuthSetup(false)
+      setConfluencePending(null)
+      setConfluenceSites([])
+      setConfluenceSelectedSite(null)
+      setConfluenceSpaces([])
+      setConfluenceSpaceKey('')
+      window.history.replaceState({}, '', '/integrations')
+      return
+    }
+
     if (type === 'confluence') {
       setSaving(true)
       const { base_url, email, token, space_key } = form.confluence
@@ -437,6 +514,13 @@ export default function IntegrationsPage() {
                         ) : type === 'clickup' ? (
                           <a
                             href="/api/integrations/clickup/authorize"
+                            className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
+                          >
+                            Connect
+                          </a>
+                        ) : type === 'confluence' ? (
+                          <a
+                            href="/api/integrations/confluence/authorize"
                             className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
                           >
                             Connect
@@ -598,39 +682,68 @@ export default function IntegrationsPage() {
                   )}
                   {type === 'confluence' && (
                     <>
-                      <Field
-                        label="Space URL"
-                        value={form.confluence.space_url}
-                        onChange={(v) => {
-                          const parsed = parseConfluenceSpaceUrl(v)
-                          setForm({
-                            ...form,
-                            confluence: {
-                              ...form.confluence,
-                              space_url: v,
-                              base_url: parsed?.base_url ?? form.confluence.base_url,
-                              space_key: parsed?.space_key || form.confluence.space_key,
-                            },
-                          })
-                          setConfluenceValidateError(null)
-                        }}
-                        placeholder="https://mycompany.atlassian.net/wiki/spaces/ENG/..."
-                      />
-                      {form.confluence.space_url && (() => {
-                        const parsed = parseConfluenceSpaceUrl(form.confluence.space_url)
-                        if (!parsed) return <p className="text-xs text-yellow-600">Could not parse URL. Paste your Confluence space URL.</p>
-                        return (
-                          <p className="text-xs text-zinc-400">
-                            Detected: <span className="text-zinc-600 dark:text-zinc-300">{parsed.base_url}</span>
-                            {parsed.space_key && <> · Space: <span className="font-mono text-zinc-600 dark:text-zinc-300">{parsed.space_key}</span></>}
-                          </p>
-                        )
-                      })()}
-                      <Field label="Email" value={form.confluence.email} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, email: v } }); setConfluenceValidateError(null) }} placeholder="you@company.com" type="email" />
-                      <Field label="API token" value={form.confluence.token} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, token: v } }); setConfluenceValidateError(null) }} placeholder="Atlassian API token" />
-                      <Field label="Space key" value={form.confluence.space_key} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, space_key: v } }); setConfluenceValidateError(null) }} placeholder="ENG" />
-                      {confluenceValidateError && <p className="text-xs text-red-500">{confluenceValidateError}</p>}
-                      <p className="text-xs text-zinc-400">Credentials are verified against the Confluence API before saving.</p>
+                      {confluenceOAuthSetup ? (
+                        <>
+                          <p className="text-xs text-green-600 dark:text-green-400">Confluence authorized via OAuth.</p>
+                          {confluenceSites.length > 1 && (
+                            <div>
+                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Atlassian site</label>
+                              <select
+                                required
+                                value={confluenceSelectedSite?.id ?? ''}
+                                onChange={(e) => {
+                                  const site = confluenceSites.find((s) => s.id === e.target.value) ?? null
+                                  setConfluenceSelectedSite(site)
+                                  setConfluenceValidateError(null)
+                                  if (site && confluencePending) loadConfluenceSpaces(confluencePending.access_token, site.id)
+                                }}
+                                className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                              >
+                                <option value="">Select a site…</option>
+                                {confluenceSites.map((s) => (
+                                  <option key={s.id} value={s.id}>{s.name} — {s.url}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {confluenceSelectedSite && (
+                            <div>
+                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Space</label>
+                              <select
+                                required
+                                value={confluenceSpaceKey}
+                                onChange={(e) => { setConfluenceSpaceKey(e.target.value); setConfluenceValidateError(null) }}
+                                disabled={confluenceLoadingSpaces || confluenceSpaces.length === 0}
+                                className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                              >
+                                <option value="">{confluenceLoadingSpaces ? 'Loading spaces…' : confluenceSpaces.length === 0 ? 'No spaces found' : 'Select a space…'}</option>
+                                {confluenceSpaces.map((s) => (
+                                  <option key={s.key} value={s.key}>{s.name} ({s.key})</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {confluenceValidateError && <p className="text-xs text-red-500">{confluenceValidateError}</p>}
+                        </>
+                      ) : (
+                        <>
+                          <Field
+                            label="Space URL"
+                            value={form.confluence.space_url}
+                            onChange={(v) => {
+                              const parsed = parseConfluenceSpaceUrl(v)
+                              setForm({ ...form, confluence: { ...form.confluence, space_url: v, base_url: parsed?.base_url ?? form.confluence.base_url, space_key: parsed?.space_key || form.confluence.space_key } })
+                              setConfluenceValidateError(null)
+                            }}
+                            placeholder="https://mycompany.atlassian.net/wiki/spaces/ENG/..."
+                          />
+                          <Field label="Email" value={form.confluence.email} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, email: v } }); setConfluenceValidateError(null) }} placeholder="you@company.com" type="email" />
+                          <Field label="API token" value={form.confluence.token} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, token: v } }); setConfluenceValidateError(null) }} placeholder="Atlassian API token" />
+                          <Field label="Space key" value={form.confluence.space_key} onChange={(v) => { setForm({ ...form, confluence: { ...form.confluence, space_key: v } }); setConfluenceValidateError(null) }} placeholder="ENG" />
+                          {confluenceValidateError && <p className="text-xs text-red-500">{confluenceValidateError}</p>}
+                          <p className="text-xs text-zinc-400">Credentials are verified against the Confluence API before saving.</p>
+                        </>
+                      )}
                     </>
                   )}
                   {type === 'clickup' && (
@@ -697,7 +810,7 @@ export default function IntegrationsPage() {
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                       {saving ? (type === 's3' || type === 'confluence' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); setClickupOAuthSetup(false); setClickupWorkspaces([]); setClickupPendingToken(''); setClickupWorkspaceId(''); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); setClickupOAuthSetup(false); setClickupWorkspaces([]); setClickupPendingToken(''); setClickupWorkspaceId(''); setConfluenceOAuthSetup(false); setConfluencePending(null); setConfluenceSites([]); setConfluenceSelectedSite(null); setConfluenceSpaces([]); setConfluenceSpaceKey(''); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>

@@ -2,11 +2,11 @@ import { Job, UnrecoverableError } from 'bullmq'
 import { createWorkerSupabaseClient } from '../lib/supabase.js'
 import { rateLimit } from '../lib/rateLimiter.js'
 import { publishToNotion } from '../adapters/notion.js'
-import { publishToConfluence } from '../adapters/confluence.js'
+import { publishToConfluence, isOAuthCredentials, refreshConfluenceToken, type ConfluenceOAuthCredentials } from '../adapters/confluence.js'
 import { publishSingleSpec, publishSpecAsPage, clickUpDocExists } from '../adapters/clickup.js'
 import { resolveFolderMapping } from '../lib/resolveFolderMapping.js'
 import { agentsQueue } from '../lib/queue.js'
-import { readCredentials } from '../lib/credentials.js'
+import { readCredentials, storeCredentials, deleteCredentials } from '../lib/credentials.js'
 
 interface PublishSpecJobData {
   spec_id: string
@@ -190,19 +190,24 @@ export async function publishProcessor(job: Job<PublishSpecJobData>): Promise<vo
         )
         break
 
-      case 'confluence':
-        result = await publishToConfluence(
-          {
-            base_url: credentials.base_url as string,
-            email: credentials.email as string,
-            token: credentials.token as string,
-            space_key: credentials.space_key as string,
-          },
-          spec,
-          existingPageId,
-          folderMappingTargetId
-        )
+      case 'confluence': {
+        let confluenceCreds = isOAuthCredentials(credentials as Parameters<typeof isOAuthCredentials>[0])
+          ? (credentials as unknown as ConfluenceOAuthCredentials)
+          : { base_url: credentials.base_url as string, email: credentials.email as string, token: credentials.token as string, space_key: credentials.space_key as string }
+
+        if (isOAuthCredentials(confluenceCreds)) {
+          const expiresAt = new Date(confluenceCreds.expires_at).getTime()
+          if (Date.now() > expiresAt - 5 * 60 * 1000) {
+            confluenceCreds = await refreshConfluenceToken(confluenceCreds)
+            const newSecretId = await storeCredentials(supabase, JSON.stringify(confluenceCreds), `integration:${integration_id}:confluence`)
+            await supabase.from('integrations').update({ credentials_secret_id: newSecretId, updated_at: new Date().toISOString() }).eq('id', integration_id)
+            await deleteCredentials(supabase, integration.credentials_secret_id).catch(() => {})
+          }
+        }
+
+        result = await publishToConfluence(confluenceCreds, spec, existingPageId, folderMappingTargetId)
         break
+      }
 
       case 'clickup': {
         const clickupCreds = {
