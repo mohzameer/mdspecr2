@@ -154,7 +154,9 @@ async function createDoc(
   const { api_token, workspace_id } = credentials
   const headers = authHeaders(api_token)
 
-  const docPayload: Record<string, unknown> = { name, visibility: 'PUBLIC', create_page: false }
+  // create_page:true so ClickUp initialises the doc and its first page atomically —
+  // avoids a 500 race when GET/POST /pages is called before the doc is fully ready.
+  const docPayload: Record<string, unknown> = { name, visibility: 'PUBLIC', create_page: true }
 
   if (targetId?.startsWith('space:')) {
     docPayload.parent = { id: targetId.slice(6), type: 4 }
@@ -171,7 +173,7 @@ async function createDoc(
   const docId = (res.data?.data?.id ?? res.data?.id) as string
   console.log(`[clickup] doc created id=${docId}`)
 
-  // Check if ClickUp auto-created a page despite create_page:false
+  // Fetch the auto-created page and update it with our content
   const existingPagesRes = await axios.get(
     `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
     { headers }
@@ -180,7 +182,6 @@ async function createDoc(
 
   let pageId: string
   if (existingPages.length > 0) {
-    // Update the auto-created page instead of creating a second one
     pageId = existingPages[0].id
     console.log(`[clickup] updating auto-created page id=${pageId}`)
     await axios.put(
@@ -189,6 +190,7 @@ async function createDoc(
       { headers }
     )
   } else {
+    // Fallback: create page manually if none was auto-created
     const pageRes = await axios.post(
       `${CLICKUP_API_V3}/workspaces/${workspace_id}/docs/${docId}/pages`,
       { name, content },
