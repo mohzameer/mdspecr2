@@ -18,6 +18,11 @@ export default function AccountSettingsPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
+  // Notification preference state
+  const [emailNotifications, setEmailNotifications] = useState<boolean>(true)
+  const [notifSaving, setNotifSaving] = useState(false)
+  const [notifSaved, setNotifSaved] = useState(false)
+
   // Delete account state
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const [deleteInput, setDeleteInput] = useState('')
@@ -32,6 +37,32 @@ export default function AccountSettingsPage() {
       setHasPasswordAuth(identities.some((i) => i.provider === 'email'))
     })
   }, [])
+
+  useEffect(() => {
+    supabase
+      .from('users')
+      .select('email_notifications')
+      .single()
+      .then(({ data }) => {
+        if (data && typeof data.email_notifications === 'boolean') {
+          setEmailNotifications(data.email_notifications)
+        }
+      })
+  }, [])
+
+  async function handleToggleNotifications(value: boolean) {
+    setEmailNotifications(value)
+    setNotifSaving(true)
+    setNotifSaved(false)
+    await fetch('/api/account/notifications', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_notifications: value }),
+    })
+    setNotifSaving(false)
+    setNotifSaved(true)
+    setTimeout(() => setNotifSaved(false), 2000)
+  }
 
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault()
@@ -171,6 +202,43 @@ export default function AccountSettingsPage() {
           </div>
         </div>
       )}
+
+      {/* Notifications */}
+      <div className="mt-12 pt-8 border-t border-zinc-200 dark:border-zinc-800">
+        <h2 className="text-base font-medium text-zinc-800 dark:text-zinc-200 mb-1">Notifications</h2>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+          Receive an email summary after each sync with the status of every file.
+        </p>
+        <label className="flex items-center gap-3 cursor-pointer w-fit">
+          <button
+            role="switch"
+            aria-checked={emailNotifications}
+            onClick={() => handleToggleNotifications(!emailNotifications)}
+            className={[
+              'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 dark:focus-visible:ring-zinc-50',
+              emailNotifications
+                ? 'bg-zinc-900 dark:bg-zinc-50'
+                : 'bg-zinc-200 dark:bg-zinc-700',
+            ].join(' ')}
+          >
+            <span
+              className={[
+                'pointer-events-none block h-4 w-4 rounded-full bg-white dark:bg-zinc-900 shadow-lg ring-0 transition-transform',
+                emailNotifications ? 'translate-x-4' : 'translate-x-0',
+              ].join(' ')}
+            />
+          </button>
+          <span className="text-sm text-zinc-700 dark:text-zinc-300">
+            Email me after each sync
+          </span>
+          {notifSaving && (
+            <span className="text-xs text-zinc-400">Saving…</span>
+          )}
+          {notifSaved && !notifSaving && (
+            <span className="text-xs text-zinc-400">Saved</span>
+          )}
+        </label>
+      </div>
 
       {/* Danger zone */}
       <div className="mt-12 pt-8 border-t border-zinc-200 dark:border-zinc-800">
