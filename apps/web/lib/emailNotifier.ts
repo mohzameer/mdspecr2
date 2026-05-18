@@ -2,7 +2,7 @@ import { Resend } from 'resend'
 import { createSupabaseServiceClient } from '@/lib/db-server'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-const FROM = process.env.EMAIL_FROM ?? 'mdspec <noreply@mdspec.dev>'
+const FROM = process.env.EMAIL_FROM ?? 'MDSpec <noreply@mdspec.dev>'
 
 export interface SyncResultSpec {
   path: string
@@ -142,7 +142,7 @@ function buildHtml(params: SendSyncEmailParams): string {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td>
-                    <span style="font-size:17px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">mdspec</span>
+                    <span style="font-size:17px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">MDSpec</span>
                   </td>
                   <td align="right">
                     <span style="font-size:12px;color:#a1a1aa;">Sync summary</span>
@@ -211,8 +211,8 @@ export async function sendSyncEmail(params: SendSyncEmailParams): Promise<void> 
 
   const totalFailed = params.groups.reduce((n, g) => n + g.specs.filter((s) => s.status !== 'published').length, 0)
   const subject = totalFailed > 0
-    ? `[mdspec] Sync completed with ${totalFailed} failure${totalFailed > 1 ? 's' : ''} — ${params.projectName}`
-    : `[mdspec] Sync completed — ${params.projectName}`
+    ? `[MDSpec] Sync completed with ${totalFailed} failure${totalFailed > 1 ? 's' : ''} — ${params.projectName}`
+    : `[MDSpec] Sync completed — ${params.projectName}`
 
   const html = buildHtml(params)
 
