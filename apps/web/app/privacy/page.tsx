@@ -46,7 +46,7 @@ export default function PrivacyPolicyPage() {
 
             <h3 className="text-sm font-semibold text-foreground mt-4 mb-1">Data Retention &amp; Deletion</h3>
             <p>Google user data is retained for as long as your mdspec account is active. To request deletion of your account and all associated Google user data, email us at{' '}
-              <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">zameer@xadlabs.com</a>
+              <a href="mailto:mdspecapp@gmail.com" className="underline text-foreground hover:text-muted-foreground transition-colors">mdspecapp@gmail.com</a>
               {' '}or delete your account from the account settings page. Data will be permanently removed within 30 days of the request.
             </p>
 
@@ -75,7 +75,7 @@ export default function PrivacyPolicyPage() {
 
             <h3 className="text-sm font-semibold text-foreground mt-4 mb-1">Data Retention &amp; Deletion</h3>
             <p>GitHub user data is retained for as long as your mdspec account is active. To request deletion, email us at{' '}
-              <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">zameer@xadlabs.com</a>
+              <a href="mailto:mdspecapp@gmail.com" className="underline text-foreground hover:text-muted-foreground transition-colors">mdspecapp@gmail.com</a>
               {' '}or delete your account from account settings. Data will be permanently removed within 30 days of the request.
             </p>
           </Section>
@@ -112,8 +112,8 @@ export default function PrivacyPolicyPage() {
 
           <Section title="8. Your Rights">
             <p>You have the right to access, correct, export, or delete your account and associated data at any time. To exercise any of these rights, contact us at{' '}
-              <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
-                zameer@xadlabs.com
+              <a href="mailto:mdspecapp@gmail.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
+                mdspecapp@gmail.com
               </a>
               .
             </p>
@@ -130,8 +130,8 @@ export default function PrivacyPolicyPage() {
           <Section title="11. Contact">
             <p>
               Questions about this policy? Email us at{' '}
-              <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
-                zameer@xadlabs.com
+              <a href="mailto:mdspecapp@gmail.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
+                mdspecapp@gmail.com
               </a>
               .
             </p>

@@ -130,7 +130,7 @@ export default function SecurityPage() {
           <h2 className="text-xl font-semibold tracking-tight">Reporting vulnerabilities</h2>
           <p className="text-sm text-muted-foreground">
             To report a security vulnerability, email{' '}
-            <a href="mailto:zameer@xadlabs.com" className="underline hover:text-foreground">zameer@xadlabs.com</a> with a description of the issue and steps to reproduce. We aim to respond within 48 hours. Please do not publicly disclose a vulnerability until we have had a chance to address it.
+            <a href="mailto:mdspecapp@gmail.com" className="underline hover:text-foreground">mdspecapp@gmail.com</a> with a description of the issue and steps to reproduce. We aim to respond within 48 hours. Please do not publicly disclose a vulnerability until we have had a chance to address it.
           </p>
         </section>
       </main>

@@ -22,10 +22,10 @@ export default function ContactPage() {
               <p>
                 Email:{' '}
                 <a
-                  href="mailto:zameer@xadlabs.com"
+                  href="mailto:mdspecapp@gmail.com"
                   className="underline text-foreground hover:text-muted-foreground transition-colors"
                 >
-                  zameer@xadlabs.com
+                  mdspecapp@gmail.com
                 </a>
               </p>
             </div>

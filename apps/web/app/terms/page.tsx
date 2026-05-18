@@ -36,7 +36,7 @@ export default function TermsOfServicePage() {
 
           <Section title="4. Subscriptions &amp; Billing">
             <p>Pro subscriptions are billed in advance through Paddle. All charges are in USD. You may cancel at any time; your access will continue until the end of the current billing period.</p>
-            <p className="mt-3"><strong className="text-foreground">14-day refund policy</strong> — If you are not satisfied with your Pro subscription, you may request a full refund within 14 days of your initial purchase by contacting us at <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">zameer@xadlabs.com</a>. Refunds are not available for renewal charges or after the 14-day period has elapsed.</p>
+            <p className="mt-3"><strong className="text-foreground">14-day refund policy</strong> — If you are not satisfied with your Pro subscription, you may request a full refund within 14 days of your initial purchase by contacting us at <a href="mailto:mdspecapp@gmail.com" className="underline text-foreground hover:text-muted-foreground transition-colors">mdspecapp@gmail.com</a>. Refunds are not available for renewal charges or after the 14-day period has elapsed.</p>
             <p className="mt-3">If a payment fails, we will notify you and may suspend your Pro access until the issue is resolved.</p>
           </Section>
 
@@ -69,8 +69,8 @@ export default function TermsOfServicePage() {
           <Section title="10. Contact">
             <p>
               Questions about these Terms? Email us at{' '}
-              <a href="mailto:zameer@xadlabs.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
-                zameer@xadlabs.com
+              <a href="mailto:mdspecapp@gmail.com" className="underline text-foreground hover:text-muted-foreground transition-colors">
+                mdspecapp@gmail.com
               </a>
               .
             </p>

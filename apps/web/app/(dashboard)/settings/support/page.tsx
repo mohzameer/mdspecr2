@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-const SUPPORT_EMAIL = 'support@mdspec.dev'
+const SUPPORT_EMAIL = 'mdspecapp@gmail.com'
 
 export default function SupportPage() {
   const [copied, setCopied] = useState(false)
