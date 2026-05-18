@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { HowItWorksFlow } from '@/components/HowItWorksFlow'
 import { AgentTemplatesSection } from '@/components/AgentTemplatesSection'
+import { SnippetSlider } from '@/components/SnippetSlider'
 import { createSupabaseServerClient } from '@/lib/db-server'
 
 export default async function LandingPage() {
@@ -136,15 +137,7 @@ export default async function LandingPage() {
         <div className="max-w-2xl mx-auto space-y-4">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2 text-center">Two files. Done.</p>
           <p className="text-center text-sm text-muted-foreground mb-6">Drop a .mdspecmap into any folder you want to sync — its location defines its scope and mappings apply to all subfolders automatically. Optionally assign agent templates per file to transform specs before they publish.</p>
-          <Card>
-            <CardContent className="p-6 font-mono text-sm overflow-x-auto">
-              <div className="text-muted-foreground mb-2"># docs/specs/.mdspecmap</div>
-              <div className="text-foreground">version: <span className="text-foreground">1</span></div>
-              <div className="text-foreground">mappings:</div>
-              <div className="text-muted-foreground ml-2">{'- '}<span className="text-foreground">integration: s3</span></div>
-              <div className="text-muted-foreground ml-4">parent: <span className="text-foreground">alias:eng-bucket</span><span className="text-muted-foreground ml-2">{' # alias → S3 key prefix in dashboard'}</span></div>
-            </CardContent>
-          </Card>
+          <SnippetSlider />
           <Card>
             <CardContent className="p-6 font-mono text-sm overflow-x-auto">
               <div className="text-muted-foreground mb-2"># .github/workflows/mdspec.yml</div>
