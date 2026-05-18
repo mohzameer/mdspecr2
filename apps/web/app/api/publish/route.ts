@@ -488,6 +488,18 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     let queuedCount = 0
 
+    // Create a sync_run row so all groups can report back and the last one
+    // sends a single consolidated email.
+    let syncRunId: string | undefined
+    if (groups.size > 0) {
+      const { data: syncRun } = await supabase
+        .from('sync_runs')
+        .insert({ project_id, total_groups: groups.size })
+        .select('id')
+        .single()
+      syncRunId = syncRun?.id
+    }
+
     for (const [groupKey, group] of groups) {
       const jobData: PublishGroupJobData = {
         project_id,
@@ -498,6 +510,7 @@ export async function POST(request: Request) {
         matched_folder: group.matched_folder,
         ...(group.target_type === 's3' ? { s3_root_prefix: group.s3_root_prefix ?? null } : {}),
         ...(group.frontmatter_map ? { frontmatter_map: group.frontmatter_map } : {}),
+        ...(syncRunId ? { sync_run_id: syncRunId } : {}),
       }
 
       try {

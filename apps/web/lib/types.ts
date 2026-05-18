@@ -113,6 +113,7 @@ export interface PublishGroupJobData {
   matched_folder?: string  // the folder path that was matched for this group (longest-prefix)
   s3_root_prefix?: string | null  // S3 bucket key prefix from mapping's parent_dir field
   frontmatter_map?: Record<string, string> | null  // ClickUp task field allowlist (status/priority/tags/...). Never used for `id` — that's unified.
+  sync_run_id?: string  // links all groups in one CLI push; last group sends the consolidated email
 }
 
 // ---------------------------------------------------------------------------
