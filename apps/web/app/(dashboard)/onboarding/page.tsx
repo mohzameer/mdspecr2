@@ -9,6 +9,7 @@ interface DirsForm { dirs: string[] }
 interface TokenForm { token: string | null; projectId: string | null }
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6
+type IntegrationChoice = 'notion' | 'clickup' | 'confluence' | null
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -18,6 +19,7 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (searchParams.get('skip_org') === '1') setStep(2)
   }, [searchParams])
+
   const [org, setOrg] = useState<OrgForm>({ name: '' })
   const [project, setProject] = useState<ProjectForm>({ name: '', description: '' })
   const [dirs, setDirs] = useState<DirsForm>({ dirs: ['/'] })
@@ -27,7 +29,9 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [copiedCI, setCopiedCI] = useState(false)
+  const [copiedMap, setCopiedMap] = useState(false)
   const [orgId, setOrgId] = useState<string | null>(null)
+  const [selectedIntegration, setSelectedIntegration] = useState<IntegrationChoice>(null)
 
   async function stepOneSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -60,7 +64,6 @@ export default function OnboardingPage() {
     })
     if (res.ok) {
       const data = await res.json()
-      // Generate token
       const tokenRes = await fetch('/api/tokens/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,46 +106,13 @@ export default function OnboardingPage() {
     setTimeout(() => setCopiedCI(false), 2000)
   }
 
-  async function downloadMdspecmap() {
-    if (!tokenData.projectId) return
-
-    // Generate a minimal .mdspecmap from current settings
-    const mappingLines = dirs.dirs.map((dir) =>
-      `  - folder: ${dir}\n    # integration: notion\n    # parent: <alias-name>`
-    ).join('\n\n')
-
-    const content = `# .mdspecmap — mdspec configuration file
-# Project: ${project.name}
-#
-# Edit this file to configure folder-to-integration mappings.
-# Define aliases in Dashboard → Map → Aliases.
-#
-# Docs: https://mdspec.dev/docs/mdspecmap
-
-version: 1
-
-sync_all_on_first_run: ${syncAllOnFirstRun}
-
-mappings:
-${mappingLines}
-`
-
-    const blob = new Blob([content], { type: 'text/yaml' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = '.mdspecmap'
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
   const steps = [
     { n: 1, label: 'Organization' },
     { n: 2, label: 'Project' },
     { n: 3, label: 'Spec Dirs' },
     { n: 4, label: 'CI Token' },
-    { n: 5, label: '.mdspecmap' },
-    { n: 6, label: 'Integration' },
+    { n: 5, label: 'Integration' },
+    { n: 6, label: 'Mapping' },
   ]
 
   return (
@@ -226,8 +196,6 @@ ${mappingLines}
                     <input value={newDir} onChange={(e) => setNewDir(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDir() } }} placeholder="/docs/rfc" className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-zinc-500" />
                     <button type="button" onClick={addDir} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800">Add</button>
                   </div>
-
-                  {/* Sync all on first run */}
                   <label className="flex items-start gap-3 cursor-pointer">
                     <input
                       type="checkbox"
@@ -295,81 +263,154 @@ ${mappingLines}
             </div>
           )}
 
-          {/* Step 5: .mdspecmap */}
+          {/* Step 5: Integration selection */}
           {step === 5 && (
             <div className="space-y-5">
               <div>
-                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Download .mdspecmap</h2>
-                <p className="text-sm text-zinc-500">
-                  This file controls which folders sync to which integrations. Commit it to the root of your repo.
-                </p>
-              </div>
-
-              <div className="rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-4">
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3">
-                  Your <code className="font-mono bg-zinc-100 dark:bg-zinc-700 px-1 py-0.5 rounded">.mdspecmap</code> will include:
-                </p>
-                <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1.5">
-                  <li>Spec directories: <span className="font-mono text-zinc-900 dark:text-zinc-50">{dirs.dirs.join(', ')}</span></li>
-                  <li>First publish: <span className="font-mono text-zinc-900 dark:text-zinc-50">{syncAllOnFirstRun ? 'sync all files' : 'start empty'}</span></li>
-                  <li>Integration mappings: <span className="text-zinc-500">configure after connecting an integration</span></li>
-                </ul>
-              </div>
-
-              <button
-                onClick={downloadMdspecmap}
-                className="w-full rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
-              >
-                Download .mdspecmap
-              </button>
-
-              <p className="text-xs text-zinc-500 text-center">
-                You can re-download this anytime from your project&apos;s Map page.
-              </p>
-
-              <div className="flex gap-2">
-                <button onClick={() => setStep(4)} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
-                <button onClick={() => setStep(6)} className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900">
-                  Continue →
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 6: Integration */}
-          {step === 6 && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Connect an integration</h2>
-                <p className="text-sm text-zinc-500">Connect Notion, Confluence, or ClickUp to publish specs. You can skip and configure later.</p>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Choose an integration</h2>
+                <p className="text-sm text-zinc-500">Where should mdspec publish your specs? You can connect the integration after setup.</p>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                {['notion', 'confluence', 'clickup'].map((t) => (
+                {([
+                  { key: 'notion', label: 'Notion' },
+                  { key: 'clickup', label: 'ClickUp' },
+                  { key: 'confluence', label: 'Confluence' },
+                ] as const).map(({ key, label }) => (
                   <button
-                    key={t}
-                    onClick={() => { router.push('/integrations'); router.refresh() }}
-                    className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-600 capitalize transition-colors"
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedIntegration(key)}
+                    className={`rounded-lg border p-4 text-sm font-medium transition-colors text-center ${
+                      selectedIntegration === key
+                        ? 'border-zinc-900 dark:border-zinc-50 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50'
+                        : 'border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-600'
+                    }`}
                   >
-                    {t}
+                    {label}
                   </button>
                 ))}
               </div>
               <div className="flex gap-2">
+                <button onClick={() => setStep(4)} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
                 <button
-                  onClick={() => { router.push('/dashboard'); router.refresh() }}
-                  className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
-                >
-                  Skip for now
-                </button>
-                <button
-                  onClick={() => { router.push('/integrations') }}
+                  onClick={() => setStep(6)}
                   className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900"
                 >
-                  Go to Integrations →
+                  {selectedIntegration ? 'Continue →' : 'Skip →'}
                 </button>
               </div>
             </div>
           )}
+
+          {/* Step 6: Folder mapping */}
+          {step === 6 && (() => {
+            const integrationLine = selectedIntegration
+              ? `    integration: ${selectedIntegration}`
+              : `    # integration: notion`
+            const mappingContent = `# .mdspecmap — mdspec configuration file
+# Project: ${project.name}
+#
+# Edit this file to configure folder-to-integration mappings.
+# Define aliases in Dashboard → Map → Aliases.
+#
+# Docs: https://mdspec.dev/docs/mdspecmap
+
+version: 1
+
+sync_all_on_first_run: ${syncAllOnFirstRun}
+
+mappings:
+${dirs.dirs.map((dir) => `  - folder: ${dir}\n${integrationLine}\n    # parent: <alias-name>`).join('\n\n')}
+`
+
+            function downloadMap() {
+              const blob = new Blob([mappingContent], { type: 'text/yaml' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = '.mdspecmap'
+              a.click()
+              URL.revokeObjectURL(url)
+            }
+
+            function copyMap() {
+              navigator.clipboard.writeText(mappingContent)
+              setCopiedMap(true)
+              setTimeout(() => setCopiedMap(false), 2000)
+            }
+
+            const connectHref = selectedIntegration === 'notion'
+              ? '/api/integrations/notion/authorize'
+              : selectedIntegration === 'clickup'
+              ? '/api/integrations/clickup/authorize'
+              : '/integrations'
+
+            return (
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Your folder mapping</h2>
+                  <p className="text-sm text-zinc-500">
+                    Add this file to the root of your repo. It tells mdspec which folders map to which integration.
+                  </p>
+                </div>
+
+                <div className="rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-mono text-zinc-500">.mdspecmap</span>
+                    <button onClick={copyMap} className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-700">
+                      {copiedMap ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap overflow-x-auto">{mappingContent}</pre>
+                </div>
+
+                <button
+                  onClick={downloadMap}
+                  className="w-full rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
+                >
+                  Download .mdspecmap
+                </button>
+
+                <div className="rounded-md border border-zinc-100 dark:border-zinc-800 p-4 space-y-2">
+                  <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Next steps</p>
+                  <ul className="text-xs text-zinc-500 space-y-1.5">
+                    <li>
+                      1. Commit <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 rounded">.mdspecmap</code> to the root of your repo
+                    </li>
+                    <li>
+                      2. Customize folder mappings on the{' '}
+                      {tokenData.projectId ? (
+                        <a href={`/projects/${tokenData.projectId}/map`} className="underline hover:text-zinc-900 dark:hover:text-zinc-50">
+                          Mapping page
+                        </a>
+                      ) : (
+                        <span>Mapping page (open your project settings)</span>
+                      )}
+                    </li>
+                    {selectedIntegration && (
+                      <li>
+                        3.{' '}
+                        <a href={connectHref} className="underline hover:text-zinc-900 dark:hover:text-zinc-50">
+                          Connect {selectedIntegration.charAt(0).toUpperCase() + selectedIntegration.slice(1)}
+                        </a>{' '}
+                        to start publishing
+                      </li>
+                    )}
+                  </ul>
+                </div>
+
+                <div className="flex gap-2">
+                  <button onClick={() => setStep(5)} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
+                  <button
+                    onClick={() => { router.push('/dashboard'); router.refresh() }}
+                    className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900"
+                  >
+                    Go to Dashboard
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
         </div>
       </div>
     </div>

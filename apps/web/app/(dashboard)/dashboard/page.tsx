@@ -20,20 +20,7 @@ export default async function DashboardPage() {
   const currentOrgId = cookieStore.get('current_org_id')?.value
 
   if (!currentOrgId) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full py-32 text-center">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-2">
-          You don&apos;t belong to any organization yet.
-        </h2>
-        <p className="text-sm text-zinc-500 mb-6">
-          Create your first organization or ask a teammate to invite you.
-        </p>
-        <div className="flex flex-col gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-          <span>→ Use the org switcher in the sidebar to create your first organization</span>
-          <span>→ Or ask a teammate to invite you to their organization</span>
-        </div>
-      </div>
-    )
+    redirect('/onboarding')
   }
 
   const [{ count: specCount }, { count: projectCount }, { data: recentActivity }] =
