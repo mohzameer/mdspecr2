@@ -208,9 +208,12 @@ export default function IntegrationsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ access_token: accessToken, cloud_id: cloudId }),
     })
-      .then((r) => r.json())
-      .then((data) => { if (data.ok) setConfluenceSpaces(data.spaces ?? []) })
-      .catch(() => {})
+      .then(async (r) => {
+        const data = await r.json()
+        if (data.ok) setConfluenceSpaces(data.spaces ?? [])
+        else setConfluenceValidateError(data.error ?? 'Could not load spaces.')
+      })
+      .catch(() => setConfluenceValidateError('Could not load spaces — network error.'))
       .finally(() => setConfluenceLoadingSpaces(false))
   }
 
