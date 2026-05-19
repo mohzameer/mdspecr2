@@ -162,6 +162,7 @@ export async function publishToConfluence(
 
   if (activePageId) {
     try {
+      console.log(`[confluence] fetching existing page=${activePageId}`)
       const current = await axios.get(`${base}/wiki/rest/api/content/${activePageId}`, {
         ...axiosAuth(credentials),
         params: { expand: 'version,ancestors' },
@@ -196,8 +197,11 @@ export async function publishToConfluence(
         }
       }
     } catch (err) {
-      // Page was deleted remotely — fall through to create
-      if ((err as AxiosError).response?.status !== 404) throw err
+      const axErr = err as AxiosError
+      if (axErr.response?.status !== 404) {
+        console.error(`[confluence] existing page fetch failed status=${axErr.response?.status} body=${JSON.stringify(axErr.response?.data)}`)
+        throw err
+      }
       activePageId = null
     }
   }
