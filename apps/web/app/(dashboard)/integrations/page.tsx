@@ -654,7 +654,7 @@ export default function IntegrationsPage() {
                   )}
                   {type === 'confluence' && (
                     <>
-                      {confluenceOAuthSetup ? (
+                      {confluenceOAuthSetup && (
                         <>
                           <p className="text-xs text-green-600 dark:text-green-400">Confluence authorized via OAuth.</p>
                           {confluenceSites.length > 0 && (
