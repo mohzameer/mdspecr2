@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Session expired. Please reconnect.' }, { status: 400 })
   }
 
-  const url = `https://api.atlassian.com/ex/confluence/${cloud_id}/wiki/rest/api/space?limit=50&type=global`
+  const url = `https://api.atlassian.com/ex/confluence/${cloud_id}/wiki/api/v2/spaces?limit=50&type=global`
   console.log('[confluence/spaces] fetching', url)
   const res = await fetch(url, { headers: { Authorization: `Bearer ${access_token}`, Accept: 'application/json' } })
 
