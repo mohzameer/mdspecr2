@@ -17,6 +17,7 @@ interface ActivityItem {
   status: string
   last_error: string | null
   published_at: string | null
+  updated_at: string | null
   agent_run: AgentRunInfo | null
 }
 
@@ -69,8 +70,8 @@ export function ActivityFeed({ projectId, orgId, initialItems }: ActivityFeedPro
         async () => {
           const { data } = await supabase
             .from('spec_publish_targets')
-            .select('id, spec_id, status, last_error, published_at, target_type, specs(path, project_id, projects(org_id))')
-            .order('published_at', { ascending: false, nullsFirst: false })
+            .select('id, spec_id, status, last_error, published_at, updated_at, target_type, specs(path, project_id, projects(org_id))')
+            .order('updated_at', { ascending: false, nullsFirst: false })
             .limit(30)
           if (data) {
             setItems((prev) => {
@@ -82,6 +83,7 @@ export function ActivityFeed({ projectId, orgId, initialItems }: ActivityFeedPro
                 status: row.status,
                 last_error: row.last_error,
                 published_at: row.published_at,
+                updated_at: row.updated_at,
                 agent_run: agentMap[row.id] ?? null,
               }))
             })
@@ -136,8 +138,8 @@ export function ActivityFeed({ projectId, orgId, initialItems }: ActivityFeedPro
               <span className={statusColors[item.status] ?? 'text-zinc-400'}>
                 {statusLabels[item.status] ?? item.status}
               </span>
-              {item.published_at && (
-                <span className="text-zinc-400">{timeAgo(item.published_at)}</span>
+              {(item.updated_at ?? item.published_at) && (
+                <span className="text-zinc-400">{timeAgo((item.updated_at ?? item.published_at)!)}</span>
               )}
             </div>
           </div>

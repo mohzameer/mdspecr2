@@ -26,9 +26,9 @@ export default async function ProjectActivityPage({ params }: { params: Promise<
   const [activityRes, agentRunsRes] = await Promise.all([
     supabase
       .from('spec_publish_targets')
-      .select('id, spec_id, status, last_error, published_at, target_type, specs(path)')
+      .select('id, spec_id, status, last_error, published_at, updated_at, target_type, specs(path)')
       .in('spec_id', safeIds)
-      .order('published_at', { ascending: false, nullsFirst: false })
+      .order('updated_at', { ascending: false, nullsFirst: false })
       .limit(50),
     supabase
       .from('agent_runs')
@@ -63,6 +63,7 @@ export default async function ProjectActivityPage({ params }: { params: Promise<
     status: row.status,
     last_error: row.last_error,
     published_at: row.published_at,
+    updated_at: row.updated_at,
     agent_run: agentRunBySpecId[row.spec_id] ?? null,
   }))
 

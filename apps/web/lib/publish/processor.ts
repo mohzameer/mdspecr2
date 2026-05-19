@@ -147,7 +147,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
           .eq('id', integration_id)
         await supabase
           .from('spec_publish_targets')
-          .update({ status: 'failed', last_error: `Auth error (${status}): ${message}` })
+          .update({ status: 'failed', last_error: `Auth error (${status}): ${message}`, updated_at: new Date().toISOString() })
           .eq('id', spec.spec_publish_target_id)
         throw new UnrecoverableError(`Auth error on integration ${integration_id}: ${message}`)
       }
@@ -166,7 +166,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
         const retryMessage = (retryErr as { message?: string }).message ?? String(retryErr)
         await supabase
           .from('spec_publish_targets')
-          .update({ status: 'failed', last_error: retryMessage })
+          .update({ status: 'failed', last_error: retryMessage, updated_at: new Date().toISOString() })
           .eq('id', spec.spec_publish_target_id)
         console.error(`[publish] spec ${spec.spec_id} failed after retry: ${retryMessage}`)
       }
@@ -690,6 +690,7 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
       external_url: externalUrl,
       content_hash: content_hash ?? null,
       published_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       last_error: null,
     })
     .eq('id', spec_publish_target_id)

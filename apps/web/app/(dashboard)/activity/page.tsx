@@ -29,9 +29,9 @@ export default async function ActivityPage() {
 
   const { data: activity } = await supabase
     .from('spec_publish_targets')
-    .select('id, status, last_error, published_at, target_type, specs(path)')
+    .select('id, status, last_error, published_at, updated_at, target_type, specs(path)')
     .in('spec_id', sids.length ? sids : ['00000000-0000-0000-0000-000000000000'])
-    .order('published_at', { ascending: false, nullsFirst: false })
+    .order('updated_at', { ascending: false, nullsFirst: false })
     .limit(50)
 
   const items = (activity ?? []).map((row) => ({
@@ -41,6 +41,7 @@ export default async function ActivityPage() {
     status: row.status,
     last_error: row.last_error,
     published_at: row.published_at,
+    updated_at: row.updated_at,
     agent_run: null,
   }))
 

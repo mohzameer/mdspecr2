@@ -396,10 +396,11 @@ export async function POST(request: Request) {
             .eq('clickup_mode', mode)
             .maybeSingle()
 
+          const now = new Date().toISOString()
           const { data: target, error: targetError } = existingTarget
             ? await supabase
                 .from('spec_publish_targets')
-                .update({ status: 'queued', retry_count: 0, last_error: null })
+                .update({ status: 'queued', retry_count: 0, last_error: null, updated_at: now })
                 .eq('id', existingTarget.id)
                 .select('id, external_page_id')
                 .single()
@@ -413,6 +414,7 @@ export async function POST(request: Request) {
                   status: 'queued',
                   retry_count: 0,
                   last_error: null,
+                  updated_at: now,
                 })
                 .select('id, external_page_id')
                 .single()
