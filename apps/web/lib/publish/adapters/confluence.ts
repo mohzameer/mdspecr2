@@ -8,6 +8,59 @@ export interface ConfluenceCredentials {
   space_key: string
 }
 
+export interface ConfluenceOAuthCredentials {
+  base_url: string
+  cloud_id: string
+  access_token: string
+  refresh_token: string
+  expires_at: string
+  space_key: string
+}
+
+export type AnyConfluenceCredentials = ConfluenceCredentials | ConfluenceOAuthCredentials
+
+export function isOAuthCredentials(c: AnyConfluenceCredentials): c is ConfluenceOAuthCredentials {
+  return 'access_token' in c
+}
+
+export async function refreshConfluenceToken(
+  creds: ConfluenceOAuthCredentials
+): Promise<ConfluenceOAuthCredentials> {
+  const res = await fetch('https://auth.atlassian.com/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'refresh_token',
+      client_id: process.env.ATLASSIAN_CLIENT_ID,
+      client_secret: process.env.ATLASSIAN_CLIENT_SECRET,
+      refresh_token: creds.refresh_token,
+    }),
+  })
+  if (!res.ok) throw new Error(`Atlassian token refresh failed: ${res.status}`)
+  const { access_token, refresh_token, expires_in } = await res.json()
+  return {
+    ...creds,
+    access_token,
+    refresh_token,
+    expires_at: new Date(Date.now() + expires_in * 1000).toISOString(),
+  }
+}
+
+function axiosAuth(creds: AnyConfluenceCredentials) {
+  if (isOAuthCredentials(creds)) {
+    return { headers: { Authorization: `Bearer ${creds.access_token}` } }
+  }
+  return { auth: { username: creds.email, password: creds.token } }
+}
+
+// OAuth tokens only work via the Atlassian API gateway, not the direct site URL.
+function apiBase(creds: AnyConfluenceCredentials): string {
+  if (isOAuthCredentials(creds)) {
+    return `https://api.atlassian.com/ex/confluence/${creds.cloud_id}`
+  }
+  return creds.base_url.replace(/\/$/, '')
+}
+
 export function mdToConfluenceStorage(markdown: string): string {
   const lines = markdown.split('\n')
   const html: string[] = []
@@ -46,20 +99,16 @@ export function mdToConfluenceStorage(markdown: string): string {
   return html.join('\n')
 }
 
-function auth(creds: ConfluenceCredentials) {
-  return { username: creds.email, password: creds.token }
-}
-
 async function findOrCreatePage(
-  creds: ConfluenceCredentials,
+  creds: AnyConfluenceCredentials,
   title: string,
   parentId: string | null,
   body?: string
 ): Promise<string> {
-  const base = creds.base_url.replace(/\/$/, '')
+  const base = apiBase(creds)
 
   const searchRes = await axios.get(`${base}/wiki/rest/api/content`, {
-    auth: auth(creds),
+    ...axiosAuth(creds),
     params: { title, spaceKey: creds.space_key, expand: 'version' },
   })
 
@@ -75,19 +124,22 @@ async function findOrCreatePage(
   }
   if (parentId) createPayload.ancestors = [{ id: parentId }]
 
-  const res = await axios.post(`${base}/wiki/rest/api/content`, createPayload, { auth: auth(creds) })
+  const res = await axios.post(`${base}/wiki/rest/api/content`, createPayload, { ...axiosAuth(creds) })
   return res.data.id as string
 }
 
 export async function publishToConfluence(
-  credentials: ConfluenceCredentials,
+  credentials: AnyConfluenceCredentials,
   spec: { path: string; content: string; resolvedTitle: string },
   existingPageId?: string | null,
   parentPageId?: string | null
 ): Promise<{ page_id: string; page_url: string }> {
-  const base = credentials.base_url.replace(/\/$/, '')
+  const base = apiBase(credentials)
+  const siteBase = isOAuthCredentials(credentials) ? credentials.base_url.replace(/\/$/, '') : base
   const title = spec.resolvedTitle
   const storage = mdToConfluenceStorage(spec.content)
+
+  console.log(`[confluence] auth=${isOAuthCredentials(credentials) ? 'oauth' : 'basic'} base=${base} space=${credentials.space_key}`)
 
   // When a folder-mapping parent page is set, use it as the root ancestor.
   // Otherwise build the full ancestor hierarchy from the spec path.
@@ -104,7 +156,7 @@ export async function publishToConfluence(
   if (activePageId) {
     try {
       const current = await axios.get(`${base}/wiki/rest/api/content/${activePageId}`, {
-        auth: auth(credentials),
+        ...axiosAuth(credentials),
         params: { expand: 'version,ancestors' },
       })
 
@@ -129,11 +181,11 @@ export async function publishToConfluence(
             version: { number: version },
             body: { storage: { value: storage, representation: 'storage' } },
           },
-          { auth: auth(credentials) }
+          { ...axiosAuth(credentials) }
         )
         return {
           page_id: activePageId,
-          page_url: `${base}/wiki/spaces/${credentials.space_key}/pages/${activePageId}`,
+          page_url: `${siteBase}/wiki/spaces/${credentials.space_key}/pages/${activePageId}`,
         }
       }
     } catch (err) {
@@ -146,6 +198,6 @@ export async function publishToConfluence(
   const pageId = await findOrCreatePage(credentials, title, parentId, storage)
   return {
     page_id: pageId,
-    page_url: `${base}/wiki/spaces/${credentials.space_key}/pages/${pageId}`,
+    page_url: `${siteBase}/wiki/spaces/${credentials.space_key}/pages/${pageId}`,
   }
 }

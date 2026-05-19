@@ -1,12 +1,12 @@
 import { createSupabaseServiceClient } from '@/lib/db-server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { publishToNotion, getNotionPageParentId } from './adapters/notion'
-import { publishToConfluence } from './adapters/confluence'
+import { publishToConfluence, isOAuthCredentials, refreshConfluenceToken, type ConfluenceOAuthCredentials } from './adapters/confluence'
 import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, clickUpPageExists, resolveToNativeTaskId, getClickUpDocParent, getClickUpTaskListId } from './adapters/clickup'
 import { publishToS3, buildS3Key, s3ObjectExists } from './adapters/s3'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
-import { readCredentials } from '@/lib/credentials'
+import { readCredentials, storeCredentials, deleteCredentials } from '@/lib/credentials'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
 
 // Terminal error — QStash should not retry
@@ -77,6 +77,19 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     credentials = JSON.parse(plaintext)
   } catch (err) {
     throw new UnrecoverableError(`Invalid integration credentials: ${(err as Error).message}`)
+  }
+
+  // Refresh Confluence OAuth token if it's expiring within 5 minutes
+  if (target_type === 'confluence' && isOAuthCredentials(credentials as unknown as Parameters<typeof isOAuthCredentials>[0])) {
+    let oauthCreds = credentials as unknown as ConfluenceOAuthCredentials
+    const expiresAt = new Date(oauthCreds.expires_at).getTime()
+    if (Date.now() > expiresAt - 5 * 60 * 1000) {
+      oauthCreds = await refreshConfluenceToken(oauthCreds)
+      const newSecretId = await storeCredentials(supabase, JSON.stringify(oauthCreds), `integration:${integration_id}:confluence`)
+      await supabase.from('integrations').update({ credentials_secret_id: newSecretId, updated_at: new Date().toISOString() }).eq('id', integration_id)
+      await deleteCredentials(supabase, integration.credentials_secret_id).catch(() => {})
+      credentials = oauthCreds as unknown as Record<string, unknown>
+    }
   }
 
   // -- Resolve folder mapping for the group (all specs share immediateParent) -
@@ -565,19 +578,23 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
       )
       break
 
-    case 'confluence':
+    case 'confluence': {
+      const confluenceCreds = isOAuthCredentials(credentials as unknown as Parameters<typeof isOAuthCredentials>[0])
+        ? (credentials as unknown as ConfluenceOAuthCredentials)
+        : {
+            base_url: credentials.base_url as string,
+            email: credentials.email as string,
+            token: credentials.token as string,
+            space_key: credentials.space_key as string,
+          }
       result = await publishToConfluence(
-        {
-          base_url: credentials.base_url as string,
-          email: credentials.email as string,
-          token: credentials.token as string,
-          space_key: credentials.space_key as string,
-        },
+        confluenceCreds,
         specPayload,
         existingPageId,
         ctx.folderMappingTargetId
       )
       break
+    }
 
     case 'clickup': {
       const clickupCreds = {
