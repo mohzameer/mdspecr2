@@ -13,7 +13,7 @@ export async function GET() {
   const params = new URLSearchParams({
     audience: 'api.atlassian.com',
     client_id: process.env.ATLASSIAN_CLIENT_ID!,
-    scope: 'read:confluence-content.all write:confluence-content read:confluence-space.summary read:space:confluence offline_access',
+    scope: 'read:page:confluence write:page:confluence read:space:confluence offline_access',
     redirect_uri: redirectUri,
     state,
     response_type: 'code',
