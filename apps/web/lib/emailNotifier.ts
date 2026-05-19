@@ -274,6 +274,9 @@ export async function maybeSendSyncSummary(jobData: {
       const recipientInfo = await fetchRecipient(supabase, jobData.project_id)
       if (!recipientInfo) return
 
+      const hasFailed = groupSpecs.some((s) => s.status !== 'published')
+      if (recipientInfo.mode === 'failures_only' && !hasFailed) return
+
       await sendSyncEmail({
         to: recipientInfo.email,
         projectName: recipientInfo.projectName,
@@ -317,6 +320,9 @@ export async function maybeSendSyncSummary(jobData: {
     const recipientInfo = await fetchRecipient(supabase, jobData.project_id)
     if (!recipientInfo) return
 
+    const anyFailed = allGroups.some((g) => g.specs.some((s) => s.status !== 'published'))
+    if (recipientInfo.mode === 'failures_only' && !anyFailed) return
+
     await sendSyncEmail({
       to: recipientInfo.email,
       projectName: recipientInfo.projectName,
@@ -335,12 +341,12 @@ export async function maybeSendSyncSummary(jobData: {
 }
 
 // ---------------------------------------------------------------------------
-// Shared helper: look up org owner + check email_notifications preference
+// Shared helper: look up org owner + resolve notification preference
 // ---------------------------------------------------------------------------
 async function fetchRecipient(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   projectId: string
-): Promise<{ email: string; projectName: string } | null> {
+): Promise<{ email: string; projectName: string; mode: 'always' | 'failures_only' | 'never' } | null> {
   const { data: project } = await supabase
     .from('projects')
     .select('id, org_id, name')
@@ -360,11 +366,12 @@ async function fetchRecipient(
 
   const { data: user } = await supabase
     .from('users')
-    .select('email, email_notifications')
+    .select('email, email_notification_mode')
     .eq('id', ownerMember.user_id)
     .single()
 
-  if (!user?.email_notifications) return null
+  const mode = (user?.email_notification_mode ?? 'always') as 'always' | 'failures_only' | 'never'
+  if (mode === 'never') return null
 
-  return { email: user.email, projectName: project.name ?? projectId }
+  return { email: user!.email, projectName: project.name ?? projectId, mode }
 }

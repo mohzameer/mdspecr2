@@ -19,7 +19,8 @@ export default function AccountSettingsPage() {
   const [success, setSuccess] = useState(false)
 
   // Notification preference state
-  const [emailNotifications, setEmailNotifications] = useState<boolean>(true)
+  type NotificationMode = 'always' | 'failures_only' | 'never'
+  const [notifMode, setNotifMode] = useState<NotificationMode>('always')
   const [notifSaving, setNotifSaving] = useState(false)
   const [notifSaved, setNotifSaved] = useState(false)
 
@@ -41,23 +42,24 @@ export default function AccountSettingsPage() {
   useEffect(() => {
     supabase
       .from('users')
-      .select('email_notifications')
+      .select('email_notification_mode')
       .single()
       .then(({ data }) => {
-        if (data && typeof data.email_notifications === 'boolean') {
-          setEmailNotifications(data.email_notifications)
+        const mode = data?.email_notification_mode
+        if (mode === 'always' || mode === 'failures_only' || mode === 'never') {
+          setNotifMode(mode)
         }
       })
   }, [])
 
-  async function handleToggleNotifications(value: boolean) {
-    setEmailNotifications(value)
+  async function handleNotifModeChange(value: NotificationMode) {
+    setNotifMode(value)
     setNotifSaving(true)
     setNotifSaved(false)
     await fetch('/api/account/notifications', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email_notifications: value }),
+      body: JSON.stringify({ email_notification_mode: value }),
     })
     setNotifSaving(false)
     setNotifSaved(true)
@@ -205,39 +207,39 @@ export default function AccountSettingsPage() {
 
       {/* Notifications */}
       <div className="mt-12 pt-8 border-t border-zinc-200 dark:border-zinc-800">
-        <h2 className="text-base font-medium text-zinc-800 dark:text-zinc-200 mb-1">Notifications</h2>
+        <div className="flex items-center gap-3 mb-1">
+          <h2 className="text-base font-medium text-zinc-800 dark:text-zinc-200">Email notifications</h2>
+          {notifSaving && <span className="text-xs text-zinc-400">Saving…</span>}
+          {notifSaved && !notifSaving && <span className="text-xs text-zinc-400">Saved</span>}
+        </div>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
-          Receive an email summary after each sync with the status of every file.
+          Choose when to receive an email summary of sync results.
         </p>
-        <label className="flex items-center gap-3 cursor-pointer w-fit">
-          <button
-            role="switch"
-            aria-checked={emailNotifications}
-            onClick={() => handleToggleNotifications(!emailNotifications)}
-            className={[
-              'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 dark:focus-visible:ring-zinc-50',
-              emailNotifications
-                ? 'bg-zinc-900 dark:bg-zinc-50'
-                : 'bg-zinc-200 dark:bg-zinc-700',
-            ].join(' ')}
-          >
-            <span
-              className={[
-                'pointer-events-none block h-4 w-4 rounded-full bg-white dark:bg-zinc-900 shadow-lg ring-0 transition-transform',
-                emailNotifications ? 'translate-x-4' : 'translate-x-0',
-              ].join(' ')}
-            />
-          </button>
-          <span className="text-sm text-zinc-700 dark:text-zinc-300">
-            Email me after each sync
-          </span>
-          {notifSaving && (
-            <span className="text-xs text-zinc-400">Saving…</span>
-          )}
-          {notifSaved && !notifSaving && (
-            <span className="text-xs text-zinc-400">Saved</span>
-          )}
-        </label>
+        <div className="space-y-2.5">
+          {([
+            { value: 'always',        label: 'After every sync',                        description: 'Receive a summary regardless of outcome.' },
+            { value: 'failures_only', label: 'Only when a sync contains failures',      description: 'Receive a summary only when one or more files fail to publish.' },
+            { value: 'never',         label: 'Never',                                   description: 'Do not send sync notification emails.' },
+          ] as { value: NotificationMode; label: string; description: string }[]).map(({ value, label, description }) => (
+            <label
+              key={value}
+              className="flex items-start gap-3 cursor-pointer"
+            >
+              <input
+                type="radio"
+                name="email_notification_mode"
+                value={value}
+                checked={notifMode === value}
+                onChange={() => handleNotifModeChange(value)}
+                className="mt-0.5 accent-zinc-900 dark:accent-zinc-50"
+              />
+              <div>
+                <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{label}</div>
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">{description}</div>
+              </div>
+            </label>
+          ))}
+        </div>
       </div>
 
       {/* Danger zone */}
