@@ -106,11 +106,14 @@ async function findOrCreatePage(
   body?: string
 ): Promise<string> {
   const base = apiBase(creds)
+  const searchUrl = `${base}/wiki/rest/api/content`
+  console.log(`[confluence/findOrCreate] GET ${searchUrl} title="${title}" spaceKey=${creds.space_key} authType=${isOAuthCredentials(creds) ? 'bearer' : 'basic'}`)
 
-  const searchRes = await axios.get(`${base}/wiki/rest/api/content`, {
+  const searchRes = await axios.get(searchUrl, {
     ...axiosAuth(creds),
     params: { title, spaceKey: creds.space_key, expand: 'version' },
   })
+  console.log(`[confluence/findOrCreate] search status=${searchRes.status} results=${searchRes.data.results?.length ?? 0}`)
 
   if (searchRes.data.results?.length > 0) {
     return searchRes.data.results[0].id as string
@@ -135,6 +138,12 @@ export async function publishToConfluence(
   parentPageId?: string | null
 ): Promise<{ page_id: string; page_url: string }> {
   const base = apiBase(credentials)
+  const isOAuth = isOAuthCredentials(credentials)
+  console.log(`[confluence] auth=oauth:${isOAuth} base=${base} space=${credentials.space_key} existingPageId=${existingPageId ?? 'none'} parentPageId=${parentPageId ?? 'none'}`)
+  if (isOAuth) {
+    const oauthCreds = credentials as ConfluenceOAuthCredentials
+    console.log(`[confluence] cloud_id=${oauthCreds.cloud_id} base_url=${oauthCreds.base_url} expires_at=${oauthCreds.expires_at} token_prefix=${oauthCreds.access_token.slice(0, 10)}...`)
+  }
   const title = getSpecTitle(spec.path, spec.frontmatter)
   const storage = mdToConfluenceStorage(spec.content)
 
