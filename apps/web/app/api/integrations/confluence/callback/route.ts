@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { randomUUID } from 'crypto'
 import { cookies } from 'next/headers'
-import { createSupabaseServerClient } from '@/lib/db-server'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/db-server'
+import { storeCredentials } from '@/lib/credentials'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
@@ -71,18 +73,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(base)
   }
 
-  cookieStore.set(
-    'confluence_pending',
-    JSON.stringify({ access_token, refresh_token, expires_at, sites }),
-    {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 300,
-      path: '/',
-    }
+  // Store tokens in Vault — JWTs are too large for a cookie
+  const service = createSupabaseServiceClient()
+  const pendingSecretId = await storeCredentials(
+    service,
+    JSON.stringify({ access_token, refresh_token, expires_at }),
+    `confluence:pending:${user.id}:${randomUUID()}`
   )
 
   base.searchParams.set('setup', 'confluence')
-  return NextResponse.redirect(base)
+  const response = NextResponse.redirect(base)
+  response.cookies.set('confluence_pending', JSON.stringify({ pendingSecretId, sites }), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 300,
+    path: '/',
+  })
+  return response
 }

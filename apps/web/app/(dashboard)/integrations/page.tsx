@@ -113,7 +113,7 @@ export default function IntegrationsPage() {
   const [clickupPendingToken, setClickupPendingToken] = useState<string>('')
   const [clickupWorkspaceId, setClickupWorkspaceId] = useState<string>('')
   const [confluenceOAuthSetup, setConfluenceOAuthSetup] = useState(false)
-  const [confluencePending, setConfluencePending] = useState<{ access_token: string; refresh_token: string; expires_at: string } | null>(null)
+  const [confluencePendingSecretId, setConfluencePendingSecretId] = useState<string>('')
   const [confluenceSites, setConfluenceSites] = useState<{ id: string; url: string; name: string }[]>([])
   const [confluenceSelectedSite, setConfluenceSelectedSite] = useState<{ id: string; url: string; name: string } | null>(null)
   const [confluenceSpaces, setConfluenceSpaces] = useState<{ key: string; name: string }[]>([])
@@ -169,8 +169,8 @@ export default function IntegrationsPage() {
           return r.json()
         })
         .then((data) => {
-          const { access_token, refresh_token, expires_at, sites } = data
-          setConfluencePending({ access_token, refresh_token, expires_at })
+          const { pendingSecretId, sites } = data
+          setConfluencePendingSecretId(pendingSecretId ?? '')
           setConfluenceSites(sites ?? [])
         })
         .catch(() => setOauthError('Session expired or cookies were cleared. Please click Connect again.'))
@@ -195,14 +195,14 @@ export default function IntegrationsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function loadConfluenceSpaces(accessToken: string, cloudId: string) {
+  function loadConfluenceSpaces(pendingSecretId: string, cloudId: string) {
     setConfluenceLoadingSpaces(true)
     setConfluenceSpaces([])
     setConfluenceSpaceKey('')
     fetch('/api/integrations/confluence/spaces', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ access_token: accessToken, cloud_id: cloudId }),
+      body: JSON.stringify({ pendingSecretId, cloud_id: cloudId }),
     })
       .then(async (r) => {
         const data = await r.json()
@@ -403,22 +403,27 @@ export default function IntegrationsPage() {
         return
       }
       setSaving(true)
-      const credentials = {
-        ...confluencePending,
-        base_url: confluenceSelectedSite.url,
-        cloud_id: confluenceSelectedSite.id,
-        space_key: confluenceSpaceKey,
-      }
-      await fetch('/api/integrations/connect', {
+      const res = await fetch('/api/integrations/confluence/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, credentials: JSON.stringify(credentials), config: { base_url: confluenceSelectedSite.url, space_key: confluenceSpaceKey } }),
+        body: JSON.stringify({
+          pendingSecretId: confluencePendingSecretId,
+          cloudId: confluenceSelectedSite.id,
+          siteUrl: confluenceSelectedSite.url,
+          spaceKey: confluenceSpaceKey,
+        }),
       })
+      const body = await res.json()
+      if (!res.ok) {
+        setConfluenceValidateError(body.error ?? 'Could not save integration.')
+        setSaving(false)
+        return
+      }
       await fetchIntegrations()
       setConnecting(null)
       setSaving(false)
       setConfluenceOAuthSetup(false)
-      setConfluencePending(null)
+      setConfluencePendingSecretId('')
       setConfluenceSites([])
       setConfluenceSelectedSite(null)
       setConfluenceSpaces([])
@@ -694,7 +699,7 @@ export default function IntegrationsPage() {
                                   const site = confluenceSites.find((s) => s.id === e.target.value) ?? null
                                   setConfluenceSelectedSite(site)
                                   setConfluenceValidateError(null)
-                                  if (site && confluencePending) loadConfluenceSpaces(confluencePending.access_token, site.id)
+                                  if (site && confluencePendingSecretId) loadConfluenceSpaces(confluencePendingSecretId, site.id)
                                 }}
                                 className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
                               >
@@ -809,7 +814,7 @@ export default function IntegrationsPage() {
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                       {saving ? (type === 's3' || type === 'confluence' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); setClickupOAuthSetup(false); setClickupWorkspaces([]); setClickupPendingToken(''); setClickupWorkspaceId(''); setConfluenceOAuthSetup(false); setConfluencePending(null); setConfluenceSites([]); setConfluenceSelectedSite(null); setConfluenceSpaces([]); setConfluenceSpaceKey(''); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); setClickupOAuthSetup(false); setClickupWorkspaces([]); setClickupPendingToken(''); setClickupWorkspaceId(''); setConfluenceOAuthSetup(false); setConfluencePendingSecretId(''); setConfluenceSites([]); setConfluenceSelectedSite(null); setConfluenceSpaces([]); setConfluenceSpaceKey(''); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>

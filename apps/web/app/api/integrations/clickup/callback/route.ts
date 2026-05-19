@@ -97,14 +97,14 @@ export async function GET(request: NextRequest) {
   }
 
   // Multiple workspaces — store pending data and show picker
-  cookieStore.set('clickup_pending', JSON.stringify({ token: access_token, workspaces }), {
+  base.searchParams.set('setup', 'clickup')
+  const pendingResponse = NextResponse.redirect(base)
+  pendingResponse.cookies.set('clickup_pending', JSON.stringify({ token: access_token, workspaces }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     maxAge: 300,
     path: '/',
   })
-
-  base.searchParams.set('setup', 'clickup')
-  return NextResponse.redirect(base)
+  return pendingResponse
 }

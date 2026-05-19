@@ -51,14 +51,14 @@ export async function GET(request: NextRequest) {
 
   const { access_token } = await tokenRes.json()
 
-  cookieStore.set('notion_pending_token', access_token, {
+  base.searchParams.set('setup', 'notion')
+  const response = NextResponse.redirect(base)
+  response.cookies.set('notion_pending_token', access_token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     maxAge: 300,
     path: '/',
   })
-
-  base.searchParams.set('setup', 'notion')
-  return NextResponse.redirect(base)
+  return response
 }
