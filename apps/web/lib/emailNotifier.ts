@@ -229,6 +229,84 @@ export async function sendSyncEmail(params: SendSyncEmailParams): Promise<void> 
 }
 
 // ---------------------------------------------------------------------------
+// Sent immediately when an integration is flipped to unhealthy due to an
+// auth failure during a sync. Gives the user a direct link to reconnect.
+// ---------------------------------------------------------------------------
+export async function sendUnhealthyIntegrationEmail(params: {
+  integrationId: string
+  integrationType: string
+  projectId: string
+  errorMessage: string
+}): Promise<void> {
+  if (!process.env.RESEND_API_KEY) return
+
+  try {
+    const supabase = createSupabaseServiceClient()
+    const recipientInfo = await fetchRecipient(supabase, params.projectId)
+    if (!recipientInfo || recipientInfo.mode === 'never') return
+
+    const label = TARGET_LABELS[params.integrationType] ?? params.integrationType
+    const icon = TARGET_ICONS[params.integrationType] ?? ''
+    const dashboardUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://mdspec.dev'}/integrations`
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Integration disconnected — ${recipientInfo.projectName}</title>
+</head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <tr>
+            <td style="background:#18181b;border-radius:8px 8px 0 0;padding:20px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td><span style="font-size:17px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">MDSpec</span></td>
+                  <td align="right"><span style="font-size:12px;color:#a1a1aa;">Integration alert</span></td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#ffffff;padding:28px;border-left:1px solid #e4e4e7;border-right:1px solid #e4e4e7;">
+              <div style="font-size:15px;font-weight:600;color:#dc2626;margin-bottom:8px;">${icon} ${label} integration disconnected</div>
+              <div style="font-size:14px;color:#3f3f46;margin-bottom:4px;">Project: <strong>${recipientInfo.projectName}</strong></div>
+              <div style="font-size:13px;color:#71717a;margin-bottom:20px;">A sync failed with an authentication error. Your ${label} integration needs to be reconnected before specs can publish again.</div>
+              <div style="background:#fff1f2;border:1px solid #fecaca;border-radius:6px;padding:12px 16px;font-family:ui-monospace,monospace;font-size:12px;color:#dc2626;word-break:break-all;margin-bottom:24px;">${params.errorMessage}</div>
+              <a href="${dashboardUrl}" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:6px;">Reconnect ${label} &rarr;</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f9fafb;border:1px solid #e4e4e7;border-top:none;border-radius:0 0 8px 8px;padding:16px 28px;">
+              <span style="font-size:12px;color:#a1a1aa;">You're receiving this because sync email notifications are enabled.&nbsp;<a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://mdspec.dev'}/settings/account" style="color:#71717a;">Manage preferences</a></span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+
+    const { error } = await resend.emails.send({
+      from: FROM,
+      to: recipientInfo.email,
+      subject: `[MDSpec] ${label} integration disconnected — reconnect required`,
+      html,
+    })
+
+    if (error) console.error('[emailNotifier] failed to send unhealthy email:', error)
+    else console.log(`[emailNotifier] unhealthy integration email sent to ${recipientInfo.email} (${label})`)
+  } catch (err) {
+    console.error('[emailNotifier] sendUnhealthyIntegrationEmail error:', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Called from worker/process after each group completes.
 // Atomically records the group result. When this is the last group for the
 // sync run, fetches all accumulated results and sends one consolidated email.

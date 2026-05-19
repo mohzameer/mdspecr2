@@ -7,6 +7,7 @@ import { publishToS3, buildS3Key, s3ObjectExists } from './adapters/s3'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
 import { readCredentials, storeCredentials, deleteCredentials } from '@/lib/credentials'
+import { sendUnhealthyIntegrationEmail } from '@/lib/emailNotifier'
 import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
 
 // Terminal error — QStash should not retry
@@ -149,6 +150,12 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
           .from('spec_publish_targets')
           .update({ status: 'failed', last_error: `Auth error (${status}): ${message}`, updated_at: new Date().toISOString() })
           .eq('id', spec.spec_publish_target_id)
+        sendUnhealthyIntegrationEmail({
+          integrationId: integration_id,
+          integrationType: target_type,
+          projectId: project_id,
+          errorMessage: message,
+        }).catch(() => {})
         throw new UnrecoverableError(`Auth error on integration ${integration_id}: ${message}`)
       }
 
