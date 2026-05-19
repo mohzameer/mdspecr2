@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Session expired. Please reconnect.' }, { status: 400 })
   }
 
-  const url = `https://api.atlassian.com/ex/confluence/${cloud_id}/wiki/api/v2/spaces?limit=50&type=global`
+  const url = `https://api.atlassian.com/ex/confluence/${cloud_id}/wiki/api/v2/spaces?limit=50`
   console.log('[confluence/spaces] fetching', url)
   const res = await fetch(url, { headers: { Authorization: `Bearer ${access_token}`, Accept: 'application/json' } })
 
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   }
 
   const data = await res.json()
-  console.log('[confluence/spaces] results count', data.results?.length ?? 0)
+  console.log('[confluence/spaces] raw', JSON.stringify(data).slice(0, 500))
   const spaces = (data.results ?? []).map((s: { key: string; name: string }) => ({
     key: s.key,
     name: s.name,
