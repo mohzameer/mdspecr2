@@ -420,10 +420,11 @@ export default function IntegrationsPage() {
     }
 
     setSaving(true)
+    const formData = form[type as keyof ConnectForm]
     await fetch('/api/integrations/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, credentials: JSON.stringify(form[type]), config: form[type] }),
+      body: JSON.stringify({ type, credentials: JSON.stringify(formData), config: formData }),
     })
     await fetchIntegrations()
     setConnecting(null)
