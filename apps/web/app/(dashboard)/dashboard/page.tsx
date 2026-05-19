@@ -45,8 +45,8 @@ export default async function DashboardPage() {
         .eq('org_id', currentOrgId),
       supabase
         .from('spec_publish_targets')
-        .select('id, status, last_error, published_at, target_type, specs(path)')
-        .order('published_at', { ascending: false, nullsFirst: false })
+        .select('id, status, last_error, published_at, updated_at, target_type, specs(path)')
+        .order('updated_at', { ascending: false, nullsFirst: false })
         .limit(20),
     ])
 
@@ -57,6 +57,7 @@ export default async function DashboardPage() {
     status: row.status,
     last_error: row.last_error,
     published_at: row.published_at,
+    updated_at: row.updated_at,
     agent_run: null,
   }))
 
