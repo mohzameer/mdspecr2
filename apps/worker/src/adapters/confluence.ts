@@ -145,7 +145,7 @@ export async function publishToConfluence(
   if (activePageId) {
     try {
       const current = await axios.get(`${base}/wiki/rest/api/content/${activePageId}`, {
-        auth: auth(credentials),
+        ...axiosAuth(credentials),
         params: { expand: 'version,ancestors' },
       })
 
