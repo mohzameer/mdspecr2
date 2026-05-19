@@ -107,10 +107,17 @@ async function findOrCreatePage(
 ): Promise<string> {
   const base = apiBase(creds)
 
-  const searchRes = await axios.get(`${base}/wiki/rest/api/content`, {
-    ...axiosAuth(creds),
-    params: { title, spaceKey: creds.space_key, expand: 'version' },
-  })
+  let searchRes
+  try {
+    searchRes = await axios.get(`${base}/wiki/rest/api/content`, {
+      ...axiosAuth(creds),
+      params: { title, spaceKey: creds.space_key, expand: 'version' },
+    })
+  } catch (err) {
+    const axErr = err as import('axios').AxiosError
+    console.error(`[confluence/findOrCreate] GET failed status=${axErr.response?.status} body=${JSON.stringify(axErr.response?.data)}`)
+    throw err
+  }
 
   if (searchRes.data.results?.length > 0) {
     return searchRes.data.results[0].id as string
