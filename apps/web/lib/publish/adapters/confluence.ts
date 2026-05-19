@@ -99,39 +99,48 @@ export function mdToConfluenceStorage(markdown: string): string {
   return html.join('\n')
 }
 
+// Resolve numeric space ID from space key using v2 spaces API.
+// Required for v2 page create which needs spaceId, not space key.
+async function resolveSpaceId(creds: AnyConfluenceCredentials): Promise<string> {
+  const base = apiBase(creds)
+  const res = await axios.get(`${base}/wiki/api/v2/spaces`, {
+    ...axiosAuth(creds),
+    params: { 'space-key': creds.space_key, limit: 1 },
+  })
+  const spaceId = res.data.results?.[0]?.id
+  if (!spaceId) throw new Error(`Confluence space not found for key: ${creds.space_key}`)
+  return spaceId as string
+}
+
+// All content operations use the v2 API so granular scopes (read:page:confluence,
+// write:page:confluence) are honoured — the v1 REST API requires classic scopes.
 async function findOrCreatePage(
   creds: AnyConfluenceCredentials,
+  spaceId: string,
   title: string,
   parentId: string | null,
   body?: string
 ): Promise<string> {
   const base = apiBase(creds)
 
-  let searchRes
-  try {
-    searchRes = await axios.get(`${base}/wiki/rest/api/content`, {
-      ...axiosAuth(creds),
-      params: { title, spaceKey: creds.space_key, expand: 'version' },
-    })
-  } catch (err) {
-    const axErr = err as import('axios').AxiosError
-    console.error(`[confluence/findOrCreate] GET failed status=${axErr.response?.status} body=${JSON.stringify(axErr.response?.data)}`)
-    throw err
-  }
+  const searchRes = await axios.get(`${base}/wiki/api/v2/pages`, {
+    ...axiosAuth(creds),
+    params: { 'space-key': creds.space_key, title, limit: 1 },
+  })
 
   if (searchRes.data.results?.length > 0) {
     return searchRes.data.results[0].id as string
   }
 
   const createPayload: Record<string, unknown> = {
-    type: 'page',
+    spaceId,
+    status: 'current',
     title,
-    space: { key: creds.space_key },
-    body: { storage: { value: body ?? `<p>${title}</p>`, representation: 'storage' } },
+    body: { representation: 'storage', value: body ?? `<p>${title}</p>` },
   }
-  if (parentId) createPayload.ancestors = [{ id: parentId }]
+  if (parentId) createPayload.parentId = parentId
 
-  const res = await axios.post(`${base}/wiki/rest/api/content`, createPayload, { ...axiosAuth(creds) })
+  const res = await axios.post(`${base}/wiki/api/v2/pages`, createPayload, { ...axiosAuth(creds) })
   return res.data.id as string
 }
 
@@ -148,13 +157,15 @@ export async function publishToConfluence(
 
   console.log(`[confluence] auth=${isOAuthCredentials(credentials) ? 'oauth' : 'basic'} base=${base} space=${credentials.space_key}`)
 
+  const spaceId = await resolveSpaceId(credentials)
+
   // When a folder-mapping parent page is set, use it as the root ancestor.
   // Otherwise build the full ancestor hierarchy from the spec path.
   const folders = getAncestorFolders(spec.path)
   let parentId: string | null = parentPageId ?? null
   if (!parentPageId) {
     for (const folder of folders) {
-      parentId = await findOrCreatePage(credentials, folder.name, parentId)
+      parentId = await findOrCreatePage(credentials, spaceId, folder.name, parentId)
     }
   }
 
@@ -162,32 +173,27 @@ export async function publishToConfluence(
 
   if (activePageId) {
     try {
-      console.log(`[confluence] fetching existing page=${activePageId}`)
-      const current = await axios.get(`${base}/wiki/rest/api/content/${activePageId}`, {
+      const current = await axios.get(`${base}/wiki/api/v2/pages/${activePageId}`, {
         ...axiosAuth(credentials),
-        params: { expand: 'version,ancestors' },
       })
 
       // Self-heal: if a parent override is set, verify the page is actually
       // under that parent. If it diverges (e.g. mapping changed), recreate
       // under the correct parent instead of updating in the wrong location.
-      if (parentPageId) {
-        const ancestors: Array<{ id: string }> = current.data.ancestors ?? []
-        const directParentId = ancestors[ancestors.length - 1]?.id
-        if (directParentId !== parentPageId) {
-          activePageId = null
-        }
+      if (parentPageId && current.data.parentId !== parentPageId) {
+        activePageId = null
       }
 
       if (activePageId) {
         const version = (current.data.version.number as number) + 1
         await axios.put(
-          `${base}/wiki/rest/api/content/${activePageId}`,
+          `${base}/wiki/api/v2/pages/${activePageId}`,
           {
-            type: 'page',
+            id: activePageId,
+            status: 'current',
             title,
             version: { number: version },
-            body: { storage: { value: storage, representation: 'storage' } },
+            body: { representation: 'storage', value: storage },
           },
           { ...axiosAuth(credentials) }
         )
@@ -197,16 +203,13 @@ export async function publishToConfluence(
         }
       }
     } catch (err) {
-      const axErr = err as AxiosError
-      if (axErr.response?.status !== 404) {
-        console.error(`[confluence] existing page fetch failed status=${axErr.response?.status} body=${JSON.stringify(axErr.response?.data)}`)
-        throw err
-      }
+      // Page was deleted remotely — fall through to create
+      if ((err as AxiosError).response?.status !== 404) throw err
       activePageId = null
     }
   }
 
-  const pageId = await findOrCreatePage(credentials, title, parentId, storage)
+  const pageId = await findOrCreatePage(credentials, spaceId, title, parentId, storage)
   return {
     page_id: pageId,
     page_url: `${siteBase}/wiki/spaces/${credentials.space_key}/pages/${pageId}`,
