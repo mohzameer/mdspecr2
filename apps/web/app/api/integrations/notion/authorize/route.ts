@@ -9,15 +9,6 @@ export async function GET() {
   if (!user) return NextResponse.redirect(new URL('/auth/login', process.env.NEXT_PUBLIC_APP_URL))
 
   const state = randomBytes(16).toString('hex')
-  const cookieStore = await cookies()
-  cookieStore.set('notion_oauth_state', state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 600,
-    path: '/',
-  })
-
   const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/integrations/notion/callback`
   const params = new URLSearchParams({
     client_id: process.env.NOTION_CLIENT_ID!,
@@ -27,5 +18,13 @@ export async function GET() {
     state,
   })
 
-  return NextResponse.redirect(`https://api.notion.com/v1/oauth/authorize?${params}`)
+  const response = NextResponse.redirect(`https://api.notion.com/v1/oauth/authorize?${params}`)
+  response.cookies.set('notion_oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 600,
+    path: '/',
+  })
+  return response
 }

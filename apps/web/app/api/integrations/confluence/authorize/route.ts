@@ -9,25 +9,24 @@ export async function GET() {
   if (!user) return NextResponse.redirect(new URL('/auth/login', process.env.NEXT_PUBLIC_APP_URL))
 
   const state = randomBytes(16).toString('hex')
-  const cookieStore = await cookies()
-  cookieStore.set('confluence_oauth_state', state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 600,
-    path: '/',
-  })
-
   const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/integrations/confluence/callback`
   const params = new URLSearchParams({
     audience: 'api.atlassian.com',
     client_id: process.env.ATLASSIAN_CLIENT_ID!,
-    scope: 'read:confluence-content.all write:confluence-content read:confluence-space.summary offline_access',
+    scope: 'read:confluence-content.all write:confluence-content read:confluence-space.summary read:space:confluence offline_access',
     redirect_uri: redirectUri,
     state,
     response_type: 'code',
     prompt: 'consent',
   })
 
-  return NextResponse.redirect(`https://auth.atlassian.com/authorize?${params}`)
+  const response = NextResponse.redirect(`https://auth.atlassian.com/authorize?${params}`)
+  response.cookies.set('confluence_oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 600,
+    path: '/',
+  })
+  return response
 }
