@@ -91,13 +91,21 @@ function axiosAuth(creds: AnyConfluenceCredentials) {
   return { auth: { username: creds.email, password: creds.token } }
 }
 
+// OAuth tokens only work via the Atlassian API gateway, not the direct site URL.
+function apiBase(creds: AnyConfluenceCredentials): string {
+  if (isOAuthCredentials(creds)) {
+    return `https://api.atlassian.com/ex/confluence/${creds.cloud_id}`
+  }
+  return creds.base_url.replace(/\/$/, '')
+}
+
 async function findOrCreatePage(
   creds: AnyConfluenceCredentials,
   title: string,
   parentId: string | null,
   body?: string
 ): Promise<string> {
-  const base = creds.base_url.replace(/\/$/, '')
+  const base = apiBase(creds)
 
   const searchRes = await axios.get(`${base}/wiki/rest/api/content`, {
     ...axiosAuth(creds),
@@ -126,7 +134,7 @@ export async function publishToConfluence(
   existingPageId?: string | null,
   parentPageId?: string | null
 ): Promise<{ page_id: string; page_url: string }> {
-  const base = credentials.base_url.replace(/\/$/, '')
+  const base = apiBase(credentials)
   const title = getSpecTitle(spec.path, spec.frontmatter)
   const storage = mdToConfluenceStorage(spec.content)
 
@@ -172,9 +180,10 @@ export async function publishToConfluence(
           },
           { ...axiosAuth(credentials) }
         )
+        const siteBase = isOAuthCredentials(credentials) ? credentials.base_url.replace(/\/$/, '') : base
         return {
           page_id: activePageId,
-          page_url: `${base}/wiki/spaces/${credentials.space_key}/pages/${activePageId}`,
+          page_url: `${siteBase}/wiki/spaces/${credentials.space_key}/pages/${activePageId}`,
         }
       }
     } catch (err) {
@@ -185,8 +194,9 @@ export async function publishToConfluence(
   }
 
   const pageId = await findOrCreatePage(credentials, title, parentId, storage)
+  const siteBase = isOAuthCredentials(credentials) ? credentials.base_url.replace(/\/$/, '') : base
   return {
     page_id: pageId,
-    page_url: `${base}/wiki/spaces/${credentials.space_key}/pages/${pageId}`,
+    page_url: `${siteBase}/wiki/spaces/${credentials.space_key}/pages/${pageId}`,
   }
 }
