@@ -1,8 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import { buttonVariants } from '@/components/ui/button-variants'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -91,21 +89,7 @@ const NAV = [
 
 export default function DocsPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto border-b border-border">
-        <Link href="/" className="text-lg font-semibold tracking-tight">mdspec</Link>
-        <div className="flex items-center gap-3">
-          <Link href="/pricing" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
-            Pricing
-          </Link>
-          <Link href="/login" className={buttonVariants({ size: 'sm' })}>
-            Sign in
-          </Link>
-        </div>
-      </nav>
-
-      <div className="max-w-6xl mx-auto px-6 flex gap-12 py-12">
+    <div className="max-w-6xl mx-auto px-6 flex gap-12 py-12">
         {/* Sidebar */}
         <aside className="hidden lg:block w-48 shrink-0">
           <div className="sticky top-8">
@@ -1551,7 +1535,6 @@ FRONTMATTER (per-file, overrides .mdspecmap)
               title: heading # read "heading:" instead of "title:"`}</CodeBlock>
           </section>
         </main>
-      </div>
     </div>
   )
 }
