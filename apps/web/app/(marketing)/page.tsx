@@ -69,6 +69,9 @@ export default async function LandingPage() {
             <a href="#how-it-works" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
               How it works
             </a>
+            <a href="#why" className={buttonVariants({ variant: 'ghost', size: 'lg' })}>
+              Why your team needs it
+            </a>
           </div>
 
           <div className="mt-12 flex flex-wrap items-center justify-center gap-2.5">
@@ -95,7 +98,7 @@ export default async function LandingPage() {
       </Section>
 
       {/* Why your team needs it */}
-      <Section eyebrow="Why your team needs it" border>
+      <Section id="why" eyebrow="Why your team needs it" border>
         <div className="mx-auto max-w-5xl">
           <SectionHeading className="text-center">
             Documentation that keeps pace with the code
