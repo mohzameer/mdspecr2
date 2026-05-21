@@ -4,6 +4,7 @@ import { publishToNotion, getNotionPageParentId } from './adapters/notion'
 import { publishToConfluence, isOAuthCredentials, refreshConfluenceToken, type ConfluenceOAuthCredentials } from './adapters/confluence'
 import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, clickUpPageExists, resolveToNativeTaskId, getClickUpDocParent, getClickUpTaskListId } from './adapters/clickup'
 import { publishToS3, buildS3Key, s3ObjectExists } from './adapters/s3'
+import { publishToJira, refreshJiraToken, type JiraOAuthCredentials } from './adapters/jira'
 import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
 import { readCredentials, storeCredentials, deleteCredentials } from '@/lib/credentials'
@@ -44,6 +45,8 @@ interface GroupContext {
   s3RootPrefix: string | null
   s3MaintainHierarchy: boolean
   s3MatchedFolder: string        // needed to compute relative path when hierarchy=true
+  // Jira-only — per-folder issue type override (folder mapping target_id holds project key)
+  jiraIssueType: string | null
 }
 
 export async function runPublishGroup(data: PublishGroupJobData): Promise<void> {
@@ -93,6 +96,19 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     }
   }
 
+  // Refresh Jira OAuth token if it's expiring within 5 minutes
+  if (target_type === 'jira') {
+    let oauthCreds = credentials as unknown as JiraOAuthCredentials
+    const expiresAt = new Date(oauthCreds.expires_at).getTime()
+    if (Date.now() > expiresAt - 5 * 60 * 1000) {
+      oauthCreds = await refreshJiraToken(oauthCreds)
+      const newSecretId = await storeCredentials(supabase, JSON.stringify(oauthCreds), `integration:${integration_id}:jira`)
+      await supabase.from('integrations').update({ credentials_secret_id: newSecretId, updated_at: new Date().toISOString() }).eq('id', integration_id)
+      await deleteCredentials(supabase, integration.credentials_secret_id).catch(() => {})
+      credentials = oauthCreds as unknown as Record<string, unknown>
+    }
+  }
+
   // -- Resolve folder mapping for the group (all specs share immediateParent) -
   const ctx: GroupContext = {
     supabase,
@@ -117,6 +133,7 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     s3RootPrefix: null,
     s3MaintainHierarchy: false,
     s3MatchedFolder: '',
+    jiraIssueType: null,
   }
 
   if (target_type === 'clickup') {
@@ -129,6 +146,8 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     await setupNotionGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
   } else if (target_type === 'confluence') {
     await setupConfluenceGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
+  } else if (target_type === 'jira') {
+    await setupJiraGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
   }
 
   // -- Iterate specs sequentially --------------------------------------------
@@ -332,6 +351,34 @@ async function setupConfluenceGroupContext(ctx: GroupContext, matchedFolder: str
   }
 
   console.log(`[publish:confluence] folder=${matchedFolder} target_id=${ctx.folderMappingTargetId ?? '(none)'}`)
+}
+
+// ---------------------------------------------------------------------------
+// Jira group context: resolve optional folder-level project key override
+// (folder_mappings.target_id) and issue type (folder_mappings.jira_issue_type)
+// ---------------------------------------------------------------------------
+async function setupJiraGroupContext(ctx: GroupContext, matchedFolder: string): Promise<void> {
+  const { supabase, project_id, integration_id } = ctx
+
+  const { data: mapping } = await supabase
+    .from('folder_mappings')
+    .select('id, folder_path, target_id, jira_issue_type, frontmatter_map')
+    .eq('project_id', project_id)
+    .eq('integration_id', integration_id)
+    .eq('folder_path', matchedFolder)
+    .maybeSingle()
+
+  if (mapping) {
+    ctx.folderMappingTargetId = (mapping.target_id as string | null) ?? null
+    ctx.folderMappingId = mapping.id as string
+    ctx.folderMappingPath = matchedFolder
+    ctx.jiraIssueType = (mapping.jira_issue_type as string | null) ?? null
+    if (mapping.frontmatter_map) {
+      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
+    }
+  }
+
+  console.log(`[publish:jira] folder=${matchedFolder} project_override=${ctx.folderMappingTargetId ?? '(none)'} issueType=${ctx.jiraIssueType ?? 'Task'}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -661,6 +708,17 @@ async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promis
       } else {
         result = await publishSingleSpec(clickupCreds, specPayload, existingPageId, ctx.folderMappingTargetId)
       }
+      break
+    }
+
+    case 'jira': {
+      result = await publishToJira(
+        credentials as unknown as JiraOAuthCredentials,
+        specPayload,
+        existingPageId,
+        ctx.folderMappingTargetId,
+        ctx.jiraIssueType
+      )
       break
     }
 

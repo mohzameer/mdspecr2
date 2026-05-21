@@ -5,6 +5,10 @@ import {
   Workflow,
   BookMarked,
   ArrowRight,
+  FileText,
+  Database,
+  Layers,
+  CircleCheckBig,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -37,28 +41,44 @@ export default async function LandingPage() {
     <>
       {/* Hero */}
       <section className="relative overflow-hidden px-6">
+        {/* Background grid */}
+        <div aria-hidden className="absolute inset-0 z-0 hero-grid" />
+        {/* Animated glow orbs */}
         <div
           aria-hidden
-          className="pointer-events-none absolute left-1/2 top-0 -z-10 h-[420px] w-[820px] -translate-x-1/2 rounded-full bg-brand/10 blur-3xl"
+          className="hero-orb pointer-events-none absolute left-1/2 top-[-8%] z-0 h-[440px] w-[860px] -translate-x-1/2 rounded-full bg-brand/15 blur-3xl"
+          style={{ animation: 'glow-pulse 9s ease-in-out infinite' }}
         />
-        <div className="mx-auto flex max-w-3xl flex-col items-center pb-20 pt-24 text-center sm:pb-28 sm:pt-32">
-          <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+        <div
+          aria-hidden
+          className="hero-orb pointer-events-none absolute left-[12%] top-[26%] z-0 size-72 rounded-full bg-brand/10 blur-3xl"
+          style={{ animation: 'float-slow 11s ease-in-out infinite' }}
+        />
+        <div
+          aria-hidden
+          className="hero-orb pointer-events-none absolute right-[10%] top-[14%] z-0 size-64 rounded-full bg-indigo-400/10 blur-3xl"
+          style={{ animation: 'float-slow 13s ease-in-out infinite reverse' }}
+        />
+        <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center pb-20 pt-24 text-center sm:pb-28 sm:pt-32">
+          <span className="mb-6 inline-flex animate-in fade-in slide-in-from-bottom-3 items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-xs duration-700 fill-mode-both">
             <span className="size-1.5 rounded-full bg-brand" />
             Audit-ready, git-native, CI-based markdown publishing
           </span>
-          <h1 className="text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
+          <h1 className="animate-in fade-in slide-in-from-bottom-4 text-4xl font-semibold leading-[1.05] tracking-tight duration-700 fill-mode-both [animation-delay:80ms] sm:text-6xl">
             Keep writing markdown.
             <br />
-            <span className="text-muted-foreground">We&apos;ll handle the rest.</span>
+            <span className="bg-gradient-to-r from-brand to-indigo-400 bg-clip-text text-transparent">
+              We&apos;ll automate the rest.
+            </span>
           </h1>
-          <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
+          <p className="mx-auto mt-6 max-w-xl animate-in fade-in slide-in-from-bottom-4 text-lg leading-relaxed text-foreground/80 duration-700 fill-mode-both [animation-delay:160ms]">
             Drop a yml file in your repo and add one line to GitHub Actions. On
             every commit or merge, your markdown specs publish to Notion,
-            Confluence, ClickUp, and S3 — as clean docs or agent-transformed
+            Confluence, ClickUp, or S3 — as clean docs or agent-transformed
             release notes, task summaries, and ADRs. No GitHub code access
             required.
           </p>
-          <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <div className="mt-9 flex animate-in fade-in slide-in-from-bottom-4 flex-col items-center justify-center gap-3 duration-700 fill-mode-both [animation-delay:240ms] sm:flex-row">
             <Link
               href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'}
               className={cn(buttonVariants({ size: 'lg' }), 'gap-1.5')}
@@ -74,11 +94,15 @@ export default async function LandingPage() {
             </a>
           </div>
 
-          <div className="mt-12 flex flex-wrap items-center justify-center gap-2.5">
-            <IntegrationBadge label="Notion" />
-            <IntegrationBadge label="ClickUp" />
-            <IntegrationBadge label="S3" />
-            <IntegrationBadge label="Confluence" />
+          <div className="mt-12 flex animate-in fade-in flex-wrap items-center justify-center gap-2.5 duration-1000 fill-mode-both [animation-delay:400ms]">
+            {[
+              { label: 'Notion', icon: FileText, color: '#0a0a0a' },
+              { label: 'ClickUp', icon: CircleCheckBig, color: '#7b68ee' },
+              { label: 'S3', icon: Database, color: '#569a31' },
+              { label: 'Confluence', icon: Layers, color: '#1868db' },
+            ].map((it) => (
+              <IntegrationBadge key={it.label} label={it.label} icon={it.icon} color={it.color} />
+            ))}
           </div>
         </div>
       </section>
@@ -298,10 +322,23 @@ function Step({ number, title, description }: { number: string; title: string; d
   )
 }
 
-function IntegrationBadge({ label }: { label: string }) {
+function IntegrationBadge({
+  label,
+  icon: Icon,
+  color,
+}: {
+  label: string
+  icon: LucideIcon
+  color: string
+}) {
   return (
-    <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-sm font-medium shadow-xs">
-      <span className="size-1.5 rounded-full bg-green-500" />
+    <div className="flex items-center gap-2 rounded-full border border-border bg-card py-1.5 pl-1.5 pr-3.5 text-sm font-medium shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-sm">
+      <span
+        className="flex size-6 items-center justify-center rounded-full text-white"
+        style={{ backgroundColor: color }}
+      >
+        <Icon className="size-3.5" strokeWidth={2} />
+      </span>
       {label}
     </div>
   )
@@ -320,15 +357,25 @@ function Feature({ title, description }: { title: string; description: string })
 
 function WhyCard({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
   return (
-    <Card className="flex flex-col transition-shadow hover:shadow-sm">
-      <CardContent className="flex flex-1 flex-col gap-4 p-6">
-        <div className="flex size-10 items-center justify-center rounded-lg bg-brand/10 text-brand">
-          <Icon size={20} strokeWidth={1.5} />
+    <Card className="group flex flex-col transition-shadow hover:shadow-md">
+      {/* Imagery banner */}
+      <div className="relative -mt-4 h-36 overflow-hidden bg-gradient-to-br from-brand/20 via-brand/8 to-transparent">
+        <div aria-hidden className="dot-pattern absolute inset-0 opacity-70" />
+        {/* decorative shapes */}
+        <div aria-hidden className="absolute -right-6 -top-6 size-24 rounded-full border border-brand/20" />
+        <div aria-hidden className="absolute right-8 top-9 size-2 rounded-full bg-brand/40" />
+        <div aria-hidden className="absolute left-7 bottom-7 size-1.5 rounded-full bg-brand/30" />
+        <div aria-hidden className="absolute -left-8 -bottom-10 size-28 rounded-full bg-brand/10 blur-2xl" />
+        {/* icon */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-card text-brand shadow-sm ring-1 ring-border transition-transform duration-300 group-hover:-translate-y-1">
+            <Icon size={28} strokeWidth={1.5} />
+          </div>
         </div>
-        <div>
-          <h3 className="mb-2 text-sm font-semibold leading-snug">{title}</h3>
-          <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
-        </div>
+      </div>
+      <CardContent className="flex flex-1 flex-col p-6">
+        <h3 className="mb-2 text-sm font-semibold leading-snug">{title}</h3>
+        <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
       </CardContent>
     </Card>
   )

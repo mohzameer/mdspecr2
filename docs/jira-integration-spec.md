@@ -415,18 +415,14 @@ These write to `folder_mappings.target_id` (project key) and a new `jira_issue_t
 
 ## Environment Variables
 
-```bash
-# apps/web/.env.local
-JIRA_CLIENT_ID=...
-JIRA_CLIENT_SECRET=...
-# Redirect URI is computed from APP_URL — no separate var needed
-```
+No new variables. The implementation **reuses the existing shared Atlassian OAuth app** — `ATLASSIAN_CLIENT_ID` / `ATLASSIAN_CLIENT_SECRET` (already wired for Confluence). The redirect URI is computed from `NEXT_PUBLIC_APP_URL`.
 
-Register a new OAuth 2.0 app at [developer.atlassian.com](https://developer.atlassian.com/console/myapps/) with:
-- **Callback URL:** `{APP_URL}/api/integrations/jira/callback`
-- **Scopes:** `read:jira-work`, `write:jira-work`, `manage:jira-project`, `read:me`, `offline_access`
+**Required setup in the Atlassian developer console** ([developer.atlassian.com](https://developer.atlassian.com/console/myapps/)):
+1. Open the existing Atlassian OAuth 2.0 app (the one Confluence uses).
+2. Add the Jira callback URL: `{NEXT_PUBLIC_APP_URL}/api/integrations/jira/callback`
+3. Add the Jira scopes under **Permissions → Jira API**: `read:jira-work`, `write:jira-work`, `read:jira-user` (plus `offline_access`, already enabled).
 
-Note: Confluence and Jira can share one Atlassian OAuth app if both sets of scopes are added. Check whether the existing `CONFLUENCE_CLIENT_ID` app can be extended rather than creating a separate app.
+If the app cannot host both products, register a separate Jira app and introduce `JIRA_CLIENT_ID` / `JIRA_CLIENT_SECRET` — the adapter and routes currently read `ATLASSIAN_CLIENT_ID`.
 
 ---
 

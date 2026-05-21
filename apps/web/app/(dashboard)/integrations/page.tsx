@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-type IntegrationType = 'notion' | 'confluence' | 'clickup' | 's3'
+type IntegrationType = 'notion' | 'confluence' | 'clickup' | 's3' | 'jira'
 
 interface Integration {
   id: string
@@ -58,6 +58,7 @@ const integrationMeta: Record<IntegrationType, { label: string; description: str
   confluence: { label: 'Confluence', description: 'Publish specs as a page tree in a Confluence space.' },
   clickup: { label: 'ClickUp', description: 'Publish specs as ClickUp Docs in your workspace.' },
   s3: { label: 'Amazon S3', description: 'Publish specs as static markdown files in an S3 bucket.' },
+  jira: { label: 'Jira', description: 'Publish specs as issues in a Jira Cloud project.' },
 }
 
 const statusColors: Record<string, string> = {
@@ -66,13 +67,13 @@ const statusColors: Record<string, string> = {
   disconnected: 'text-zinc-400',
 }
 
-const INTEGRATION_ORDER: IntegrationType[] = ['clickup', 's3', 'notion', 'confluence']
+const INTEGRATION_ORDER: IntegrationType[] = ['clickup', 's3', 'notion', 'confluence', 'jira']
 
 const DISABLED_INTEGRATIONS = new Set<IntegrationType>([])
 
 export default function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<Record<IntegrationType, Integration | null>>({
-    notion: null, confluence: null, clickup: null, s3: null,
+    notion: null, confluence: null, clickup: null, s3: null, jira: null,
   })
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState<IntegrationType | null>(null)
@@ -106,6 +107,14 @@ export default function IntegrationsPage() {
   const [confluenceSpaces, setConfluenceSpaces] = useState<{ key: string; name: string }[]>([])
   const [confluenceLoadingSpaces, setConfluenceLoadingSpaces] = useState(false)
   const [confluenceSpaceKey, setConfluenceSpaceKey] = useState<string>('')
+  const [jiraOAuthSetup, setJiraOAuthSetup] = useState(false)
+  const [jiraPendingSecretId, setJiraPendingSecretId] = useState<string>('')
+  const [jiraSites, setJiraSites] = useState<{ id: string; url: string; name: string }[]>([])
+  const [jiraSelectedSite, setJiraSelectedSite] = useState<{ id: string; url: string; name: string } | null>(null)
+  const [jiraProjects, setJiraProjects] = useState<{ key: string; name: string }[]>([])
+  const [jiraLoadingProjects, setJiraLoadingProjects] = useState(false)
+  const [jiraProjectKey, setJiraProjectKey] = useState<string>('')
+  const [jiraValidateError, setJiraValidateError] = useState<string | null>(null)
   const searchParams = useSearchParams()
 
   useEffect(() => {
@@ -123,6 +132,10 @@ export default function IntegrationsPage() {
     if (error === 'confluence_state') setOauthError('Authorization failed (state mismatch). Please try again.')
     if (error === 'confluence_token') setOauthError('Could not connect to Confluence. Please try again.')
     if (error === 'confluence_no_site') setOauthError('No Confluence sites found on this Atlassian account.')
+    if (error === 'jira_denied') setOauthError('Jira authorization was cancelled.')
+    if (error === 'jira_state') setOauthError('Authorization failed (state mismatch). Please try again.')
+    if (error === 'jira_token') setOauthError('Could not connect to Jira. Please try again.')
+    if (error === 'jira_no_site') setOauthError('No Jira sites found on this Atlassian account.')
 
     if (clickup === 'connected') {
       fetchIntegrations()
@@ -164,6 +177,23 @@ export default function IntegrationsPage() {
       return
     }
 
+    if (setup === 'jira') {
+      setJiraOAuthSetup(true)
+      setConnecting('jira')
+      fetch('/api/integrations/jira/pending')
+        .then(async (r) => {
+          if (!r.ok) throw new Error()
+          return r.json()
+        })
+        .then((data) => {
+          const { pendingSecretId, sites } = data
+          setJiraPendingSecretId(pendingSecretId ?? '')
+          setJiraSites(sites ?? [])
+        })
+        .catch(() => setOauthError('Session expired or cookies were cleared. Please click Connect again.'))
+      return
+    }
+
     if (setup !== 'notion') return
     setNotionOAuthSetup(true)
     setConnecting('notion')
@@ -198,6 +228,24 @@ export default function IntegrationsPage() {
       })
       .catch(() => setConfluenceValidateError('Could not load spaces — network error.'))
       .finally(() => setConfluenceLoadingSpaces(false))
+  }
+
+  function loadJiraProjects(pendingSecretId: string, cloudId: string) {
+    setJiraLoadingProjects(true)
+    setJiraProjects([])
+    setJiraProjectKey('')
+    fetch('/api/integrations/jira/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pendingSecretId, cloud_id: cloudId }),
+    })
+      .then(async (r) => {
+        const data = await r.json()
+        if (data.ok) setJiraProjects(data.projects ?? [])
+        else setJiraValidateError(data.error ?? 'Could not load projects.')
+      })
+      .catch(() => setJiraValidateError('Could not load projects — network error.'))
+      .finally(() => setJiraLoadingProjects(false))
   }
 
   function resetNotionChildren() {
@@ -265,7 +313,7 @@ export default function IntegrationsPage() {
     const res = await fetch('/api/integrations/list')
     if (res.ok) {
       const data: Integration[] = await res.json()
-      const map = { notion: null, confluence: null, clickup: null, s3: null } as Record<IntegrationType, Integration | null>
+      const map = { notion: null, confluence: null, clickup: null, s3: null, jira: null } as Record<IntegrationType, Integration | null>
       data.forEach((i) => { map[i.type] = i })
       setIntegrations(map)
     }
@@ -419,6 +467,41 @@ export default function IntegrationsPage() {
       return
     }
 
+    if (type === 'jira' && jiraOAuthSetup) {
+      if (!jiraSelectedSite || !jiraProjectKey) {
+        setJiraValidateError('Select a site and project to continue.')
+        return
+      }
+      setSaving(true)
+      const res = await fetch('/api/integrations/jira/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pendingSecretId: jiraPendingSecretId,
+          cloudId: jiraSelectedSite.id,
+          siteUrl: jiraSelectedSite.url,
+          projectKey: jiraProjectKey,
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        setJiraValidateError(body.error ?? 'Could not save integration.')
+        setSaving(false)
+        return
+      }
+      await fetchIntegrations()
+      setConnecting(null)
+      setSaving(false)
+      setJiraOAuthSetup(false)
+      setJiraPendingSecretId('')
+      setJiraSites([])
+      setJiraSelectedSite(null)
+      setJiraProjects([])
+      setJiraProjectKey('')
+      window.history.replaceState({}, '', '/integrations')
+      return
+    }
+
   }
 
   async function disconnect(type: IntegrationType) {
@@ -481,6 +564,13 @@ export default function IntegrationsPage() {
                           >
                             Connect
                           </a>
+                        ) : type === 'jira' ? (
+                          <a
+                            href="/api/integrations/jira/authorize"
+                            className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
+                          >
+                            Connect
+                          </a>
                         ) : (
                           <button
                             onClick={() => {
@@ -513,6 +603,13 @@ export default function IntegrationsPage() {
                             ) : type === 'confluence' ? (
                               <a
                                 href="/api/integrations/confluence/authorize"
+                                className="rounded-md bg-yellow-600 hover:bg-yellow-700 px-3 py-1.5 text-xs font-medium text-white transition-colors"
+                              >
+                                Reconnect
+                              </a>
+                            ) : type === 'jira' ? (
+                              <a
+                                href="/api/integrations/jira/authorize"
                                 className="rounded-md bg-yellow-600 hover:bg-yellow-700 px-3 py-1.5 text-xs font-medium text-white transition-colors"
                               >
                                 Reconnect
@@ -691,6 +788,54 @@ export default function IntegrationsPage() {
                       )}
                     </>
                   )}
+                  {type === 'jira' && (
+                    <>
+                      {jiraOAuthSetup && (
+                        <>
+                          <p className="text-xs text-green-600 dark:text-green-400">Jira authorized via OAuth.</p>
+                          {jiraSites.length > 0 && (
+                            <div>
+                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Atlassian site</label>
+                              <select
+                                required
+                                value={jiraSelectedSite?.id ?? ''}
+                                onChange={(e) => {
+                                  const site = jiraSites.find((s) => s.id === e.target.value) ?? null
+                                  setJiraSelectedSite(site)
+                                  setJiraValidateError(null)
+                                  if (site && jiraPendingSecretId) loadJiraProjects(jiraPendingSecretId, site.id)
+                                }}
+                                className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                              >
+                                <option value="">Select a site…</option>
+                                {jiraSites.map((s) => (
+                                  <option key={s.id} value={s.id}>{s.name} — {s.url}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {jiraSelectedSite && (
+                            <div>
+                              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">Project</label>
+                              <select
+                                required
+                                value={jiraProjectKey}
+                                onChange={(e) => { setJiraProjectKey(e.target.value); setJiraValidateError(null) }}
+                                disabled={jiraLoadingProjects || jiraProjects.length === 0}
+                                className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+                              >
+                                <option value="">{jiraLoadingProjects ? 'Loading projects…' : jiraProjects.length === 0 ? 'No projects found' : 'Select a project…'}</option>
+                                {jiraProjects.map((p) => (
+                                  <option key={p.key} value={p.key}>{p.name} ({p.key})</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {jiraValidateError && <p className="text-xs text-red-500">{jiraValidateError}</p>}
+                        </>
+                      )}
+                    </>
+                  )}
                   {type === 'clickup' && (
                     <>
                       {clickupOAuthSetup ? (
@@ -755,7 +900,7 @@ export default function IntegrationsPage() {
                     <button type="submit" disabled={saving} className="rounded-md bg-zinc-900 dark:bg-zinc-50 px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                       {saving ? (type === 's3' || type === 'confluence' ? 'Verifying…' : 'Connecting…') : 'Save'}
                     </button>
-                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); setClickupOAuthSetup(false); setClickupWorkspaces([]); setClickupPendingToken(''); setClickupWorkspaceId(''); setConfluenceOAuthSetup(false); setConfluencePendingSecretId(''); setConfluenceSites([]); setConfluenceSelectedSite(null); setConfluenceSpaces([]); setConfluenceSpaceKey(''); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <button type="button" onClick={() => { setConnecting(null); setS3ValidateError(null); setConfluenceValidateError(null); resetNotionChildren(); setNotionOAuthSetup(false); setNotionSharedItems(null); setOauthError(null); setClickupOAuthSetup(false); setClickupWorkspaces([]); setClickupPendingToken(''); setClickupWorkspaceId(''); setConfluenceOAuthSetup(false); setConfluencePendingSecretId(''); setConfluenceSites([]); setConfluenceSelectedSite(null); setConfluenceSpaces([]); setConfluenceSpaceKey(''); setJiraOAuthSetup(false); setJiraPendingSecretId(''); setJiraSites([]); setJiraSelectedSite(null); setJiraProjects([]); setJiraProjectKey(''); setJiraValidateError(null); window.history.replaceState({}, '', '/integrations') }} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                       Cancel
                     </button>
                   </div>

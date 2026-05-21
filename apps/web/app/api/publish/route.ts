@@ -680,6 +680,12 @@ async function reconcileFolderMappings(
               const p = parseParent(mapping.parent)
               return p.type === 'id' ? { target_id: p.value } : {}
             })() : {}),
+            // For Jira: parent is the project key (id:<KEY> or bare KEY) → target_id,
+            // overriding the integration's default project for this folder.
+            ...(mapping.integration === 'jira' && mapping.parent ? (() => {
+              const p = parseParent(mapping.parent)
+              return p.type === 'id' || p.type === 'bare' ? { target_id: p.value } : {}
+            })() : {}),
             ...(mapping.custom_task_ids !== undefined ? { clickup_use_custom_task_ids: mapping.custom_task_ids } : {}),
             ...(templateId !== undefined ? { template_id: templateId } : {}),
             ...(mapping.maintain_hierarchy !== undefined ? { s3_maintain_hierarchy: mapping.maintain_hierarchy } : {}),

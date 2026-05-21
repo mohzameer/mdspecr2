@@ -37,7 +37,7 @@ const SCHEMA = {
       properties: {
         integration: {
           type: 'string',
-          enum: ['notion', 'confluence', 'clickup', 's3'],
+          enum: ['notion', 'confluence', 'clickup', 's3', 'jira'],
           description: 'Fallback integration type.',
         },
         parent: {
@@ -66,7 +66,7 @@ const SCHEMA = {
         properties: {
           integration: {
             type: 'string',
-            enum: ['notion', 'confluence', 'clickup', 's3'],
+            enum: ['notion', 'confluence', 'clickup', 's3', 'jira'],
             description: 'Target integration.',
           },
           parent: {

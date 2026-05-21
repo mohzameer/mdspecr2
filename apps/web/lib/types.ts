@@ -4,7 +4,7 @@
 
 export type OrgRole = 'owner' | 'admin' | 'member'
 export type ProjectRole = 'admin' | 'member' | 'viewer'
-export type IntegrationType = 'notion' | 'confluence' | 'clickup' | 's3'
+export type IntegrationType = 'notion' | 'confluence' | 'clickup' | 's3' | 'jira'
 export type IntegrationStatus = 'connected' | 'unhealthy' | 'disconnected'
 export type PublishStatus = 'queued' | 'published' | 'failed'
 export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
