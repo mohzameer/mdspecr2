@@ -5,10 +5,6 @@ import {
   Workflow,
   BookMarked,
   ArrowRight,
-  FileText,
-  Database,
-  Layers,
-  CircleCheckBig,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -30,6 +26,7 @@ import { cn } from '@/lib/utils'
 import { HowItWorksFlow } from '@/components/HowItWorksFlow'
 import { AgentTemplatesSection } from '@/components/AgentTemplatesSection'
 import { SnippetSlider } from '@/components/SnippetSlider'
+import { HeroDiagram } from '@/components/HeroDiagram'
 import { createSupabaseServerClient } from '@/lib/db-server'
 
 export default async function LandingPage() {
@@ -51,58 +48,48 @@ export default async function LandingPage() {
         />
         <div
           aria-hidden
-          className="hero-orb pointer-events-none absolute left-[12%] top-[26%] z-0 size-72 rounded-full bg-brand/10 blur-3xl"
-          style={{ animation: 'float-slow 11s ease-in-out infinite' }}
+          className="hero-orb pointer-events-none absolute right-[-6%] top-[6%] z-0 size-80 rounded-full bg-indigo-400/10 blur-3xl"
+          style={{ animation: 'float-slow 13s ease-in-out infinite' }}
         />
-        <div
-          aria-hidden
-          className="hero-orb pointer-events-none absolute right-[10%] top-[14%] z-0 size-64 rounded-full bg-indigo-400/10 blur-3xl"
-          style={{ animation: 'float-slow 13s ease-in-out infinite reverse' }}
-        />
-        <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center pb-20 pt-24 text-center sm:pb-28 sm:pt-32">
-          <span className="mb-6 inline-flex animate-in fade-in slide-in-from-bottom-3 items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-xs duration-700 fill-mode-both">
-            <span className="size-1.5 rounded-full bg-brand" />
-            Audit-ready, git-native, CI-based markdown publishing
-          </span>
-          <h1 className="animate-in fade-in slide-in-from-bottom-4 text-4xl font-semibold leading-[1.05] tracking-tight duration-700 fill-mode-both [animation-delay:80ms] sm:text-6xl">
-            Keep writing markdown.
-            <br />
-            <span className="bg-gradient-to-r from-brand to-indigo-400 bg-clip-text text-transparent">
-              We&apos;ll automate the rest.
+        <div className="relative z-10 mx-auto grid max-w-6xl items-center gap-12 py-20 sm:py-28 lg:grid-cols-2 lg:gap-16">
+          {/* Left — copy */}
+          <div className="flex flex-col items-start text-left">
+            <span className="inline-flex animate-in fade-in slide-in-from-bottom-3 items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-xs duration-700 fill-mode-both">
+              <span className="size-1.5 rounded-full bg-brand" />
+              Audit-ready, git-native, CI-based markdown publishing
             </span>
-          </h1>
-          <p className="mx-auto mt-6 max-w-xl animate-in fade-in slide-in-from-bottom-4 text-lg leading-relaxed text-foreground/80 duration-700 fill-mode-both [animation-delay:160ms]">
-            Drop a yml file in your repo and add one line to GitHub Actions. On
-            every commit or merge, your markdown specs publish to Notion,
-            Confluence, ClickUp, or S3 — as clean docs or agent-transformed
-            release notes, task summaries, and ADRs. No GitHub code access
-            required.
-          </p>
-          <div className="mt-9 flex animate-in fade-in slide-in-from-bottom-4 flex-col items-center justify-center gap-3 duration-700 fill-mode-both [animation-delay:240ms] sm:flex-row">
-            <Link
-              href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'}
-              className={cn(buttonVariants({ size: 'lg' }), 'gap-1.5')}
-            >
-              {isLoggedIn ? 'Go to dashboard' : 'Get started free'}
-              <ArrowRight className="size-4" />
-            </Link>
-            <a href="#how-it-works" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
-              How it works
-            </a>
-            <a href="#why" className={buttonVariants({ variant: 'ghost', size: 'lg' })}>
-              Why your team needs it
-            </a>
+            <h1 className="mt-6 animate-in fade-in slide-in-from-bottom-4 text-4xl font-semibold leading-[1.07] tracking-tight duration-700 fill-mode-both [animation-delay:80ms] sm:text-5xl">
+              Keep writing markdown.
+              <br />
+              <span className="bg-gradient-to-r from-brand to-indigo-400 bg-clip-text text-transparent">
+                We&apos;ll automate the rest.
+              </span>
+            </h1>
+            <p className="mt-5 max-w-md animate-in fade-in slide-in-from-bottom-4 text-lg leading-relaxed text-foreground/80 duration-700 fill-mode-both [animation-delay:160ms]">
+              On every commit or merge, your markdown is published as living
+              documentation — fully automated through a single step in your CI
+              pipeline.
+            </p>
+            <div className="mt-8 flex animate-in fade-in slide-in-from-bottom-4 flex-wrap gap-3 duration-700 fill-mode-both [animation-delay:240ms]">
+              <Link
+                href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'}
+                className={cn(buttonVariants({ size: 'lg' }), 'gap-1.5')}
+              >
+                {isLoggedIn ? 'Go to dashboard' : 'Get started free'}
+                <ArrowRight className="size-4" />
+              </Link>
+              <a href="#how-it-works" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
+                How it works
+              </a>
+              <a href="#why" className={buttonVariants({ variant: 'ghost', size: 'lg' })}>
+                Why your team needs it
+              </a>
+            </div>
           </div>
 
-          <div className="mt-12 flex animate-in fade-in flex-wrap items-center justify-center gap-2.5 duration-1000 fill-mode-both [animation-delay:400ms]">
-            {[
-              { label: 'Notion', icon: FileText, color: '#0a0a0a' },
-              { label: 'ClickUp', icon: CircleCheckBig, color: '#7b68ee' },
-              { label: 'S3', icon: Database, color: '#569a31' },
-              { label: 'Confluence', icon: Layers, color: '#1868db' },
-            ].map((it) => (
-              <IntegrationBadge key={it.label} label={it.label} icon={it.icon} color={it.color} />
-            ))}
+          {/* Right — pipeline diagram */}
+          <div className="animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both [animation-delay:300ms]">
+            <HeroDiagram />
           </div>
         </div>
       </section>
@@ -318,28 +305,6 @@ function Step({ number, title, description }: { number: string; title: string; d
       </div>
       <h3 className="mb-1 text-sm font-semibold">{title}</h3>
       <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
-    </div>
-  )
-}
-
-function IntegrationBadge({
-  label,
-  icon: Icon,
-  color,
-}: {
-  label: string
-  icon: LucideIcon
-  color: string
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-full border border-border bg-card py-1.5 pl-1.5 pr-3.5 text-sm font-medium shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-sm">
-      <span
-        className="flex size-6 items-center justify-center rounded-full text-white"
-        style={{ backgroundColor: color }}
-      >
-        <Icon className="size-3.5" strokeWidth={2} />
-      </span>
-      {label}
     </div>
   )
 }
