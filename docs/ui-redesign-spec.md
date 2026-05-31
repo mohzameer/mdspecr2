@@ -8,7 +8,7 @@ reads as a serious developer tool.
 
 **Direction (decided):**
 
-- **Aesthetic** — Linear / Vercel-style: clean, modern SaaS. Refined sans
+- **Aesthetic** — Linear / Vercel-sityle: clean, modern SaaS. Refined sans
   type, generous spacing, subtle gradients, soft shadows, restrained motion.
 - **Brand color** — introduce **one** accent color, used sparingly for
   primary actions, links, focus rings, and active states. Everything else
