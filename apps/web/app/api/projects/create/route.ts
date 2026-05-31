@@ -45,12 +45,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { name, description, spec_dirs } = await request.json()
+  const { name, description } = await request.json()
   if (!name?.trim()) return NextResponse.json({ error: 'name required' }, { status: 400 })
 
   const { data: project, error } = await supabase
     .from('projects')
-    .insert({ org_id: orgId, name: name.trim(), description: description?.trim() ?? null, spec_dirs: spec_dirs ?? [] })
+    .insert({ org_id: orgId, name: name.trim(), description: description?.trim() ?? null })
     .select()
     .single()
 

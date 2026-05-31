@@ -102,7 +102,7 @@ export default async function LandingPage() {
           </SectionHeading>
           <div className="grid gap-8 sm:grid-cols-3">
             <Step number="1" title="Connect an integration" description="Sign up, create a project, and connect your integrations." />
-            <Step number="2" title="Place your .mdspecmap" description="Drop a .mdspecmap into any folder you want to sync — its location defines its scope." />
+            <Step number="2" title="Add frontmatter to a spec" description="Add type and integration to any markdown file. Files without frontmatter are silently skipped." />
             <Step number="3" title="Add the CI step" description="One line in your GitHub Actions workflow. Every push to main syncs changed specs." />
           </div>
         </div>
@@ -145,9 +145,8 @@ export default async function LandingPage() {
             Configuration that lives in your repo
           </SectionHeading>
           <p className="mb-10 mt-3 text-center text-muted-foreground">
-            Drop a .mdspecmap into any folder you want to sync — its location
-            defines its scope, and mappings apply to every subfolder. Optionally
-            assign agent templates per file to transform specs before they publish.
+            Add four lines of frontmatter to any markdown file. Push to GitHub.
+            It appears in Notion, ClickUp, Confluence, Jira, or S3 — automatically.
           </p>
           <div className="space-y-4">
             <SnippetSlider />
@@ -180,11 +179,11 @@ export default async function LandingPage() {
           </SectionHeading>
           <div className="grid gap-4 sm:grid-cols-2">
             <Feature title="Git-native" description="Change detection via git diff. Only modified specs are published. Distribution files live in the repo — version-controlled and easy to manage." />
-            <Feature title="Skip patterns" description="Exclude files with glob patterns in .mdspecmap." />
+            <Feature title="Opt-in per file" description="Only files with frontmatter sync. Skip a file by removing its frontmatter — no patterns, no allowlist." />
             <Feature title="One repo, any number of integrations" description="Map different folders to different tools — one team's specs go to ClickUp, another's to S3, all from the same repo." />
             <Feature title="Agent layer" description="Transform specs before publishing with built-in templates like task summaries and release notes." />
             <Feature title="Append-only publishing" description="Removing a file from the repo does not delete it from the target tool — mdspec only adds and updates." />
-            <Feature title="Team-friendly" description="Different teams can manage their own .mdspecmap files — separately or in a monorepo — and sync to the same destination." />
+            <Feature title="Team-friendly" description="Each spec declares its own destination in frontmatter. Different teams ship to different tools from the same repo with zero shared config." />
           </div>
         </div>
       </Section>

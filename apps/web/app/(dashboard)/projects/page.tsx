@@ -70,15 +70,6 @@ export default async function ProjectsPage() {
                   </span>
                 )}
               </div>
-              {project.spec_dirs.length > 0 && (
-                <div className="flex gap-1 mt-3 flex-wrap">
-                  {project.spec_dirs.map((dir) => (
-                    <span key={dir} className="text-xs font-mono text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
-                      {dir}
-                    </span>
-                  ))}
-                </div>
-              )}
             </Link>
           ))}
         </div>

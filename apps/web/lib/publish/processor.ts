@@ -1,76 +1,57 @@
 import { createSupabaseServiceClient } from '@/lib/db-server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { publishToNotion, getNotionPageParentId } from './adapters/notion'
-import { publishToConfluence, isOAuthCredentials, refreshConfluenceToken, type ConfluenceOAuthCredentials } from './adapters/confluence'
-import { publishSingleSpec, publishSpecAsPage, publishAsTask, clickUpDocExists, clickUpPageExists, resolveToNativeTaskId, getClickUpDocParent, getClickUpTaskListId } from './adapters/clickup'
-import { publishToS3, buildS3Key, s3ObjectExists } from './adapters/s3'
+import { publishToNotion } from './adapters/notion'
+import {
+  publishToConfluence,
+  isOAuthCredentials,
+  refreshConfluenceToken,
+  type ConfluenceOAuthCredentials,
+} from './adapters/confluence'
+import { publishAsDoc, publishAsTask, type ClickUpCredentials } from './adapters/clickup'
+import { publishToS3, buildS3Key } from './adapters/s3'
 import { publishToJira, refreshJiraToken, type JiraOAuthCredentials } from './adapters/jira'
-import { resolveFolderMapping } from '@/lib/folder-mapping'
 import { runAgentInline } from '@/lib/agents/processor'
 import { readCredentials, storeCredentials, deleteCredentials } from '@/lib/credentials'
 import { sendUnhealthyIntegrationEmail } from '@/lib/emailNotifier'
-import type { PublishGroupJobData, PublishGroupSpec, IntegrationType } from '@/lib/types'
+import type { PublishJobData } from '@/lib/types'
 
 // Terminal error — QStash should not retry
 export class UnrecoverableError extends Error {
   readonly unrecoverable = true
 }
 
-interface GroupContext {
-  supabase: SupabaseClient
-  credentials: Record<string, unknown>
-  integration_id: string
-  project_id: string
-  target_type: IntegrationType
-  // ClickUp-only shared state
-  folderMappingTargetId: string | null
-  folderMappingPath: string | null
-  folderMappingId: string | null
-  isMultiMode: boolean
-  groupingPath: string | null
-  groupFolderName: string | null
-  sharedSubRowId: string | null
-  sharedSubDocId: string | null
-  // In-memory cache: sub-folder path → ClickUp section page ID (created on demand)
-  sectionPageIds: Map<string, string>
-  // Whether to preserve folder hierarchy as sections inside the parent doc (hidden/disabled for now)
-  preserveHierarchy: boolean
-  // Task list mode
-  clickupMode: 'doc' | 'task_list'
-  clickupListId: string | null
-  clickupUseCustomTaskIds: boolean
-  // Generic per-mapping frontmatter key map (canonical-attr → frontmatter-key)
-  frontmatterMap: Record<string, string> | null
-  // S3-only
-  s3RootPrefix: string | null
-  s3MaintainHierarchy: boolean
-  s3MatchedFolder: string        // needed to compute relative path when hierarchy=true
-  // Jira-only — per-folder issue type override (folder mapping target_id holds project key)
-  jiraIssueType: string | null
+// ---------------------------------------------------------------------------
+// Title resolution — frontmatter doesn't reach the worker, so derive from
+// content (first # heading) or fall back to filename stem.
+// ---------------------------------------------------------------------------
+
+function resolveTitle(content: string, specPath: string): string {
+  for (const line of content.split('\n')) {
+    const m = line.match(/^#\s+(.+)$/)
+    if (m) return m[1].trim()
+  }
+  const filename = specPath.split('/').pop() ?? specPath
+  return filename.replace(/\.md$/, '')
 }
 
-export async function runPublishGroup(data: PublishGroupJobData): Promise<void> {
+// ---------------------------------------------------------------------------
+// Main entry — one spec per job (no folder-mapping groups in v2)
+// ---------------------------------------------------------------------------
+
+export async function runPublishJob(data: PublishJobData): Promise<void> {
   const supabase = createSupabaseServiceClient()
-  const { project_id, integration_id, target_type, specs } = data
+  console.log(`[publish] start spec=${data.spec_id} type=${data.spec_type} target=${data.target_type}`)
 
-  if (specs.length === 0) {
-    console.log(`[publish] empty group — nothing to do`)
-    return
-  }
-
-  console.log(`[publish] group start — integration=${integration_id} target=${target_type} specs=${specs.length}`)
-
-  // -- Fetch integration credentials once ------------------------------------
-  const { data: integration, error: integrationError } = await supabase
+  // -- Fetch integration + credentials ---------------------------------------
+  const { data: integration, error: intErr } = await supabase
     .from('integrations')
-    .select('credentials_secret_id, status')
-    .eq('id', integration_id)
+    .select('id, type, status, credentials_secret_id')
+    .eq('id', data.integration_id)
     .single()
 
-  if (integrationError || !integration) {
-    throw new UnrecoverableError(`Integration ${integration_id} not found`)
+  if (intErr || !integration) {
+    throw new UnrecoverableError(`Integration ${data.integration_id} not found`)
   }
-
   if (!integration.credentials_secret_id) {
     throw new UnrecoverableError('Integration credentials missing — reconnect required')
   }
@@ -83,680 +64,231 @@ export async function runPublishGroup(data: PublishGroupJobData): Promise<void> 
     throw new UnrecoverableError(`Invalid integration credentials: ${(err as Error).message}`)
   }
 
-  // Refresh Confluence OAuth token if it's expiring within 5 minutes
-  if (target_type === 'confluence' && isOAuthCredentials(credentials as unknown as Parameters<typeof isOAuthCredentials>[0])) {
+  // -- Refresh OAuth tokens if expiring within 5 minutes ---------------------
+  if (data.target_type === 'confluence' && isOAuthCredentials(credentials as unknown as Parameters<typeof isOAuthCredentials>[0])) {
     let oauthCreds = credentials as unknown as ConfluenceOAuthCredentials
     const expiresAt = new Date(oauthCreds.expires_at).getTime()
     if (Date.now() > expiresAt - 5 * 60 * 1000) {
       oauthCreds = await refreshConfluenceToken(oauthCreds)
-      const newSecretId = await storeCredentials(supabase, JSON.stringify(oauthCreds), `integration:${integration_id}:confluence`)
-      await supabase.from('integrations').update({ credentials_secret_id: newSecretId, updated_at: new Date().toISOString() }).eq('id', integration_id)
+      const newSecretId = await storeCredentials(supabase, JSON.stringify(oauthCreds), `integration:${integration.id}:confluence`)
+      await supabase.from('integrations').update({ credentials_secret_id: newSecretId, updated_at: new Date().toISOString() }).eq('id', integration.id)
       await deleteCredentials(supabase, integration.credentials_secret_id).catch(() => {})
       credentials = oauthCreds as unknown as Record<string, unknown>
     }
   }
 
-  // Refresh Jira OAuth token if it's expiring within 5 minutes
-  if (target_type === 'jira') {
+  if (data.target_type === 'jira') {
     let oauthCreds = credentials as unknown as JiraOAuthCredentials
     const expiresAt = new Date(oauthCreds.expires_at).getTime()
     if (Date.now() > expiresAt - 5 * 60 * 1000) {
       oauthCreds = await refreshJiraToken(oauthCreds)
-      const newSecretId = await storeCredentials(supabase, JSON.stringify(oauthCreds), `integration:${integration_id}:jira`)
-      await supabase.from('integrations').update({ credentials_secret_id: newSecretId, updated_at: new Date().toISOString() }).eq('id', integration_id)
+      const newSecretId = await storeCredentials(supabase, JSON.stringify(oauthCreds), `integration:${integration.id}:jira`)
+      await supabase.from('integrations').update({ credentials_secret_id: newSecretId, updated_at: new Date().toISOString() }).eq('id', integration.id)
       await deleteCredentials(supabase, integration.credentials_secret_id).catch(() => {})
       credentials = oauthCreds as unknown as Record<string, unknown>
     }
   }
 
-  // -- Resolve folder mapping for the group (all specs share immediateParent) -
-  const ctx: GroupContext = {
-    supabase,
-    credentials,
-    integration_id,
-    project_id,
-    target_type,
-    folderMappingTargetId: null,
-    folderMappingPath: null,
-    folderMappingId: null,
-    isMultiMode: false,
-    groupingPath: null,
-    groupFolderName: null,
-    sharedSubRowId: null,
-    sharedSubDocId: null,
-    sectionPageIds: new Map(),
-    preserveHierarchy: false,
-    clickupMode: 'doc',
-    clickupListId: null,
-    clickupUseCustomTaskIds: false,
-    frontmatterMap: data.frontmatter_map ?? null,
-    s3RootPrefix: null,
-    s3MaintainHierarchy: false,
-    s3MatchedFolder: '',
-    jiraIssueType: null,
-  }
-
-  if (target_type === 'clickup') {
-    await setupClickupGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'), data.clickup_mode ?? 'doc')
-  } else if (target_type === 's3') {
-    // Seed prefix from job data; folder_mappings lookup may override it for folder-scoped mappings
-    ctx.s3RootPrefix = data.s3_root_prefix ?? null
-    await setupS3GroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
-  } else if (target_type === 'notion') {
-    await setupNotionGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
-  } else if (target_type === 'confluence') {
-    await setupConfluenceGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
-  } else if (target_type === 'jira') {
-    await setupJiraGroupContext(ctx, data.matched_folder ?? specs[0].path.split('/').slice(0, -1).join('/'))
-  }
-
-  // -- Iterate specs sequentially --------------------------------------------
-  for (const spec of specs) {
-    try {
-      await processOneSpec(ctx, spec)
-    } catch (err) {
-      const error = err as { response?: { status?: number }; message?: string }
-      const status = error.response?.status
-      const message = error.message ?? String(err)
-
-      if (status === 401 || status === 403) {
-        // Auth failure affects all specs — mark integration unhealthy and abort group
-        await supabase
-          .from('integrations')
-          .update({ status: 'unhealthy', updated_at: new Date().toISOString() })
-          .eq('id', integration_id)
-        await supabase
-          .from('spec_publish_targets')
-          .update({ status: 'failed', last_error: `Auth error (${status}): ${message}`, updated_at: new Date().toISOString() })
-          .eq('id', spec.spec_publish_target_id)
-        sendUnhealthyIntegrationEmail({
-          integrationId: integration_id,
-          integrationType: target_type,
-          projectId: project_id,
-          errorMessage: message,
-        }).catch(() => {})
-        throw new UnrecoverableError(`Auth error on integration ${integration_id}: ${message}`)
-      }
-
-      // Clear the stored pointer and retry once as a fresh create — fixes a
-      // large class of stale external_page_id issues in a single run.
-      console.warn(`[publish] spec ${spec.spec_id} failed (${message}), clearing pointer and retrying`)
-      await supabase
-        .from('spec_publish_targets')
-        .update({ external_page_id: null, external_url: null })
-        .eq('id', spec.spec_publish_target_id)
-
-      try {
-        await processOneSpec(ctx, spec)
-      } catch (retryErr) {
-        const retryMessage = (retryErr as { message?: string }).message ?? String(retryErr)
-        await supabase
-          .from('spec_publish_targets')
-          .update({ status: 'failed', last_error: retryMessage, updated_at: new Date().toISOString() })
-          .eq('id', spec.spec_publish_target_id)
-        console.error(`[publish] spec ${spec.spec_id} failed after retry: ${retryMessage}`)
-      }
-    }
-  }
-
-  console.log(`[publish] group done — integration=${integration_id} specs=${specs.length}`)
-}
-
-// ---------------------------------------------------------------------------
-// ClickUp group context: resolve user mapping, decide single vs multi mode,
-// and — critically — verify/recreate the shared subfolder doc ONCE so all
-// specs in the group reuse the same doc/root page.
-// ---------------------------------------------------------------------------
-async function setupClickupGroupContext(ctx: GroupContext, matchedFolder: string, clickupMode: 'doc' | 'task_list'): Promise<void> {
-  const { supabase, project_id, integration_id, credentials } = ctx
-
-  // Use the matched folder directly — already resolved by the publish route via longest-prefix.
-  // Root-level specs (empty string) use single mode.
-  const rootFolder = matchedFolder
-  if (!rootFolder) return
-
-  // Set mode on context so processOneSpec can dispatch correctly.
-  ctx.clickupMode = clickupMode
-
-  // Resolve the folder mapping row for this (project, integration, folder, mode).
-  // Rows carry user config (target_id, list_id, frontmatter_map, etc.) and also
-  // serve as the bookkeeping record for the shared folder doc (doc mode only).
-  const { data: mapping } = await supabase
-    .from('folder_mappings')
-    .select('id, folder_path, target_id, clickup_list_id, clickup_use_custom_task_ids, frontmatter_map, clickup_doc_id, clickup_page_id')
-    .eq('project_id', project_id)
-    .eq('integration_id', integration_id)
-    .eq('clickup_mode', clickupMode)
-    .eq('folder_path', rootFolder)
+  // -- Find existing publish target (for self-heal / update path) ------------
+  const { data: existingTarget } = await supabase
+    .from('spec_publish_targets')
+    .select('id, external_id, external_page_id, external_url, content_hash')
+    .eq('spec_id', data.spec_id)
+    .eq('integration_id', integration.id)
     .maybeSingle()
 
-  if (mapping) {
-    ctx.folderMappingTargetId = mapping.target_id ?? null
-    ctx.folderMappingId = mapping.id
-    ctx.folderMappingPath = rootFolder
-    ctx.clickupListId = mapping.clickup_list_id ?? null
-    ctx.clickupUseCustomTaskIds = mapping.clickup_use_custom_task_ids ?? false
-    // DB folder_mappings.frontmatter_map wins over job-level (more specific)
-    if (mapping.frontmatter_map) {
-      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
-    }
-    // If user explicitly selected a parent doc, use it as the shared doc ID —
-    // no auto-creation needed, no race condition possible.
-    if (mapping.clickup_doc_id) {
-      ctx.sharedSubDocId = mapping.clickup_doc_id
-    }
-  }
-
-  // Task list mode: no shared folder doc to manage — exit here.
-  if (clickupMode === 'task_list') {
-    console.log(`[publish] group task_list — mapping=${ctx.folderMappingPath ?? 'none'} listId=${ctx.clickupListId ?? 'none'}`)
+  // Dedup: skip republish if content hasn't changed since last publish
+  if (existingTarget?.content_hash === data.content_hash && existingTarget?.external_id) {
+    console.log(`[publish] skipping — content unchanged for spec ${data.spec_id}`)
+    await markPublished(supabase, data, existingTarget.external_id, existingTarget.external_url ?? null, data.content_hash, existingTarget.external_page_id ?? null)
     return
   }
 
-  if (!mapping) {
-    throw new UnrecoverableError(`No folder mapping found for ${ctx.groupingPath} — cannot proceed`)
-  }
-
-  ctx.sharedSubRowId = mapping.id
-
-  // If user selected a parent doc, use it (multi-mode — pages published inside it, flat by default).
-  // If no doc selected, specs publish flat to the destination root (single mode per spec).
-  // preserveHierarchy checkbox (hidden/disabled for now) would re-enable subfolder sections.
-  if (ctx.sharedSubDocId) {
-    ctx.isMultiMode = true
-    ctx.preserveHierarchy = false // hidden checkbox — disabled, pages always flat under parent doc
-    ctx.groupingPath = rootFolder
-    ctx.groupFolderName = rootFolder
-
-    // Verify the selected doc still exists in ClickUp, AND that it lives
-    // under the current folder mapping target. If the user re-pointed the
-    // mapping to a different space/folder, the old shared doc is now in
-    // the wrong place — abandon it so a fresh one gets created under the
-    // correct parent (Notion-parity self-healing).
-    const clickupCreds = {
-      api_token: credentials.api_token as string,
-      workspace_id: credentials.workspace_id as string,
-    }
-    const parentRes = await getClickUpDocParent(clickupCreds, ctx.sharedSubDocId)
-    if (!parentRes.ok) {
-      console.log(`[publish] selected parent doc ${ctx.sharedSubDocId} missing — falling back to flat mode`)
-      ctx.sharedSubDocId = null
-      ctx.isMultiMode = false
-    } else if (ctx.folderMappingTargetId && parentRes.parent !== ctx.folderMappingTargetId) {
-      console.log(`[publish] shared doc ${ctx.sharedSubDocId} parent=${parentRes.parent ?? '(none)'} != expected=${ctx.folderMappingTargetId} — abandoning, will recreate under correct parent`)
-      ctx.sharedSubDocId = null
-      // Clear bookkeeping so the first spec creates a new shared doc.
-      if (ctx.sharedSubRowId) {
-        await supabase
-          .from('folder_mappings')
-          .update({ clickup_doc_id: null })
-          .eq('id', ctx.sharedSubRowId)
-      }
+  // -- Run agent transformation if a template is attached --------------------
+  let content = data.content
+  if (data.agent_template) {
+    try {
+      content = await runAgentInline(supabase, data.spec_id, data.agent_template, data.content, data.target_type)
+    } catch (err) {
+      await markFailed(supabase, data, `agent failed: ${(err as Error).message}`)
+      throw err
     }
   }
 
-  console.log(`[publish] group mode=${ctx.isMultiMode ? 'multi' : 'flat'} mapping=${ctx.folderMappingPath ?? 'none'} docId=${ctx.sharedSubDocId ?? 'none'}`)
-}
-
-// ---------------------------------------------------------------------------
-// Notion group context: read folder_mappings.target_id so the per-folder
-// destination (sub-page picked in the dashboard) overrides the integration
-// default root_page_id. Without this, changing the destination via the UI
-// has no effect on actual publishing.
-// ---------------------------------------------------------------------------
-async function setupNotionGroupContext(ctx: GroupContext, matchedFolder: string): Promise<void> {
-  const { supabase, project_id, integration_id } = ctx
-
-  const { data: mapping } = await supabase
-    .from('folder_mappings')
-    .select('id, folder_path, target_id, frontmatter_map')
-    .eq('project_id', project_id)
-    .eq('integration_id', integration_id)
-    .eq('folder_path', matchedFolder)
-    .maybeSingle()
-
-  if (mapping) {
-    ctx.folderMappingTargetId = (mapping.target_id as string | null) ?? null
-    ctx.folderMappingId = mapping.id as string
-    ctx.folderMappingPath = matchedFolder
-    if (mapping.frontmatter_map) {
-      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
-    }
+  const spec = {
+    path: data.spec_path,
+    content,
+    resolvedTitle: resolveTitle(content, data.spec_path),
   }
-
-  console.log(`[publish:notion] folder=${matchedFolder} target_id=${ctx.folderMappingTargetId ?? '(none)'}`)
-}
-
-// ---------------------------------------------------------------------------
-// Confluence group context: resolve optional folder-level parent page override
-// ---------------------------------------------------------------------------
-async function setupConfluenceGroupContext(ctx: GroupContext, matchedFolder: string): Promise<void> {
-  const { supabase, project_id, integration_id } = ctx
-
-  const { data: mapping } = await supabase
-    .from('folder_mappings')
-    .select('id, folder_path, target_id, frontmatter_map')
-    .eq('project_id', project_id)
-    .eq('integration_id', integration_id)
-    .eq('folder_path', matchedFolder)
-    .maybeSingle()
-
-  if (mapping) {
-    ctx.folderMappingTargetId = (mapping.target_id as string | null) ?? null
-    ctx.folderMappingId = mapping.id as string
-    ctx.folderMappingPath = matchedFolder
-    if (mapping.frontmatter_map) {
-      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
-    }
-  }
-
-  console.log(`[publish:confluence] folder=${matchedFolder} target_id=${ctx.folderMappingTargetId ?? '(none)'}`)
-}
-
-// ---------------------------------------------------------------------------
-// Jira group context: resolve optional folder-level project key override
-// (folder_mappings.target_id) and issue type (folder_mappings.jira_issue_type)
-// ---------------------------------------------------------------------------
-async function setupJiraGroupContext(ctx: GroupContext, matchedFolder: string): Promise<void> {
-  const { supabase, project_id, integration_id } = ctx
-
-  const { data: mapping } = await supabase
-    .from('folder_mappings')
-    .select('id, folder_path, target_id, jira_issue_type, frontmatter_map')
-    .eq('project_id', project_id)
-    .eq('integration_id', integration_id)
-    .eq('folder_path', matchedFolder)
-    .maybeSingle()
-
-  if (mapping) {
-    ctx.folderMappingTargetId = (mapping.target_id as string | null) ?? null
-    ctx.folderMappingId = mapping.id as string
-    ctx.folderMappingPath = matchedFolder
-    ctx.jiraIssueType = (mapping.jira_issue_type as string | null) ?? null
-    if (mapping.frontmatter_map) {
-      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
-    }
-  }
-
-  console.log(`[publish:jira] folder=${matchedFolder} project_override=${ctx.folderMappingTargetId ?? '(none)'} issueType=${ctx.jiraIssueType ?? 'Task'}`)
-}
-
-// ---------------------------------------------------------------------------
-// S3 group context: resolve folder mapping for s3_format and root prefix
-// ---------------------------------------------------------------------------
-async function setupS3GroupContext(ctx: GroupContext, matchedFolder: string): Promise<void> {
-  const { supabase, project_id, integration_id } = ctx
-
-  const { data: mapping } = await supabase
-    .from('folder_mappings')
-    .select('id, target_id, s3_maintain_hierarchy, frontmatter_map')
-    .eq('project_id', project_id)
-    .eq('integration_id', integration_id)
-    .eq('folder_path', matchedFolder)
-    .maybeSingle()
-
-  if (mapping) {
-    ctx.folderMappingId = mapping.id
-    ctx.folderMappingPath = matchedFolder
-    // folder_mappings.target_id overrides the job-level prefix for folder-scoped mappings
-    if (mapping.target_id !== null) ctx.s3RootPrefix = mapping.target_id
-    ctx.s3MaintainHierarchy = (mapping.s3_maintain_hierarchy as boolean | null) ?? false
-    ctx.s3MatchedFolder = matchedFolder
-    if (mapping.frontmatter_map) {
-      ctx.frontmatterMap = mapping.frontmatter_map as Record<string, string>
-    }
-  }
-
-  console.log(`[publish:s3] folder=${matchedFolder} prefix=${ctx.s3RootPrefix ?? '(none)'} hierarchy=${ctx.s3MaintainHierarchy}`)
-}
-
-// ---------------------------------------------------------------------------
-// Per-spec processing inside an already-resolved group context
-// ---------------------------------------------------------------------------
-async function processOneSpec(ctx: GroupContext, spec: PublishGroupSpec): Promise<void> {
-  const { supabase, credentials, project_id, target_type } = ctx
-  const { spec_id, spec_publish_target_id, path, content_hash } = spec
-  let { content } = spec
-
-  // -- Agent routing ---------------------------------------------------------
-  // Unified `spec.agent` (resolved by CLI: frontmatter.agent > specs[path].agent)
-  // wins over folder-mapping templates. `agent: 'none'` opts out entirely.
-  const resolution = await resolveFolderMapping(supabase, project_id, path, spec.agent, ctx.integration_id, ctx.clickupMode)
-  if (resolution.shouldRunAgent && resolution.templateId && resolution.trigger) {
-    console.log(`[publish] spec ${spec_id} → agent (template ${resolution.templateId})`)
-    content = await runAgentInline(
-      supabase,
-      spec_id,
-      resolution.templateId,
-      resolution.trigger,
-      content,
-      target_type
-    )
-  }
-
-  // -- Fetch current publish target state ------------------------------------
-  const { data: target } = await supabase
-    .from('spec_publish_targets')
-    .select('external_page_id, retry_count')
-    .eq('id', spec_publish_target_id)
-    .single()
-
-  let existingPageId = target?.external_page_id ?? null
-
-  // -- Unified `id` is authoritative (UNIFIED_ATTRIBUTES_SPEC §4) -----------
-  // Resolved `id` (frontmatter wins over .mdspecmap specs[path].id) is the
-  // source of truth on every publish. If it differs from the stored binding,
-  // re-point the ledger; if it matches, no-op. Removing `id` from frontmatter
-  // and mapping falls back to the existing binding.
-  // Integration-agnostic — adapter interprets `spec.id` per its native ID format.
-  if (spec.id) {
-    let resolved: string | null = spec.id
-    if (target_type === 'clickup' && ctx.clickupMode === 'task_list') {
-      const clickupCreds = { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string }
-      resolved = await resolveToNativeTaskId(clickupCreds, spec.id, ctx.clickupUseCustomTaskIds)
-      console.log(`[publish] unified id="${spec.id}" → native ${resolved ?? 'null'}`)
-    }
-    if (resolved && resolved !== existingPageId) {
-      console.warn(`[publish] re-pointing spec ${spec_id} from ${existingPageId ?? '(none)'} to ${resolved} (id_source=${spec.id_source ?? 'unknown'})`)
-      existingPageId = resolved
-      await supabase
-        .from('spec_publish_targets')
-        .update({ external_page_id: resolved })
-        .eq('id', spec_publish_target_id)
-    }
-  }
-
-  // For ClickUp doc mode (single/flat): verify the stored doc still exists.
-  // task_list mode stores a task ID, not a doc ID — skip this check for it.
-  if (target_type === 'clickup' && existingPageId && !ctx.isMultiMode && ctx.clickupMode !== 'task_list') {
-    const remoteExists = await clickUpDocExists(
-      { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string },
-      existingPageId
-    )
-    if (!remoteExists) {
-      console.log(`[publish] clickup doc ${existingPageId} missing — recreating spec ${spec_id}`)
-      existingPageId = null
-      await supabase
-        .from('spec_publish_targets')
-        .update({ external_page_id: null, external_url: null })
-        .eq('id', spec_publish_target_id)
-    }
-  }
-
-  // ClickUp doc mode (single/flat) self-heal: the .mdspecmap parent is
-  // authoritative. If the stored doc lives under a different parent than
-  // the current folder mapping target, abandon it and create fresh — the
-  // ClickUp API can't move docs between spaces/folders, and we never want
-  // to keep updating a doc in the wrong place.
-  if (target_type === 'clickup' && existingPageId && !ctx.isMultiMode && ctx.clickupMode !== 'task_list' && ctx.folderMappingTargetId) {
-    const parentRes = await getClickUpDocParent(
-      { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string },
-      existingPageId
-    )
-    if (parentRes.ok && parentRes.parent !== ctx.folderMappingTargetId) {
-      console.log(`[publish] clickup doc ${existingPageId} parent=${parentRes.parent ?? '(none)'} != expected=${ctx.folderMappingTargetId} — recreating spec ${spec_id} under correct parent`)
-      existingPageId = null
-      await supabase
-        .from('spec_publish_targets')
-        .update({ external_page_id: null, external_url: null })
-        .eq('id', spec_publish_target_id)
-    }
-  }
-
-  // ClickUp task mode self-heal: if the stored task lives in a different
-  // list than the current folder mapping (user re-pointed the list, or a
-  // previous publish raced ahead of a destination cascade), abandon it
-  // and create fresh in the correct list. ClickUp can't move tasks
-  // between lists via the task PUT endpoint.
-  if (target_type === 'clickup' && existingPageId && ctx.clickupMode === 'task_list' && ctx.clickupListId) {
-    const listRes = await getClickUpTaskListId(
-      { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string },
-      existingPageId,
-      ctx.clickupUseCustomTaskIds
-    )
-    if (!listRes.ok) {
-      console.log(`[publish] clickup task ${existingPageId} missing — recreating spec ${spec_id}`)
-      existingPageId = null
-      await supabase
-        .from('spec_publish_targets')
-        .update({ external_page_id: null, external_url: null })
-        .eq('id', spec_publish_target_id)
-    } else if (listRes.listId !== ctx.clickupListId) {
-      console.log(`[publish] clickup task ${existingPageId} list=${listRes.listId ?? '(none)'} != expected=${ctx.clickupListId} — recreating spec ${spec_id} in correct list`)
-      existingPageId = null
-      await supabase
-        .from('spec_publish_targets')
-        .update({ external_page_id: null, external_url: null })
-        .eq('id', spec_publish_target_id)
-    }
-  }
-
-  // In multi-mode, the stored page ID may be a stale flat-mode doc ID — verify it
-  // actually exists as a page inside the current parent doc before allowing a skip.
-  if (ctx.isMultiMode && existingPageId && ctx.sharedSubDocId) {
-    const clickupCreds = { api_token: credentials.api_token as string, workspace_id: credentials.workspace_id as string }
-    const pageExists = await clickUpPageExists(clickupCreds, ctx.sharedSubDocId, existingPageId)
-    if (!pageExists) {
-      console.log(`[publish] page ${existingPageId} not found in doc ${ctx.sharedSubDocId} — will republish spec ${spec_id}`)
-      existingPageId = null
-      await supabase
-        .from('spec_publish_targets')
-        .update({ external_page_id: null, external_url: null })
-        .eq('id', spec_publish_target_id)
-    }
-  }
-
-  // For Notion (page mode only): the .mdspecmap parent is authoritative. If
-  // the stored page lives under a different parent than the current
-  // target_id (because the user re-pointed the mapping, or a previous
-  // publish raced ahead of a destination cascade), abandon it and create
-  // fresh under the new parent. Notion's API can't move pages, and we
-  // never want to be stuck updating a page in the wrong place. Database
-  // mode is exempt: rows are parented by data_source, not page, and the
-  // page-id parent check doesn't apply.
-  if (target_type === 'notion' && existingPageId) {
-    const expectedParentId = ctx.folderMappingTargetId ?? (credentials.root_page_id as string | undefined) ?? null
-    if (expectedParentId) {
-      const parentRes = await getNotionPageParentId(credentials.token as string, existingPageId)
-      if (!parentRes.ok) {
-        console.log(`[publish] notion page ${existingPageId} missing/archived — recreating spec ${spec_id}`)
-        existingPageId = null
-        await supabase
-          .from('spec_publish_targets')
-          .update({ external_page_id: null, external_url: null })
-          .eq('id', spec_publish_target_id)
-      } else if (parentRes.parentId !== expectedParentId) {
-        console.log(`[publish] notion page ${existingPageId} parent=${parentRes.parentId ?? '(none)'} != expected=${expectedParentId} — recreating spec ${spec_id} under correct parent`)
-        existingPageId = null
-        await supabase
-          .from('spec_publish_targets')
-          .update({ external_page_id: null, external_url: null })
-          .eq('id', spec_publish_target_id)
-      }
-    }
-  }
-
-  // S3 self-heal: the .mdspecmap-driven config (root prefix +
-  // maintain-hierarchy) is authoritative. If the stored object key no
-  // longer matches what we'd compute now (because the user re-pointed
-  // parent_dir or toggled hierarchy), abandon it locally so the next
-  // publishToS3 writes at the correct key. The previous object will be
-  // orphaned at its old key — that's fine; we never want to keep
-  // updating the wrong location. Skip when spec.id is declared: that's
-  // an explicit user-chosen key and wins over the computed key.
-  if (target_type === 's3' && existingPageId && !spec.id) {
-    const expectedKey = buildS3Key(path, ctx.s3RootPrefix, {
-      maintainHierarchy: ctx.s3MaintainHierarchy,
-      matchedFolder: ctx.s3MatchedFolder,
-    })
-    if (existingPageId !== expectedKey) {
-      console.log(`[publish] s3 stored key=${existingPageId} != expected=${expectedKey} — republishing spec ${spec_id} at correct key`)
-      existingPageId = null
-      await supabase
-        .from('spec_publish_targets')
-        .update({ external_page_id: null, external_url: null })
-        .eq('id', spec_publish_target_id)
-    }
-  }
-
-  // For S3: verify the object still exists before allowing a skip.
-  // This handles the case where the bucket changed or objects were deleted.
-  if (target_type === 's3' && existingPageId) {
-    const s3Creds = credentials as { access_key_id: string; secret_access_key: string; bucket: string; region: string }
-    const exists = await s3ObjectExists(s3Creds, existingPageId)
-    if (!exists) {
-      console.log(`[publish] s3 object ${existingPageId} missing — republishing spec ${spec_id}`)
-      existingPageId = null
-      await supabase
-        .from('spec_publish_targets')
-        .update({ external_page_id: null, external_url: null })
-        .eq('id', spec_publish_target_id)
-    }
-  }
-
-  // Resolve title once here so all adapters use the same value
-  const specPayload = { path, content, resolvedTitle: spec.title }
 
   // -- Dispatch to adapter ---------------------------------------------------
-  let result: { page_id?: string; doc_id?: string; page_url?: string; doc_url?: string }
+  try {
+    const result = await dispatchPublish(data, credentials, spec, existingTarget)
+    await markPublished(supabase, data, result.external_id, result.external_url, data.content_hash, result.external_page_id ?? null)
+  } catch (err) {
+    const msg = (err as Error).message
+    await markFailed(supabase, data, msg)
+    await maybeFlagUnhealthy(supabase, integration, data, err as Error)
+    throw err
+  }
+}
 
-  switch (target_type) {
-    case 'notion':
-      result = await publishToNotion(
-        {
-          token: credentials.token as string,
-          root_page_id: ctx.folderMappingTargetId ?? (credentials.root_page_id as string | undefined),
-        },
-        specPayload,
-        existingPageId
-      )
-      break
+// ---------------------------------------------------------------------------
+// Adapter dispatch
+// ---------------------------------------------------------------------------
 
-    case 'confluence': {
-      const confluenceCreds = isOAuthCredentials(credentials as unknown as Parameters<typeof isOAuthCredentials>[0])
-        ? (credentials as unknown as ConfluenceOAuthCredentials)
-        : {
-            base_url: credentials.base_url as string,
-            email: credentials.email as string,
-            token: credentials.token as string,
-            space_key: credentials.space_key as string,
-          }
-      result = await publishToConfluence(
-        confluenceCreds,
-        specPayload,
-        existingPageId,
-        ctx.folderMappingTargetId
+interface PublishResult {
+  external_id: string
+  external_url: string
+  external_page_id?: string
+}
+
+async function dispatchPublish(
+  data: PublishJobData,
+  credentials: Record<string, unknown>,
+  spec: { path: string; content: string; resolvedTitle: string },
+  existing: { external_id: string | null; external_page_id: string | null } | null
+): Promise<PublishResult> {
+  const externalId = existing?.external_id ?? null
+
+  switch (data.target_type) {
+    case 'notion': {
+      const out = await publishToNotion(
+        credentials as unknown as Parameters<typeof publishToNotion>[0],
+        spec,
+        externalId,
+        data.parent_id,
       )
-      break
+      return { external_id: out.page_id, external_url: out.page_url }
     }
 
-    case 'clickup': {
-      const clickupCreds = {
-        api_token: credentials.api_token as string,
-        workspace_id: credentials.workspace_id as string,
-      }
-
-      if (ctx.clickupMode === 'task_list') {
-        if (!ctx.clickupListId) throw new Error('clickup_list_id not configured for task_list mode')
-
-        console.log(`[publish:task] spec=${spec_id} path=${path} existingPageId=${existingPageId ?? '(none)'}`)
-
-        let taskResult = await publishAsTask(clickupCreds, specPayload, existingPageId, ctx.clickupListId, ctx.frontmatterMap)
-
-        // Stored ID was stale (task deleted in ClickUp) — try to re-resolve from
-        // the unified id before falling through to create a brand new task.
-        if (taskResult.previousIdStale) {
-          console.log(`[publish:task] stale stored id — re-checking unified id: ${spec.id ?? '(not set)'}`)
-          let resolvedId: string | null = null
-          if (spec.id) {
-            resolvedId = await resolveToNativeTaskId(clickupCreds, spec.id, ctx.clickupUseCustomTaskIds)
-            console.log(`[publish:task] re-resolve "${spec.id}" → ${resolvedId ?? 'null'}`)
-          }
-          // Clear stale ID from DB — will be replaced with new one after this publish
-          await supabase
-            .from('spec_publish_targets')
-            .update({ external_page_id: null })
-            .eq('id', spec_publish_target_id)
-          taskResult = await publishAsTask(clickupCreds, specPayload, resolvedId, ctx.clickupListId)
-        }
-
-        result = { page_id: taskResult.task_id, page_url: taskResult.task_url }
-      } else if (ctx.isMultiMode && ctx.groupFolderName) {
-        const multiResult = await publishSpecAsPage(
-          clickupCreds,
-          specPayload,
-          ctx.sharedSubDocId,
-          existingPageId,
-          ctx.groupFolderName,
-          ctx.folderMappingTargetId,
-          ctx.preserveHierarchy ? ctx.sectionPageIds : undefined
-        )
-
-        // First spec in the group may create the shared doc — persist its ID
-        // to the bookkeeping row and propagate to context for subsequent specs.
-        if (multiResult.doc_id && multiResult.doc_id !== ctx.sharedSubDocId) {
-          ctx.sharedSubDocId = multiResult.doc_id
-          if (ctx.sharedSubRowId) {
-            await supabase
-              .from('folder_mappings')
-              .update({ clickup_doc_id: multiResult.doc_id })
-              .eq('id', ctx.sharedSubRowId)
-          }
-        }
-
-        result = { doc_id: multiResult.page_id, doc_url: multiResult.doc_url }
-      } else {
-        result = await publishSingleSpec(clickupCreds, specPayload, existingPageId, ctx.folderMappingTargetId)
-      }
-      break
+    case 'confluence': {
+      const out = await publishToConfluence(
+        credentials as unknown as Parameters<typeof publishToConfluence>[0],
+        spec,
+        externalId,
+        data.parent_id,
+      )
+      return { external_id: out.page_id, external_url: out.page_url }
     }
 
     case 'jira': {
-      result = await publishToJira(
-        credentials as unknown as JiraOAuthCredentials,
-        specPayload,
-        existingPageId,
-        ctx.folderMappingTargetId,
-        ctx.jiraIssueType
-      )
-      break
+      const out = await publishToJira(credentials as unknown as JiraOAuthCredentials, spec, externalId)
+      return { external_id: out.page_id, external_url: out.page_url }
     }
 
     case 's3': {
-      const s3Creds = {
-        access_key_id: credentials.access_key_id as string,
-        secret_access_key: credentials.secret_access_key as string,
-        bucket: credentials.bucket as string,
-        region: credentials.region as string,
+      const key = buildS3Key(spec.path, data.parent_id)
+      const out = await publishToS3(
+        credentials as unknown as Parameters<typeof publishToS3>[0],
+        spec,
+        key,
+      )
+      return { external_id: out.page_id, external_url: out.page_url }
+    }
+
+    case 'clickup': {
+      const creds = credentials as unknown as ClickUpCredentials
+      if (data.spec_type === 'task') {
+        const listId = data.parent_id
+        if (!listId) throw new UnrecoverableError('ClickUp task publish requires a list ID in parent:')
+        const out = await publishAsTask(creds, spec, listId, externalId)
+        if (out.previousIdStale) {
+          const fresh = await publishAsTask(creds, spec, listId, null)
+          return { external_id: fresh.task_id, external_url: fresh.task_url }
+        }
+        return { external_id: out.task_id, external_url: out.task_url }
       }
-      // Unified `id` (already adopted into existingPageId upstream) overrides the
-      // computed object key — declared key wins.
-      const objectKey = existingPageId ?? buildS3Key(path, ctx.s3RootPrefix, {
-        maintainHierarchy: ctx.s3MaintainHierarchy,
-        matchedFolder: ctx.s3MatchedFolder,
-      })
-      result = await publishToS3(s3Creds, specPayload, objectKey)
-      break
+      // wiki (or any other non-task type on ClickUp) → doc mode
+      const existingDoc = existing?.external_id && existing?.external_page_id
+        ? { docId: existing.external_id, pageId: existing.external_page_id }
+        : null
+      const out = await publishAsDoc(creds, spec, data.parent_id, existingDoc)
+      return { external_id: out.doc_id, external_url: out.doc_url, external_page_id: out.page_id }
     }
 
     default:
-      throw new UnrecoverableError(`Unknown target type: ${target_type}`)
+      throw new UnrecoverableError(`unknown target_type: ${data.target_type as string}`)
   }
+}
 
-  // -- Record success --------------------------------------------------------
-  const externalId = result.page_id ?? result.doc_id ?? null
-  const externalUrl = result.page_url ?? result.doc_url ?? null
+// ---------------------------------------------------------------------------
+// Status updates
+// ---------------------------------------------------------------------------
+
+async function markPublished(
+  supabase: SupabaseClient,
+  data: PublishJobData,
+  externalId: string,
+  externalUrl: string | null,
+  contentHash: string,
+  externalPageId: string | null = null
+): Promise<void> {
+  await supabase
+    .from('spec_publish_targets')
+    .update({
+      external_id: externalId,
+      external_page_id: externalPageId,
+      external_url: externalUrl,
+      status: 'published',
+      last_error: null,
+      content_hash: contentHash,
+      published_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('spec_id', data.spec_id)
+    .eq('integration_id', data.integration_id)
+}
+
+async function markFailed(
+  supabase: SupabaseClient,
+  data: PublishJobData,
+  errorMessage: string
+): Promise<void> {
+  const { data: current } = await supabase
+    .from('spec_publish_targets')
+    .select('retry_count')
+    .eq('spec_id', data.spec_id)
+    .eq('integration_id', data.integration_id)
+    .maybeSingle()
 
   await supabase
     .from('spec_publish_targets')
     .update({
-      status: 'published',
-      external_page_id: externalId,
-      external_url: externalUrl,
-      content_hash: content_hash ?? null,
-      published_at: new Date().toISOString(),
+      status: 'failed',
+      last_error: errorMessage,
+      retry_count: (current?.retry_count ?? 0) + 1,
       updated_at: new Date().toISOString(),
-      last_error: null,
     })
-    .eq('id', spec_publish_target_id)
+    .eq('spec_id', data.spec_id)
+    .eq('integration_id', data.integration_id)
+}
+
+// ---------------------------------------------------------------------------
+// Integration health: flip to 'unhealthy' on auth errors and notify
+// ---------------------------------------------------------------------------
+
+const AUTH_ERROR_HINTS = ['401', '403', 'unauthorized', 'invalid_token', 'unauthenticated', 'token rejected']
+
+async function maybeFlagUnhealthy(
+  supabase: SupabaseClient,
+  integration: { id: string; type: string; status: string | null },
+  data: PublishJobData,
+  err: Error
+): Promise<void> {
+  const msg = err.message.toLowerCase()
+  if (!AUTH_ERROR_HINTS.some((h) => msg.includes(h))) return
+  if (integration.status === 'unhealthy') return
+
+  await supabase
+    .from('integrations')
+    .update({ status: 'unhealthy', updated_at: new Date().toISOString() })
+    .eq('id', integration.id)
+
+  await sendUnhealthyIntegrationEmail({
+    integrationId: integration.id,
+    integrationType: integration.type,
+    projectId: data.project_id,
+    errorMessage: err.message,
+  }).catch((e) => console.error('[publish] failed to send unhealthy email:', e))
 }

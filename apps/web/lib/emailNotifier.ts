@@ -307,114 +307,106 @@ export async function sendUnhealthyIntegrationEmail(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Called from worker/process after each group completes.
-// Atomically records the group result. When this is the last group for the
-// sync run, fetches all accumulated results and sends one consolidated email.
-// Falls back to per-group email if no sync_run_id is present (legacy path).
+// Called from worker/process after each spec job completes (success or fail).
+// Atomically records the spec result in sync_runs.results and increments the
+// completed_specs counter. When this is the last spec for the sync run, groups
+// the accumulated results by target_type and sends one consolidated email.
 // ---------------------------------------------------------------------------
-export async function maybeSendSyncSummary(jobData: {
+interface RecordedSpec {
+  target_type: string
+  path: string
+  status: string
+  external_url: string | null
+  last_error: string | null
+}
+
+export async function recordSpecAndMaybeNotify(jobData: {
   project_id: string
   integration_id: string
   target_type: string
+  spec_id: string
+  spec_path: string
   sync_run_id?: string
-  specs: Array<{ spec_publish_target_id: string; path: string; title?: string }>
 }): Promise<void> {
-  if (!process.env.RESEND_API_KEY) return
+  if (!process.env.RESEND_API_KEY || !jobData.sync_run_id) return
 
   try {
     const supabase = createSupabaseServiceClient()
 
-    // Fetch final publish statuses for this group
-    const targetIds = jobData.specs.map((s) => s.spec_publish_target_id)
-    const { data: targets } = await supabase
+    // Fetch this spec's final state from spec_publish_targets
+    const { data: target } = await supabase
       .from('spec_publish_targets')
-      .select('id, status, external_url, last_error')
-      .in('id', targetIds)
+      .select('status, external_url, last_error')
+      .eq('spec_id', jobData.spec_id)
+      .eq('integration_id', jobData.integration_id)
+      .maybeSingle()
 
-    const statusById = new Map((targets ?? []).map((t) => [t.id, t]))
-    const groupSpecs: SyncResultSpec[] = jobData.specs.map((s) => {
-      const t = statusById.get(s.spec_publish_target_id)
-      return {
-        path: s.path,
-        title: s.title,
-        status: t?.status ?? 'failed',
-        external_url: t?.external_url ?? null,
-        last_error: t?.last_error ?? null,
-      }
-    })
-
-    const groupResult = { target_type: jobData.target_type, specs: groupSpecs }
-
-    // -----------------------------------------------------------------------
-    // No sync_run_id → single-group publish (or legacy). Send immediately.
-    // -----------------------------------------------------------------------
-    if (!jobData.sync_run_id) {
-      const recipientInfo = await fetchRecipient(supabase, jobData.project_id)
-      if (!recipientInfo) return
-
-      const hasFailed = groupSpecs.some((s) => s.status !== 'published')
-      if (recipientInfo.mode === 'failures_only' && !hasFailed) return
-
-      await sendSyncEmail({
-        to: recipientInfo.email,
-        projectName: recipientInfo.projectName,
-        syncedAt: new Date().toISOString(),
-        groups: [groupResult],
-      })
-      console.log(`[emailNotifier] sync email sent (single group) to ${recipientInfo.email}`)
-      return
+    const specResult: RecordedSpec = {
+      target_type: jobData.target_type,
+      path: jobData.spec_path,
+      status: target?.status ?? 'failed',
+      external_url: target?.external_url ?? null,
+      last_error: target?.last_error ?? null,
     }
 
-    // -----------------------------------------------------------------------
-    // Atomically record this group. If we're the last, collect all results
-    // and send the consolidated email.
-    // -----------------------------------------------------------------------
-    const { data: rows } = await supabase.rpc('complete_sync_group' as never, {
+    // Atomically increment completed_specs + append the result blob
+    const { data: rows } = await supabase.rpc('complete_sync_spec' as never, {
       p_sync_run_id: jobData.sync_run_id,
-      p_group_result: groupResult,
-    }) as { data: Array<{ completed_groups: number; total_groups: number }> | null }
+      p_spec_result: specResult,
+    }) as { data: Array<{ completed_specs: number; total_specs: number }> | null }
 
     const row = rows?.[0]
     if (!row) {
-      console.warn(`[emailNotifier] complete_sync_group returned no row for run ${jobData.sync_run_id}`)
+      console.warn(`[emailNotifier] complete_sync_spec returned no row for run ${jobData.sync_run_id}`)
       return
     }
 
-    if (row.completed_groups < row.total_groups) {
-      // Other groups still in flight — not our turn to send.
-      console.log(`[emailNotifier] run ${jobData.sync_run_id}: ${row.completed_groups}/${row.total_groups} groups done`)
+    if (row.completed_specs < row.total_specs) {
+      console.log(`[emailNotifier] run ${jobData.sync_run_id}: ${row.completed_specs}/${row.total_specs} specs done`)
       return
     }
 
-    // Last group — fetch accumulated results and send.
+    // Last spec — collect, group by target_type, send.
     const { data: syncRun } = await supabase
       .from('sync_runs')
       .select('results')
       .eq('id', jobData.sync_run_id)
       .single()
 
-    const allGroups: SyncResultGroup[] = (syncRun?.results as SyncResultGroup[] | null) ?? [groupResult]
+    const allSpecs: RecordedSpec[] = (syncRun?.results as RecordedSpec[] | null) ?? [specResult]
+
+    const groupsMap = new Map<string, SyncResultSpec[]>()
+    for (const r of allSpecs) {
+      const list = groupsMap.get(r.target_type) ?? []
+      list.push({
+        path: r.path,
+        status: r.status,
+        external_url: r.external_url,
+        last_error: r.last_error,
+      })
+      groupsMap.set(r.target_type, list)
+    }
+    const groups: SyncResultGroup[] = Array.from(groupsMap.entries()).map(([target_type, specs]) => ({ target_type, specs }))
 
     const recipientInfo = await fetchRecipient(supabase, jobData.project_id)
     if (!recipientInfo) return
 
-    const anyFailed = allGroups.some((g) => g.specs.some((s) => s.status !== 'published'))
+    const anyFailed = groups.some((g) => g.specs.some((s) => s.status !== 'published'))
     if (recipientInfo.mode === 'failures_only' && !anyFailed) return
 
     await sendSyncEmail({
       to: recipientInfo.email,
       projectName: recipientInfo.projectName,
       syncedAt: new Date().toISOString(),
-      groups: allGroups,
+      groups,
     })
 
-    console.log(`[emailNotifier] consolidated sync email sent to ${recipientInfo.email} (${allGroups.length} integrations, run ${jobData.sync_run_id})`)
+    console.log(`[emailNotifier] consolidated sync email sent to ${recipientInfo.email} (${groups.length} integrations, run ${jobData.sync_run_id})`)
 
     // Clean up — best-effort, non-blocking
     supabase.from('sync_runs').delete().eq('id', jobData.sync_run_id).then(() => {})
   } catch (err) {
-    // Never let email logic break the worker response
-    console.error('[emailNotifier] maybeSendSyncSummary error:', err)
+    console.error('[emailNotifier] recordSpecAndMaybeNotify error:', err)
   }
 }
 

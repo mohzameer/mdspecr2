@@ -1,703 +1,307 @@
 import bcrypt from 'bcryptjs'
-import { createSupabaseServiceClient } from '@/lib/db-server'
 import { Client } from '@upstash/qstash'
-import type { PublishPayload, PublishGroupJobData, PublishGroupSpec, IntegrationType, MdspecMapConfig } from '@/lib/types'
+import { createSupabaseServiceClient } from '@/lib/db-server'
+import type { PublishPayload, SpecArtifact, PublishJobData, IntegrationType } from '@/lib/types'
 
 const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://mdspec.dev'
+const SUPPORTED_TYPES = new Set(['wiki', 'task'])
 
+// Per-integration QStash flow control (spec §8.2).
+const RATE_LIMITS = {
+  notion:     { rate: 3,   period: '1s'  as const, parallelism: 5  },
+  confluence: { rate: 2,   period: '1s'  as const, parallelism: 5  },
+  clickup:    { rate: 100, period: '60s' as const, parallelism: 10 },
+  jira:       { rate: 2,   period: '1s'  as const, parallelism: 5  },
+  s3:         { rate: 100, period: '1s'  as const, parallelism: 20 },
+} satisfies Record<IntegrationType, { rate: number; period: `${number}s`; parallelism: number }>
 
-function normalizeFolder(folder: string): string {
-  const raw = folder.trim()
-  if (raw === '/' || raw === '' || raw === '.') return ''
-  return raw.replace(/^\//, '').replace(/\/$/, '')
-}
+// ---------------------------------------------------------------------------
+// Token validation — matches CLI Bearer token against project_tokens
+// ---------------------------------------------------------------------------
 
-// Merge default: block into a mapping — mapping fields win over default
-function resolveMapping(mapping: MdspecMapConfig['mappings'][number], config: MdspecMapConfig) {
-  const d = config.default ?? {}
-  return {
-    ...mapping,
-    integration: mapping.integration ?? d.integration,
-    parent: mapping.parent ?? d.parent,
-    target: mapping.target ?? d.target,
+async function validateToken(rawToken: string): Promise<string | null> {
+  // Token format: mds_<project_id_short 8 chars>_<hex32>
+  const tokenMatch = rawToken.match(/^mds_([a-zA-Z0-9]{8})_[a-f0-9]{32}$/)
+  if (!tokenMatch) return null
+
+  const projectIdShort = tokenMatch[1]
+  const supabase = createSupabaseServiceClient()
+
+  const { data: allTokens } = await supabase
+    .from('project_tokens')
+    .select('id, project_id, token_hash')
+    .eq('revoked', false)
+
+  for (const t of allTokens ?? []) {
+    if (!t.project_id.replace(/-/g, '').startsWith(projectIdShort)) continue
+    if (await bcrypt.compare(rawToken, t.token_hash)) return t.project_id
   }
+  return null
 }
 
-// Parse parent field prefix:
-//   alias:<name>  → { type: 'alias', value: 'name' }
-//   id:<nativeId> → { type: 'id',    value: 'nativeId' }
-//   <bare>        → { type: 'bare',  value: '<bare>' }  — resolved as alias first, then raw ID
-function parseParent(parent: string): { type: 'alias' | 'id' | 'bare'; value: string } {
-  if (parent.startsWith('alias:')) return { type: 'alias', value: parent.slice(6) }
-  if (parent.startsWith('id:'))    return { type: 'id',    value: parent.slice(3) }
-  return { type: 'bare', value: parent }
+// ---------------------------------------------------------------------------
+// Spec validation — per spec §3, narrowed to v1 supported types (D4)
+// ---------------------------------------------------------------------------
+
+function validateSpec(spec: SpecArtifact): string | null {
+  if (typeof spec.path !== 'string' || !spec.path) return 'spec.path required'
+  if (typeof spec.id !== 'string' || !spec.id) return 'spec.id required'
+  // type is optional — falls back to project.default_type
+  if (spec.type !== null && (typeof spec.type !== 'string' || !SUPPORTED_TYPES.has(spec.type))) {
+    return `spec.type must be one of: wiki, task (got "${spec.type}")`
+  }
+  if (typeof spec.content !== 'string') return 'spec.content required'
+  if (typeof spec.hash !== 'string') return 'spec.hash required'
+  return null
 }
+
+// ---------------------------------------------------------------------------
+// Parent resolution — alias lookup at the route layer. URLs and bare IDs
+// pass through to the processor (which has integration credentials for
+// URL → native ID resolution).
+// ---------------------------------------------------------------------------
+
+async function resolveParent(
+  supabase: ReturnType<typeof createSupabaseServiceClient>,
+  parent: string | null,
+  orgId: string,
+  integrationId: string
+): Promise<string | null> {
+  if (!parent) return null
+  if (parent.startsWith('http://') || parent.startsWith('https://')) return parent
+
+  const { data: alias } = await supabase
+    .from('aliases')
+    .select('native_id, integration_id')
+    .eq('org_id', orgId)
+    .eq('name', parent)
+    .maybeSingle()
+
+  if (alias && alias.integration_id === integrationId) return alias.native_id
+  // Not an alias for this integration — treat as native ID
+  return parent
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/publish
+// ---------------------------------------------------------------------------
 
 export async function POST(request: Request) {
+  // -- Auth -------------------------------------------------------------------
+  const authHeader = request.headers.get('Authorization')
+  if (!authHeader?.startsWith('Bearer ')) {
+    return Response.json({ error: 'invalid_token' }, { status: 401 })
+  }
+  const matchedProjectId = await validateToken(authHeader.slice(7).trim())
+  if (!matchedProjectId) {
+    return Response.json({ error: 'invalid_token' }, { status: 401 })
+  }
+
+  // -- Parse payload ----------------------------------------------------------
+  let payload: PublishPayload
   try {
-    // -------------------------------------------------------------------------
-    // Authentication: Bearer token validation
-    // -------------------------------------------------------------------------
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return Response.json({ error: 'invalid_token' }, { status: 401 })
+    payload = await request.json()
+  } catch {
+    return Response.json({ error: 'invalid_json' }, { status: 400 })
+  }
+
+  const { project_id, repo_name, branch, commit_sha, commit_timestamp, specs } = payload
+
+  if (!project_id || !repo_name || !branch || !commit_sha || !commit_timestamp || !Array.isArray(specs) || specs.length === 0) {
+    return Response.json({ error: 'missing_required_fields' }, { status: 400 })
+  }
+
+  if (project_id !== matchedProjectId) {
+    return Response.json({ error: 'project_id_mismatch' }, { status: 403 })
+  }
+
+  for (const spec of specs) {
+    const err = validateSpec(spec)
+    if (err) return Response.json({ error: 'invalid_spec', detail: err, path: spec.path }, { status: 400 })
+  }
+
+  const supabase = createSupabaseServiceClient()
+
+  // -- Fetch project + org info ----------------------------------------------
+  const { data: project, error: projectErr } = await supabase
+    .from('projects')
+    .select('id, org_id, registered_repo, default_integration, default_type')
+    .eq('id', matchedProjectId)
+    .single()
+
+  if (projectErr || !project) {
+    return Response.json({ error: 'project_not_found' }, { status: 404 })
+  }
+
+  // -- Repo registration / mismatch check (D11) -------------------------------
+  if (project.registered_repo && project.registered_repo !== repo_name) {
+    return Response.json({
+      error: 'repo_mismatch',
+      registered: project.registered_repo,
+      received: repo_name,
+    }, { status: 403 })
+  }
+  if (!project.registered_repo) {
+    await supabase.from('projects').update({ registered_repo: repo_name }).eq('id', matchedProjectId)
+  }
+
+  // -- Fetch org integrations once -------------------------------------------
+  const { data: orgIntegrations } = await supabase
+    .from('integrations')
+    .select('id, type, status')
+    .eq('org_id', project.org_id)
+
+  const integrationsByType = new Map<string, { id: string; type: IntegrationType; status: string }>()
+  for (const i of orgIntegrations ?? []) {
+    integrationsByType.set(i.type, { id: i.id, type: i.type as IntegrationType, status: i.status })
+  }
+
+  // -- Fetch default task template (used for type=task; type=wiki has none) --
+  const { data: taskTemplate } = await supabase
+    .from('templates')
+    .select('id')
+    .eq('org_id', project.org_id)
+    .eq('is_default', true)
+    .eq('name', 'Task Template')
+    .maybeSingle()
+  const taskTemplateId = taskTemplate?.id ?? null
+
+  // -- Create sync_run --------------------------------------------------------
+  const { data: syncRun, error: syncRunErr } = await supabase
+    .from('sync_runs')
+    .insert({ project_id: matchedProjectId, total_specs: specs.length })
+    .select('id')
+    .single()
+  if (syncRunErr || !syncRun) {
+    return Response.json({ error: 'sync_run_create_failed' }, { status: 500 })
+  }
+
+  // -- Process each spec ------------------------------------------------------
+  const results: Array<{ path: string; status: 'queued' | 'rejected'; reason?: string }> = []
+
+  for (const spec of specs) {
+    // Resolve integration: spec.integration > project.default_integration
+    const targetType = (spec.integration ?? project.default_integration) as IntegrationType | null
+    if (!targetType) {
+      results.push({ path: spec.path, status: 'rejected', reason: 'no integration declared and no project default set' })
+      continue
+    }
+    const integration = integrationsByType.get(targetType)
+    if (!integration) {
+      results.push({ path: spec.path, status: 'rejected', reason: `integration "${targetType}" not connected to this org` })
+      continue
     }
 
-    const rawToken = authHeader.slice(7).trim()
-
-    // Token format: mds_<project_id_short 8 chars>_<hex32>
-    const tokenMatch = rawToken.match(/^mds_([a-zA-Z0-9]{8})_[a-f0-9]{32}$/)
-    if (!tokenMatch) {
-      return Response.json({ error: 'invalid_token' }, { status: 401 })
+    // Resolve type: spec.type > project.default_type
+    const resolvedType = spec.type ?? project.default_type
+    if (!resolvedType || !SUPPORTED_TYPES.has(resolvedType)) {
+      results.push({ path: spec.path, status: 'rejected', reason: 'no type declared and no project default_type set' })
+      continue
     }
 
-    const projectIdShort = tokenMatch[1]
-    const supabase = createSupabaseServiceClient()
+    // Resolve parent (alias lookup; URL/bare pass through to processor)
+    const parentId = await resolveParent(supabase, spec.parent, project.org_id, integration.id)
 
-    // Fetch non-revoked project_tokens joined with projects
-    const { data: allTokens } = await supabase
-      .from('project_tokens')
-      .select('id, project_id, token_hash')
-      .eq('revoked', false)
-
-    // Find matching token by bcrypt compare
-    let matchedProjectId: string | null = null
-    for (const t of allTokens ?? []) {
-      if (!t.project_id.replace(/-/g, '').startsWith(projectIdShort)) continue
-      if (await bcrypt.compare(rawToken, t.token_hash)) {
-        matchedProjectId = t.project_id
-        break
-      }
+    // Upsert spec row
+    const { data: specRow, error: specErr } = await supabase
+      .from('specs')
+      .upsert({
+        project_id: matchedProjectId,
+        path: spec.path,
+        spec_id: spec.id,
+        type: resolvedType,
+        commit_sha,
+        content_hash: spec.hash,
+        frontmatter: spec.frontmatter,
+        deleted_from_repo: false,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'project_id,spec_id' })
+      .select('id')
+      .single()
+    if (specErr || !specRow) {
+      results.push({ path: spec.path, status: 'rejected', reason: `db error: ${specErr?.message ?? 'unknown'}` })
+      continue
     }
 
-    if (!matchedProjectId) {
-      return Response.json({ error: 'invalid_token' }, { status: 401 })
+    // Upsert spec_publish_target row (status=queued)
+    await supabase
+      .from('spec_publish_targets')
+      .upsert({
+        spec_id: specRow.id,
+        integration_id: integration.id,
+        status: 'queued',
+        retry_count: 0,
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'spec_id,integration_id' })
+
+    // Resolve agent template (wiki → none, task → org default Task Template)
+    const agentTemplate = resolvedType === 'task' ? taskTemplateId : null
+
+    // Enqueue QStash job (one per spec — no folder-mapping groups in v2)
+    const jobBody: PublishJobData = {
+      project_id: matchedProjectId,
+      integration_id: integration.id,
+      target_type: targetType,
+      spec_id: specRow.id,
+      spec_path: spec.path,
+      spec_native_id: spec.id,
+      spec_type: resolvedType,
+      content: spec.content,
+      content_hash: spec.hash,
+      parent_id: parentId,
+      agent_template: agentTemplate,
+      commit_sha,
+      sync_run_id: syncRun.id,
     }
 
-    // -------------------------------------------------------------------------
-    // Parse and validate payload
-    // -------------------------------------------------------------------------
-    let payload: PublishPayload
+    const rate = RATE_LIMITS[targetType]
     try {
-      payload = await request.json()
-    } catch (parseErr) {
-      console.error('[publish] invalid_json', parseErr)
-      return Response.json({ error: 'invalid_json' }, { status: 400 })
-    }
-
-    const { project_id, repo_name, branch, commit_sha, commit_timestamp, specs, config } = payload
-
-    if (!project_id || !repo_name || !branch || !commit_sha || !Array.isArray(specs) || specs.length === 0) {
-      console.error('[publish] missing_required_fields', { project_id, repo_name, branch, commit_sha, specs_is_array: Array.isArray(specs), specs_length: Array.isArray(specs) ? specs.length : null })
-      return Response.json({ error: 'missing_required_fields' }, { status: 400 })
-    }
-
-    if (!config || config.version !== 1 || !Array.isArray(config.mappings)) {
-      console.error('[publish] missing_or_invalid_config', { config_version: config?.version, mappings_is_array: Array.isArray(config?.mappings) })
-      return Response.json({ error: 'missing_or_invalid_config' }, { status: 400 })
-    }
-
-    // Token must belong to the stated project
-    if (matchedProjectId !== project_id) {
-      return Response.json({ error: 'invalid_token' }, { status: 401 })
-    }
-
-    // -------------------------------------------------------------------------
-    // Fetch project
-    // -------------------------------------------------------------------------
-    const { data: project } = await supabase
-      .from('projects')
-      .select('id, org_id, registered_repo, publish_count')
-      .eq('id', project_id)
-      .single()
-
-    if (!project) return Response.json({ error: 'project_not_found' }, { status: 404 })
-
-    // -------------------------------------------------------------------------
-    // Repo enforcement
-    // -------------------------------------------------------------------------
-    if (project.registered_repo && project.registered_repo !== repo_name) {
-      return Response.json({
-        error: 'repo_mismatch',
-        registered: project.registered_repo,
-        received: repo_name,
-      }, { status: 403 })
-    }
-
-    // -------------------------------------------------------------------------
-    // Free tier enforcement — subscription is per-user (the org owner)
-    // -------------------------------------------------------------------------
-    const { data: ownerMember } = await supabase
-      .from('org_members')
-      .select('user_id')
-      .eq('org_id', project.org_id)
-      .eq('role', 'owner')
-      .single()
-
-    const { data: subscription } = ownerMember
-      ? await supabase
-          .from('subscriptions')
-          .select('plan')
-          .eq('user_id', ownerMember.user_id)
-          .single()
-      : { data: null }
-
-    let upgradeNudge = false
-
-    if (!subscription || subscription.plan === 'free') {
-      const { data: projectSpecs } = await supabase
-        .from('specs')
-        .select('id, path')
-        .eq('project_id', project_id)
-
-      const specIds = (projectSpecs ?? []).map((s) => s.id)
-      const { count: syncedCount } = specIds.length > 0
-        ? await supabase
-            .from('spec_publish_targets')
-            .select('spec_id', { count: 'exact', head: true })
-            .in('spec_id', specIds)
-        : { count: 0 }
-
-      const existingSyncedPaths = new Set((projectSpecs ?? []).map((s) => s.path))
-      const newSpecs = specs.filter((s) => !existingSyncedPaths.has(s.path))
-      const synced = syncedCount ?? 0
-
-      if (newSpecs.length > 0 && synced + newSpecs.length > 15) {
-        return Response.json({
-          error: 'spec_limit_reached',
-          limit: 15,
-          upgrade_url: 'https://mdspec.dev/upgrade',
-        }, { status: 402 })
-      }
-
-      if (synced + newSpecs.length >= 12) {
-        upgradeNudge = true
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // Fetch active integrations for this org (needed for parent resolution below)
-    // -------------------------------------------------------------------------
-    const { data: integrations } = await supabase
-      .from('integrations')
-      .select('id, type')
-      .eq('org_id', project.org_id)
-      .eq('status', 'connected')
-
-    const activeIntegrations = integrations ?? []
-    const integrationByType = new Map<string, string>()
-    for (const i of activeIntegrations) {
-      integrationByType.set(i.type, i.id)
-    }
-
-    // -------------------------------------------------------------------------
-    // Register repo on first publish
-    // -------------------------------------------------------------------------
-    if (!project.registered_repo) {
+      await qstash.publishJSON({
+        url: `${APP_URL}/api/worker/process`,
+        body: jobBody,
+        retries: 5,
+        flowControl: {
+          key: targetType,
+          rate: rate.rate,
+          period: rate.period,
+          parallelism: rate.parallelism,
+        },
+      })
+      results.push({ path: spec.path, status: 'queued' })
+    } catch (err) {
       await supabase
-        .from('projects')
-        .update({ registered_repo: repo_name })
-        .eq('id', project_id)
+        .from('spec_publish_targets')
+        .update({ status: 'failed', last_error: `enqueue failed: ${(err as Error).message}` })
+        .eq('spec_id', specRow.id)
+        .eq('integration_id', integration.id)
+      results.push({ path: spec.path, status: 'rejected', reason: `enqueue failed: ${(err as Error).message}` })
     }
+  }
 
-    // -------------------------------------------------------------------------
-    // Resolve parent fields — supports alias:<name>, id:<nativeId>, bare value
-    // -------------------------------------------------------------------------
-    const resolvedMappings = config.mappings.map((m) => resolveMapping(m, config))
-    const mappingsWithParent = resolvedMappings.filter((m) => m.parent && m.integration)
-
-    // Collect alias names that need DB lookup (alias: prefix or bare values)
-    const aliasLookupNames = [...new Set(
-      mappingsWithParent
-        .map((m) => parseParent(m.parent!))
-        .filter((p) => p.type === 'alias' || p.type === 'bare')
-        .map((p) => p.value)
-    )]
-
-    const { data: orgAliases } = aliasLookupNames.length > 0
-      ? await supabase
-          .from('aliases')
-          .select('name, integration_id, native_id, integrations(type)')
-          .eq('org_id', project.org_id)
-          .in('name', aliasLookupNames)
-      : { data: [] }
-
-    const aliasMap = new Map<string, { integration_id: string; native_id: string; type: string }>()
-    for (const a of orgAliases ?? []) {
-      const intType = (a.integrations as unknown as { type: string })?.type
-      if (intType) aliasMap.set(a.name, { integration_id: a.integration_id, native_id: a.native_id, type: intType })
-    }
-
-    // Build resolved map: folder → { integration_id, native_id }
-    // Also validate: alias: must resolve, id: used as-is, bare: alias first then raw ID
-    const resolvedAliases = new Map<string, { integration_id: string; native_id: string; type: string }>()
-    const unresolvedAliases: Array<{ alias: string; folder: string; suggestion?: string }> = []
-
-    for (const m of mappingsWithParent) {
-      const parsed = parseParent(m.parent!)
-      if (parsed.type === 'alias') {
-        const found = aliasMap.get(parsed.value)
-        if (!found) {
-          const suggestion = findClosestMatch(parsed.value, [...aliasMap.keys()])
-          unresolvedAliases.push({ alias: m.parent!, folder: m.folder ?? '', suggestion })
-        } else {
-          resolvedAliases.set(m.parent!, found)
-        }
-      } else if (parsed.type === 'id') {
-        // Raw ID — use the integration from the mapping to find integration_id
-        const integrationId = integrationByType.get(m.integration!)
-        if (integrationId) {
-          resolvedAliases.set(m.parent!, { integration_id: integrationId, native_id: parsed.value, type: m.integration! })
-        }
-      } else {
-        // Bare — try alias lookup first, fall back to raw ID
-        const found = aliasMap.get(parsed.value)
-        if (found) {
-          resolvedAliases.set(m.parent!, found)
-        } else {
-          const integrationId = integrationByType.get(m.integration!)
-          if (integrationId) {
-            resolvedAliases.set(m.parent!, { integration_id: integrationId, native_id: parsed.value, type: m.integration! })
-          }
-        }
-      }
-    }
-
-    if (unresolvedAliases.length > 0) {
-      return Response.json({ error: 'unresolved_aliases', aliases: unresolvedAliases }, { status: 422 })
-    }
-
-    // -------------------------------------------------------------------------
-    // Route specs using payload config (not DB)
-    // -------------------------------------------------------------------------
-    // Resolve default: into each mapping, then keep only integration-bearing ones
-    const integrationMappings = config.mappings
-      .map((m) => resolveMapping(m, config))
-      .filter((m) => m.integration)
-
-    const groups = new Map<string, {
-      integration_id: string
-      target_type: IntegrationType
-      clickup_mode: string
-      matched_folder: string
-      s3_root_prefix?: string | null
-      frontmatter_map?: Record<string, string> | null
-      specs: PublishGroupSpec[]
-    }>()
-    let savedCount = 0
-
-    for (const spec of specs) {
-      console.log(`[publish] processing spec path=${spec.path}`)
-
-      // Handle renames: update existing spec path
-      if (spec.previous_path) {
-        const { data: existingSpec } = await supabase
-          .from('specs')
-          .select('id')
-          .eq('project_id', project_id)
-          .eq('path', spec.previous_path)
-          .maybeSingle()
-
-        if (existingSpec) {
-          await supabase
-            .from('specs')
-            .update({ path: spec.path, updated_at: new Date().toISOString() })
-            .eq('id', existingSpec.id)
-          console.log(`[publish] renamed spec ${spec.previous_path} → ${spec.path}`)
-        }
-      }
-
-      const { data: upsertedSpec, error: specError } = await supabase
-        .from('specs')
-        .upsert(
-          {
-            project_id,
-            repo: repo_name,
-            path: spec.path,
-            mdspec_id: null,
-            commit_sha,
-            content_hash: spec.hash,
-            title: spec.title,
-            frontmatter: null,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'project_id,path' }
-        )
-        .select('id')
-        .single()
-
-      if (specError || !upsertedSpec) {
-        console.error(`[publish] spec upsert failed path=${spec.path} error=${specError?.message}`)
-        continue
-      }
-
-      console.log(`[publish] spec upserted id=${upsertedSpec.id} path=${spec.path}`)
-      savedCount++
-
-      // Route to the single most-specific (longest prefix) matching mapping.
-      // If a subfolder is explicitly mapped, specs under it are owned by that
-      // mapping only — shallower/root mappings are skipped for those specs.
-      let bestMapping: typeof integrationMappings[number] | null = null
-      let bestFolderLength = -1
-
-      for (const mapping of integrationMappings) {
-        const normalizedMappingFolder = normalizeFolder(mapping.folder ?? '')
-
-        const specInFolder = normalizedMappingFolder === '' ||
-          spec.path.startsWith(normalizedMappingFolder + '/') ||
-          spec.path === normalizedMappingFolder
-
-        if (!specInFolder) continue
-
-        // Check depth limit if set
-        if (mapping.depth !== undefined) {
-          const relative = normalizedMappingFolder === ''
-            ? spec.path
-            : spec.path.slice(normalizedMappingFolder.length + 1)
-          const segments = relative.split('/').filter(Boolean)
-          if (segments.length > mapping.depth) continue
-        }
-
-        // Pick the longest (most specific) match
-        if (normalizedMappingFolder.length > bestFolderLength) {
-          bestFolderLength = normalizedMappingFolder.length
-          bestMapping = mapping
-        }
-      }
-
-      if (bestMapping) {
-        const intType = bestMapping.integration!
-        const normalizedMappingFolder = normalizeFolder(bestMapping.folder ?? '')
-
-        // Resolve integration_id — prefer alias resolution, fall back to type lookup
-        let integrationId: string | undefined
-        if (bestMapping.parent && resolvedAliases.has(bestMapping.parent)) {
-          const aliasIntegrationId = resolvedAliases.get(bestMapping.parent)!.integration_id
-          // Only use the alias's integration if it is currently connected
-          const connectedIds = new Set(activeIntegrations.map((i) => i.id))
-          if (connectedIds.has(aliasIntegrationId)) integrationId = aliasIntegrationId
-        } else {
-          integrationId = integrationByType.get(intType)
-        }
-
-        if (!integrationId) {
-          console.log(`[publish] skipping spec=${spec.path} integration=${intType} — no connected integration`)
-        } else {
-          // Determine clickup_mode from target field
-          const mode = intType === 'clickup' && bestMapping.target === 'task' ? 'task_list' : 'doc'
-
-          // Upsert publish target
-          const { data: existingTarget } = await supabase
-            .from('spec_publish_targets')
-            .select('id, external_page_id, status')
-            .eq('spec_id', upsertedSpec.id)
-            .eq('integration_id', integrationId)
-            .eq('clickup_mode', mode)
-            .maybeSingle()
-
-          const now = new Date().toISOString()
-          const { data: target, error: targetError } = existingTarget
-            ? await supabase
-                .from('spec_publish_targets')
-                .update({ status: 'queued', retry_count: 0, last_error: null, updated_at: now })
-                .eq('id', existingTarget.id)
-                .select('id, external_page_id')
-                .single()
-            : await supabase
-                .from('spec_publish_targets')
-                .insert({
-                  spec_id: upsertedSpec.id,
-                  integration_id: integrationId,
-                  target_type: intType,
-                  clickup_mode: mode,
-                  status: 'queued',
-                  retry_count: 0,
-                  last_error: null,
-                  updated_at: now,
-                })
-                .select('id, external_page_id')
-                .single()
-
-          if (!target) {
-            console.error(`[publish] publish target upsert failed spec=${upsertedSpec.id} integration=${integrationId} mode=${mode} error=${targetError?.message}`)
-          } else {
-            // Accumulate into group
-            const groupKey = `${integrationId}::${normalizedMappingFolder}::${mode}`
-            if (!groups.has(groupKey)) {
-              // For S3: root prefix comes from parent_dir (raw string, no alias resolution needed)
-              const s3RootPrefix = intType === 's3'
-                ? (bestMapping.parent_dir?.trim() || null)
-                : null
-              groups.set(groupKey, {
-                integration_id: integrationId,
-                target_type: intType as IntegrationType,
-                clickup_mode: mode,
-                matched_folder: normalizedMappingFolder,
-                s3_root_prefix: s3RootPrefix,
-                frontmatter_map: bestMapping.frontmatter_map ?? null,
-                specs: [],
-              })
-            }
-            groups.get(groupKey)!.specs.push({
-              spec_id: upsertedSpec.id,
-              spec_publish_target_id: target.id,
-              path: spec.path,
-              title: spec.title,
-              ...(spec.id ? { id: spec.id } : {}),
-              ...(spec.id_source ? { id_source: spec.id_source } : {}),
-              ...(spec.agent ? { agent: spec.agent } : {}),
-              content: spec.content,
-              content_hash: spec.hash,
-            })
-          }
-        }
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // Config reconciliation — runs BEFORE enqueue so the worker always sees
-    // post-cascade state. Reconcile updates folder_mappings.target_id and
-    // clears spec_publish_targets.external_page_id for any spec whose
-    // destination changed; doing it after enqueue would let the worker
-    // race ahead and update pages at the OLD destination. Errors are
-    // non-fatal — adapter-side self-heal is the safety net.
-    // -------------------------------------------------------------------------
-    if (commit_timestamp) {
-      try {
-        await supabase.rpc('reconcile_config' as never, {
-          p_project_id: project_id,
-          p_commit_sha: commit_sha,
-          p_commit_timestamp: commit_timestamp,
-        })
-        console.log(`[publish] config reconciled for project=${project_id}`)
-      } catch (err) {
-        // Non-fatal — reconciliation is best-effort (function may not exist yet)
-        console.error(`[publish] config reconciliation failed: ${(err as Error).message}`)
-      }
-
-      // Update folder_mappings in DB to mirror config (for UI display).
-      // Wrapped so a reconcile hiccup never blocks enqueue.
-      try {
-        await reconcileFolderMappings(supabase, project_id, project.org_id, config, resolvedAliases, integrationByType)
-      } catch (err) {
-        console.error(`[publish] folder mappings reconcile failed: ${(err as Error).message}`)
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // Enqueue one QStash job per group (after reconcile — see above)
-    // -------------------------------------------------------------------------
-    let queuedCount = 0
-
-    // Create a sync_run row so all groups can report back and the last one
-    // sends a single consolidated email.
-    let syncRunId: string | undefined
-    if (groups.size > 0) {
-      const { data: syncRun } = await supabase
-        .from('sync_runs')
-        .insert({ project_id, total_groups: groups.size })
-        .select('id')
-        .single()
-      syncRunId = syncRun?.id
-    }
-
-    for (const [groupKey, group] of groups) {
-      const jobData: PublishGroupJobData = {
-        project_id,
-        integration_id: group.integration_id,
-        target_type: group.target_type,
-        specs: group.specs,
-        clickup_mode: group.clickup_mode as 'doc' | 'task_list',
-        matched_folder: group.matched_folder,
-        ...(group.target_type === 's3' ? { s3_root_prefix: group.s3_root_prefix ?? null } : {}),
-        ...(group.frontmatter_map ? { frontmatter_map: group.frontmatter_map } : {}),
-        ...(syncRunId ? { sync_run_id: syncRunId } : {}),
-      }
-
-      try {
-        await qstash.publishJSON({
-          url: `${process.env.NEXT_PUBLIC_APP_URL}/api/worker/process`,
-          body: jobData,
-          retries: 5,
-        })
-        console.log(`[publish] group enqueued key=${groupKey} specs=${group.specs.length}`)
-        queuedCount += group.specs.length
-      } catch (queueErr) {
-        console.error(`[publish] failed to enqueue group key=${groupKey} error=${(queueErr as Error).message}`)
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // Response
-    // -------------------------------------------------------------------------
+  // -- Bump publish_count -----------------------------------------------------
+  const queuedCount = results.filter((r) => r.status === 'queued').length
+  if (queuedCount > 0) {
+    const { data: current } = await supabase
+      .from('projects')
+      .select('publish_count')
+      .eq('id', matchedProjectId)
+      .single()
     await supabase
       .from('projects')
-      .update({ publish_count: (project.publish_count ?? 0) + 1 })
-      .eq('id', project_id)
-
-    return Response.json(
-      {
-        accepted: true,
-        saved: savedCount,
-        queued: queuedCount,
-        ...(upgradeNudge ? { upgrade_nudge: true } : {}),
-      },
-      { status: 202 }
-    )
-  } catch (err) {
-    console.error('[/api/publish]', err)
-    return Response.json({ error: 'internal_error' }, { status: 500 })
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function findClosestMatch(target: string, candidates: string[]): string | undefined {
-  if (candidates.length === 0) return undefined
-
-  let bestMatch: string | undefined
-  let bestScore = Infinity
-
-  for (const candidate of candidates) {
-    const score = levenshtein(target, candidate)
-    if (score < bestScore && score <= 3) {
-      bestScore = score
-      bestMatch = candidate
-    }
+      .update({ publish_count: (current?.publish_count ?? 0) + 1 })
+      .eq('id', matchedProjectId)
   }
 
-  return bestMatch
-}
-
-function levenshtein(a: string, b: string): number {
-  const m = a.length
-  const n = b.length
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
-
-  for (let i = 0; i <= m; i++) dp[i][0] = i
-  for (let j = 0; j <= n; j++) dp[0][j] = j
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1][j - 1]
-        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
-    }
+  // If nothing actually queued, mark the sync_run finished by bumping completed=total
+  if (queuedCount === 0) {
+    await supabase.from('sync_runs').update({ completed_specs: specs.length }).eq('id', syncRun.id)
   }
 
-  return dp[m][n]
-}
-
-async function reconcileFolderMappings(
-  supabase: ReturnType<typeof createSupabaseServiceClient>,
-  projectId: string,
-  orgId: string,
-  config: MdspecMapConfig,
-  resolvedAliases: Map<string, { integration_id: string; native_id: string; type: string }>,
-  integrationByType: Map<string, string>
-): Promise<void> {
-  try {
-    // Fetch org templates once for agent name → id resolution
-    const { data: projectTemplates } = await supabase
-      .from('templates')
-      .select('id, name')
-      .eq('org_id', orgId)
-
-    const templateByName = new Map<string, string>()
-    for (const t of projectTemplates ?? []) templateByName.set(t.name, t.id)
-
-    const parseId = (val?: string) => val?.startsWith('id:') ? val.slice(3) : (val ?? null)
-
-    // Collect all non-root folders covered by this config, then delete their
-    // existing rows so stale entries (e.g. old integration after a config change)
-    // don't linger in the DB.
-    const coveredFolders = new Set<string>()
-    for (const rawMapping of config.mappings) {
-      const m = resolveMapping(rawMapping, config)
-      if (!m.integration) continue
-      const f = normalizeFolder(m.folder ?? '')
-      if (f !== '') coveredFolders.add(f)
-    }
-
-    if (coveredFolders.size > 0) {
-      await supabase
-        .from('folder_mappings')
-        .delete()
-        .eq('project_id', projectId)
-        .in('folder_path', [...coveredFolders])
-    }
-
-    for (const rawMapping of config.mappings) {
-      const mapping = resolveMapping(rawMapping, config)
-      if (!mapping.integration) continue
-      if (normalizeFolder(mapping.folder ?? '') === '') continue
-
-      let integrationId: string | undefined
-      if (mapping.parent && resolvedAliases.has(mapping.parent)) {
-        integrationId = resolvedAliases.get(mapping.parent)!.integration_id
-      } else {
-        integrationId = integrationByType.get(mapping.integration)
-      }
-
-      if (!integrationId) continue
-
-      const normalizedFolder = normalizeFolder(mapping.folder ?? '')
-      const mode = mapping.integration === 'clickup' && mapping.target === 'task' ? 'task_list' : 'doc'
-      const templateId = mapping.agent ? (templateByName.get(mapping.agent) ?? null) : undefined
-
-      // Reconcile only updates folder_mappings (the authoritative target).
-      // It does NOT clear spec_publish_targets.external_page_id when a
-      // destination changes — the adapter-side self-heal verifies the
-      // stored remote ID's parent at publish time and recreates under the
-      // current target if it diverges. One mechanism, one source of truth.
-      await supabase
-        .from('folder_mappings')
-        .upsert(
-          {
-            project_id: projectId,
-            folder_path: normalizedFolder,
-            integration_id: integrationId,
-            clickup_mode: mode,
-            skip_patterns: mapping.skip ?? [],
-            ...(mapping.list_id !== undefined ? { clickup_list_id: parseId(mapping.list_id) } : {}),
-            ...(mapping.parent_doc !== undefined ? { clickup_doc_id: parseId(mapping.parent_doc) } : {}),
-            ...(mapping.space_id !== undefined ? { target_id: parseId(mapping.space_id) } : {}),
-            // For S3: parent_dir is the bucket key prefix stored as target_id
-            ...(mapping.integration === 's3' && mapping.parent_dir !== undefined ? {
-              target_id: mapping.parent_dir.trim() || null,
-            } : {}),
-            // For Notion: parent (alias or id) resolves to the destination page; persist
-            // its native_id so setupNotionGroupContext can override the integration's
-            // default root_page_id at publish time.
-            ...(mapping.integration === 'notion' && mapping.parent && resolvedAliases.has(mapping.parent) ? {
-              target_id: resolvedAliases.get(mapping.parent)!.native_id,
-            } : {}),
-            // For Confluence: parent: id:<pageId> → target_id so the worker passes it as parentPageId.
-            ...(mapping.integration === 'confluence' && mapping.parent ? (() => {
-              const p = parseParent(mapping.parent)
-              return p.type === 'id' ? { target_id: p.value } : {}
-            })() : {}),
-            // For Jira: parent is the project key (id:<KEY> or bare KEY) → target_id,
-            // overriding the integration's default project for this folder.
-            ...(mapping.integration === 'jira' && mapping.parent ? (() => {
-              const p = parseParent(mapping.parent)
-              return p.type === 'id' || p.type === 'bare' ? { target_id: p.value } : {}
-            })() : {}),
-            ...(mapping.custom_task_ids !== undefined ? { clickup_use_custom_task_ids: mapping.custom_task_ids } : {}),
-            ...(templateId !== undefined ? { template_id: templateId } : {}),
-            ...(mapping.maintain_hierarchy !== undefined ? { s3_maintain_hierarchy: mapping.maintain_hierarchy } : {}),
-            ...(mapping.frontmatter_map !== undefined ? { frontmatter_map: mapping.frontmatter_map } : {}),
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'project_id,folder_path,integration_id,clickup_mode' }
-        )
-    }
-
-    console.log(`[publish] folder_mappings reconciled for project=${projectId}`)
-  } catch (err) {
-    console.error(`[publish] folder_mappings reconciliation failed: ${(err as Error).message}`)
-  }
+  return Response.json(
+    { status: 'queued', count: queuedCount, total: specs.length, results, sync_run_id: syncRun.id },
+    { status: 202 }
+  )
 }

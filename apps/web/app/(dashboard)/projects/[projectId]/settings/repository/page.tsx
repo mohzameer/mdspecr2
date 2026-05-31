@@ -14,7 +14,7 @@ export default function RepositorySettingsPage() {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/config`)
+    fetch(`/api/projects/${projectId}`)
       .then((r) => r.json())
       .then((p: { registered_repo: string | null }) => {
         setRegisteredRepo(p.registered_repo)

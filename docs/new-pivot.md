@@ -33,19 +33,21 @@ Branch task ID extraction is fully automatic — if the branch name contains a t
 ```yaml
 ---
 id: checkout-retry              # optional — stable identifier
-type: wiki                      # required — determines agent template
-integration: notion             # optional — overrides org default
-parent: eng-docs                # optional — destination parent
+type: wiki                      # optional — falls back to project default_type
+integration: notion             # optional — falls back to project default_integration
+parent: eng-docs                # optional — falls back to integration root
 ---
 ```
+
+All fields are optional. With project defaults configured (default_type and default_integration), an empty frontmatter block (`---\n---`) is a valid declaration — it tells mdspec "publish this file using all the project defaults."
 
 ### 3.1 Field Reference
 
 | Field | Required | Description |
 |---|---|---|
 | `id` | No | Stable identifier for this spec. Used for deduplication and ledger tracking. Falls back to file path if absent. |
-| `type` | Yes | Document type. Determines agent transformation template applied before publishing. |
-| `integration` | No | Target integration. Falls back to org default integration if absent. |
+| `type` | No | Document type. Determines agent transformation template applied before publishing. Falls back to `project.default_type` (default: `wiki`). |
+| `integration` | No | Target integration. Falls back to `project.default_integration` if absent. |
 | `parent` | No | Parent page, doc, task, or folder in the target integration. Falls back to branch task ID extraction, then integration root if absent. Explicit frontmatter always wins over branch detection. |
 
 ### 3.2 Type Values
@@ -257,32 +259,37 @@ For each changed .md file:
 
 1. Parse frontmatter
    → No frontmatter → skip silently
-   → Has frontmatter, no type → skip with warning
+   → Has frontmatter → continue (no required field)
 
-2. Extract branch task ID
+2. Extract branch task ID (optional, see §3.3)
    → Get branch name from GITHUB_REF_NAME or git command
    → Apply project.branch_task_id_pattern regex
    → Store extracted task ID (e.g. CU-182) for parent resolution
 
-3. Resolve integration
-   → frontmatter.integration present → use it
-   → absent → use org.default_integration
-   → no default set → error with clear message
+3. Resolve type
+   → frontmatter.type present → use it
+   → absent → use project.default_type (default: 'wiki')
+   → invalid (not 'wiki' or 'task' in v1) → reject with clear error
 
-4. Resolve parent
+4. Resolve integration
+   → frontmatter.integration present → use it
+   → absent → use project.default_integration
+   → no default set → reject with clear error
+
+5. Resolve parent
    → frontmatter.parent present → resolve alias/ID/URL (explicit wins)
    → frontmatter.parent absent + branch task ID extracted → use task ID
    → frontmatter.parent absent + no branch task ID → use integration root
 
-5. Resolve agent template
-   → AGENT_TEMPLATES[type] → apply transformation
+6. Resolve agent template
+   → AGENT_TEMPLATES[resolvedType] → apply transformation
    → type has no template (e.g. wiki) → publish as-is
 
-6. Resolve id
+7. Resolve id
    → frontmatter.id present → use it
    → absent → use file path as stable key
 
-7. Enqueue publish job
+8. Enqueue publish job
 ```
 
 ### 5.2 Agent template resolution
@@ -304,20 +311,42 @@ const AGENT_TEMPLATES: Record<string, string | null> = {
 
 Default templates ship with every account. Users can customise per-type templates in Dashboard → Templates.
 
-### 5.3 Integration resolution
+### 5.3 Type resolution
+
+```typescript
+function resolveType(
+  frontmatter: Frontmatter,
+  project: Project
+): SpecType {
+  const type = frontmatter.type ?? project.default_type   // default_type defaults to 'wiki'
+
+  if (!SUPPORTED_TYPES.has(type)) {
+    throw new PublishError(
+      'invalid_type',
+      `Type '${type}' is not supported. v1 supports: wiki, task.`,
+      'Set a valid type in frontmatter or change the project default in Settings → General.'
+    )
+  }
+
+  return type
+}
+```
+
+### 5.4 Integration resolution
 
 ```typescript
 function resolveIntegration(
   frontmatter: Frontmatter,
+  project: Project,
   org: Org
 ): Integration {
-  const type = frontmatter.integration ?? org.default_integration
+  const type = frontmatter.integration ?? project.default_integration
 
   if (!type) {
     throw new PublishError(
       'no_integration',
-      'No integration declared in frontmatter and no default integration set.',
-      'Set a default integration in Dashboard → Settings → Default Integration'
+      'No integration declared in frontmatter and no project default set.',
+      'Set a default integration in Project Settings → General.'
     )
   }
 
@@ -326,7 +355,7 @@ function resolveIntegration(
   if (!integration) {
     throw new PublishError(
       'integration_not_connected',
-      `Integration '${type}' is not connected to your account.`,
+      `Integration '${type}' is not connected to your org.`,
       `Connect ${type} in Dashboard → Integrations`
     )
   }
@@ -335,7 +364,7 @@ function resolveIntegration(
 }
 ```
 
-### 5.4 Parent resolution
+### 5.5 Parent resolution
 
 ```typescript
 async function resolveParent(
@@ -677,14 +706,19 @@ CREATE TABLE spec_publish_targets (
 );
 ```
 
-### 9.3 `projects` table — minimal additions
+### 9.3 `projects` table — additions
 
 ```sql
 ALTER TABLE projects
-ADD COLUMN default_integration text;         -- 'notion' | 'clickup' | 'confluence' | 's3'
+ADD COLUMN default_integration text                         -- 'notion' | 'clickup' | 'confluence' | 'jira' | 's3'
+  CHECK (default_integration IS NULL OR default_integration IN ('notion','clickup','confluence','jira','s3'));
 
 ALTER TABLE projects
-ADD COLUMN branch_task_id_pattern text;      -- regex e.g. '[A-Z]+-\d+', null = disabled
+ADD COLUMN default_type text NOT NULL DEFAULT 'wiki'        -- 'wiki' | 'task' (v1)
+  CHECK (default_type IN ('wiki','task'));
+
+ALTER TABLE projects
+ADD COLUMN branch_task_id_pattern text;                     -- regex e.g. '[A-Z]+-\d+', null = disabled
 ```
 
 No `sync_source` column needed unless GitHub App is added later.

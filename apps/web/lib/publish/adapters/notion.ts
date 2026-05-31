@@ -83,18 +83,17 @@ async function publishAsPage(
   notion: Client,
   credentials: NotionCredentials,
   spec: SpecPayload,
-  existingPageId?: string | null
+  existingPageId: string | null,
+  parentPageIdOverride: string | null
 ): Promise<PublishResult> {
   const blocks = mdToNotionBlocks(spec.content)
 
-  if (!credentials.root_page_id) {
-    throw new Error('Notion page mode requires root_page_id in credentials')
+  // Per D6: per-spec parent wins; else fall back to the integration's
+  // configured root_page_id (the workspace-root access granted at OAuth).
+  const parentPageId = parentPageIdOverride ?? credentials.root_page_id ?? null
+  if (!parentPageId) {
+    throw new Error('Notion publish requires parent: in frontmatter or a root_page_id on the integration')
   }
-
-  // Notion publishes are flat: the .mdspecmap parent (or integration default
-  // root_page_id) is authoritative — every spec lands directly under it. We
-  // do NOT mirror the repo folder hierarchy as nested Notion pages.
-  const parentPageId = credentials.root_page_id
 
   if (existingPageId) {
     await clearChildren(notion, existingPageId)
@@ -149,10 +148,11 @@ export async function getNotionPageParentId(
 export async function publishToNotion(
   credentials: NotionCredentials,
   spec: SpecPayload,
-  existingPageId?: string | null
+  existingPageId: string | null,
+  parentPageId: string | null
 ): Promise<PublishResult> {
   const notion = new Client({ auth: credentials.token, notionVersion: NOTION_API_VERSION })
-  return publishAsPage(notion, credentials, spec, existingPageId)
+  return publishAsPage(notion, credentials, spec, existingPageId, parentPageId)
 }
 
 // ---------------------------------------------------------------------------

@@ -29,7 +29,7 @@ export default async function ActivityPage() {
 
   const { data: activity } = await supabase
     .from('spec_publish_targets')
-    .select('id, status, last_error, published_at, updated_at, target_type, specs(path)')
+    .select('id, status, last_error, published_at, updated_at, integrations(type), specs(path, type)')
     .in('spec_id', sids.length ? sids : ['00000000-0000-0000-0000-000000000000'])
     .order('updated_at', { ascending: false, nullsFirst: false })
     .limit(50)
@@ -37,7 +37,8 @@ export default async function ActivityPage() {
   const items = (activity ?? []).map((row) => ({
     id: row.id,
     spec_path: (row.specs as any)?.path ?? '',
-    target_type: row.target_type,
+    spec_type: (row.specs as any)?.type ?? '',
+    integration_type: (row.integrations as any)?.type ?? '',
     status: row.status,
     last_error: row.last_error,
     published_at: row.published_at,

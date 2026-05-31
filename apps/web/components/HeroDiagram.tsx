@@ -37,7 +37,7 @@ export function HeroDiagram() {
 
         {/* pipeline */}
         <div className="p-5">
-          <Stage icon={GitBranch} label="Your repository" sub=".mdspecmap + markdown" />
+          <Stage icon={GitBranch} label="Your repository" sub="markdown + frontmatter" />
           <Connector delay="0s" />
           <Stage icon={Terminal} label="GitHub Actions" sub="npx mdspeci publish" />
           <Connector delay="-0.8s" />

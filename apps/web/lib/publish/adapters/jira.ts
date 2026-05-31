@@ -149,17 +149,16 @@ export function mdToAdf(markdown: string): AdfNode {
 export async function publishToJira(
   credentials: JiraOAuthCredentials,
   spec: { path: string; content: string; resolvedTitle: string },
-  existingIssueId?: string | null,
-  projectKeyOverride?: string | null,
-  issueType?: string | null
+  existingIssueId: string | null
 ): Promise<{ page_id: string; page_url: string }> {
   const base = apiBase(credentials)
   const siteBase = credentials.site_url.replace(/\/$/, '')
-  const projectKey = projectKeyOverride || credentials.project_key
+  const projectKey = credentials.project_key
+  const issueType = 'Task'
   const summary = spec.resolvedTitle
   const description = mdToAdf(spec.content)
 
-  console.log(`[jira] project=${projectKey} issueType=${issueType ?? 'Task'} existing=${existingIssueId ?? '(none)'}`)
+  console.log(`[jira] project=${projectKey} issueType=${issueType} existing=${existingIssueId ?? '(none)'}`)
 
   // -- Update path: verify the stored issue still exists, then PUT ----------
   if (existingIssueId) {
@@ -188,7 +187,7 @@ export async function publishToJira(
       fields: {
         project: { key: projectKey },
         summary,
-        issuetype: { name: issueType || 'Task' },
+        issuetype: { name: issueType },
         description,
       },
     },

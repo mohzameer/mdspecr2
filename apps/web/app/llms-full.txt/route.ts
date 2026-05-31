@@ -1,148 +1,74 @@
 import { NextResponse } from 'next/server'
 
-const CONTENT = `# mdspec — Configuration & CLI Reference
+const CONTENT = `# mdspec — Full Reference (v2: frontmatter routing)
 
-> Audit-ready, git-native markdown publishing for engineering teams.
+> CI-based markdown publishing to Notion, Confluence, ClickUp, Jira, and S3. Routing is declared in each spec's frontmatter — no external config file.
 
-mdspec publishes markdown spec files to Notion, ClickUp, Confluence, or S3 on every commit or merge — deterministically, with a full audit trail. Configuration lives in yml files placed in any folder of your repo. The CLI is invoked as \`npx mdspeci\` (the npm package is \`mdspeci\`, with a trailing i).
+The CLI package is **\`mdspeci\`** (trailing i). Invoke as \`npx mdspeci publish --project <project-id>\`.
 
----
+## Frontmatter schema
 
-## .mdspecmap file
-
-JSON Schema: https://mdspec.dev/mdspecmap.schema.json
-
-A .mdspecmap file governs the folder it lives in and all subfolders. Its location is its scope — no \`folder:\` key is used inside mappings. Four top-level keys:
-
-- \`version\` (required, always \`1\`): schema version — must be present or the CLI will reject the file
-- \`mappings\` (required): routes specs to integrations
-- \`default\` (optional): fallback integration/parent/target/agent for mappings that omit them
-- \`specs\` (optional): per-spec overrides keyed by file path
-
-### Full example
+Every markdown file declares its routing in frontmatter:
 
 \`\`\`yaml
-# docs/specs/.mdspecmap
-version: 1
-
-sync_all_on_first_run: false   # optional, default true — see sync_all_on_first_run section below
-
-default:
-  integration: clickup
-  parent: alias:eng-docs
-
-mappings:
-  - skip:
-      - DRAFT_*.md
-
-specs:
-  docs/specs/auth/sso-setup.md:
-    title: SSO Setup Guide
-
-  docs/specs/checkout-retry.md:
-    title: Checkout Retry Policy
-    agent: task_template
-    id: CU-182
-
-  docs/specs/sla-policy.md:
-    id: CU-305
+---
+id: checkout-retry         # optional — stable spec identifier (deduplication)
+type: wiki                 # required — 'wiki' or 'task' (v1)
+integration: notion        # optional — overrides project default integration
+parent: eng-docs           # optional — alias, native ID, or URL
+---
 \`\`\`
 
----
+### Field reference
 
-## Distributed maps
+- \`id\` (optional) — stable identifier. Falls back to file path if absent.
+- \`type\` (required) — \`wiki\` (publish as-is) or \`task\` (agent-transformed).
+- \`integration\` (optional) — target integration. Falls back to project default.
+- \`parent\` (optional) — alias / native ID / URL. Falls back to integration root.
 
-Place a .mdspecmap in any folder — you are not limited to one at the root. The nearest ancestor .mdspecmap wins for any spec file. Set \`sub_folders: false\` to restrict a map to direct children only.
+### Type values (v1)
 
-No \`folder:\` key — mappings have no folder field. The file's location is its scope. To route a subfolder differently, put a separate .mdspecmap inside that subfolder.
+- **wiki** — General documentation. No agent transformation. Published as-is.
+- **task** — Task/feature spec. Transformed by the Task Template before publishing.
 
----
+### Integration values
 
-## mappings: fields
+\`notion\`, \`clickup\`, \`confluence\`, \`jira\`, \`s3\`.
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| \`integration\` | No | notion, confluence, clickup, or s3 |
-| \`parent\` | No | Four forms: alias:<name>, id:<nativeId>, link:<url>, or bare value |
-| \`target\` | No | ClickUp only: document (default) or task |
-| \`depth\` | No | Max subfolder depth. 1 = direct children only |
-| \`maintain_hierarchy\` | No | S3 only. true preserves subfolder paths under the alias prefix |
-| \`skip\` | No | Glob patterns for files to exclude |
-| \`list_id\` | No | ClickUp: id:<listId>. Required when target: task |
-| \`parent_doc\` | No | ClickUp doc that specs publish inside as pages |
-| \`space_id\` | No | ClickUp space or folder ID |
-| \`custom_task_ids\` | No | true to use ClickUp custom task IDs |
-| \`agent\` | No | Agent template name to apply before publishing |
+### Parent values
 
----
+Three formats, auto-detected:
 
-## parent: link: prefix
+- **Alias** (recommended): \`parent: eng-docs\` resolves to the alias defined in Dashboard → Integrations.
+- **Native ID**: \`parent: abc123def456\` (e.g. Notion page ID, ClickUp list ID).
+- **URL**: \`parent: https://notion.so/Engineering-abc123\`. Resolved to native ID on first publish.
 
-Paste a browser URL directly into the parent field using the link: prefix. The CLI extracts the native ID at publish time.
+Absent: spec publishes at the integration root.
 
-Supported: Notion pages, Confluence Cloud pages (/wiki/spaces/<KEY>/pages/<id>/...), ClickUp spaces/lists/docs.
+## Files without frontmatter are silently ignored
 
-Not supported: S3 (plain key prefix, not a URL), short links, Confluence Data Center /display/ URLs (use id:<pageId> instead), mobile URLs.
+There is no opt-out config, no allowlist, no skip patterns. Add frontmatter → it syncs. Don't → it doesn't.
 
----
+## CLI
 
-## default: fields
-
-| Field | Description |
-|-------|-------------|
-| \`integration\` | Fallback integration: clickup, notion, confluence, s3 |
-| \`parent\` | Fallback parent alias |
-| \`target\` | Fallback target mode: document or task |
-| \`agent\` | Fallback agent template |
-
----
-
-## specs: fields
-
-Keyed by file path. Add an entry only when you need to override title, set an agent, or link a task.
-
-| Field | Description |
-|-------|-------------|
-| \`title\` | Page title — overrides H1 and filename derivation |
-| \`agent\` | Agent template name for this spec only |
-| \`id\` | Native ID of an existing page/doc/task to adopt on first publish |
-
-Title resolution order (highest first): frontmatter title → specs[path].title → first H1 → filename.
-
----
-
-## sync_all_on_first_run
-
-Optional top-level boolean (default: \`true\`). Controls what happens the first time mdspec encounters a folder with no prior publish history.
-
-| Value | Behaviour |
-|-------|-----------|
-| \`true\` (default) | All spec files in scope are published on first run, regardless of git diff |
-| \`false\` | Only files changed in the triggering commit are published on first run |
-
-Set to \`false\` when most specs already exist in the target tool and you want to avoid re-publishing everything.
-
----
-
-## frontmatter_map
-
-Optional field on a mapping. Renames the frontmatter keys mdspec reads for \`id\` and \`title\`, so teams can use their existing key conventions without renaming every spec file.
-
-\`\`\`yaml
-mappings:
-  - integration: clickup
-    target: task
-    list_id: id:901812345
-    frontmatter_map:
-      id: task          # read "task:" frontmatter key instead of "id:"
-      title: heading    # read "heading:" frontmatter key instead of "title:"
+\`\`\`bash
+npx mdspeci publish --project <project-id>
 \`\`\`
 
-Applies per-mapping. Omit to use the default keys (\`id\` and \`title\`).
+Reads git diff against the previous commit on main, parses frontmatter on each changed \`.md\` file, posts a payload to the mdspec API.
 
----
+### Flags
 
-## CI setup
+- \`--project <project-id>\` (required) — your mdspec project ID.
+- \`--all\` — walk the entire repo and publish every file with frontmatter, ignoring git diff. Useful for first-time setup.
+
+### Environment
+
+- \`MDSPEC_TOKEN\` (required) — your project token (\`mds_...\`).
+- \`MDSPEC_API_URL\` (optional) — override the API host. Defaults to \`https://mdspec.dev\`.
+- \`GITHUB_EVENT_BEFORE\` — set automatically in GitHub Actions; used as the base ref for git diff.
+
+## GitHub Actions example
 
 \`\`\`yaml
 name: mdspec sync
@@ -151,97 +77,64 @@ on:
     branches: [main]
 
 jobs:
-  publish:
+  sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 0
       - run: npx mdspeci publish --project <project-id>
         env:
           MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}
           GITHUB_EVENT_BEFORE: \${{ github.event.before }}
 \`\`\`
 
-Find your project ID at Dashboard → Project → Settings → Overview.
-Generate MDSPEC_TOKEN at Dashboard → Project → Settings → Tokens.
+## Integrations
 
----
+### Notion
 
-## CLI reference
+OAuth-based. The integration owns a workspace root page; per-spec \`parent:\` can target any sub-page or alias. Type-agnostic: both \`wiki\` and \`task\` publish as Notion pages.
 
-\`\`\`
-npx mdspeci publish --project <project-id>
-npx mdspeci publish --project <project-id> --skip-diff
-npx mdspeci publish --project <project-id> --base origin/main
-npx mdspeci init --project <project-id>
-\`\`\`
+### Confluence
 
-Environment variables:
-- MDSPEC_TOKEN (required): project token
-- GITHUB_EVENT_BEFORE (optional): previous commit SHA, set automatically by GitHub Actions
+Atlassian OAuth. Bound to a single space (configured at connect time). Per-spec \`parent:\` targets a page within the space.
 
----
+### ClickUp
 
-## Frontmatter
+OAuth or personal API token. Two modes driven by spec \`type\`:
 
-YAML frontmatter is optional. Supported keys: title, id, agent. Other keys are preserved on the artifact but ignored by adapters unless mapped explicitly.
+- \`type: wiki\` → ClickUp Doc with one page. \`parent:\` is a space or folder ID.
+- \`type: task\` → ClickUp task. \`parent:\` is a list ID. Description = full markdown body.
 
-\`\`\`markdown
----
-title: My Spec
-id: 86abc123
----
+### Jira
 
-# Spec content here
-\`\`\`
+Atlassian OAuth. Issues are created in the configured project. Issue type defaults to \`Task\`. Description converted from markdown to Atlassian Document Format (ADF).
 
-Frontmatter is stripped before publishing. id: binds the spec to an existing remote page/task. Use frontmatter_map on a mapping to rename the id or title key (see frontmatter_map section above).
+### S3
 
----
+AWS access key pair. \`parent:\` becomes the S3 key prefix. Object key: \`{parent}/{filename}.md\` (or just \`{filename}.md\` if no parent).
 
-## Skip patterns
+## Agent transformation
 
-\`\`\`yaml
-mappings:
-  - integration: clickup
-    parent: alias:eng-docs
-    skip:
-      - DRAFT_*.md
-      - _*.md
-      - "**/scratch/**"
-\`\`\`
+Specs with \`type: task\` are transformed by the org's Task Template (Claude Haiku) before publishing. The template is editable in Dashboard → Templates. Wikis are published as-is.
 
-Patterns match against filename and path relative to the .mdspecmap file's location.
+## Aliases
 
----
+Aliases are short names mapping to native IDs in your integrations. Define in Dashboard → Integrations → Aliases. Reference as \`parent:\` in frontmatter.
 
-## S3 integration
+## Behaviour notes
 
-IAM permissions needed: s3:PutObject, s3:GetObject, s3:DeleteObject (on bucket/*), s3:ListBucket (on bucket ARN). s3:DeleteObject is required only for the Connect-time sentinel validation; published spec objects are never deleted.
+- **Trigger**: only \`push: branches: [main]\`. No per-branch publishing.
+- **Idempotent updates**: content hash is stored; republishing an unchanged spec is a no-op.
+- **Append-only**: removing a file from the repo does NOT delete it from the target tool.
+- **Renames**: in v1, a renamed file is treated as a new file (the old published version stays put). Rename handling will be added when first requested.
+- **Self-healing**: if the stored external ID points to a deleted page/task, mdspec recreates and updates the ledger.
+- **Rate limits**: enforced per-integration via QStash flow control. Confluence/Jira/Notion are slower than ClickUp/S3.
 
-Set maintain_hierarchy: true on a mapping to preserve subfolder paths under the alias prefix. Default is false (flatten to basename).
+## Pricing
 
----
-
-## Notion integration
-
-mdspec pins Notion-Version: 2025-09-03. Two modes: page mode (each spec is a child page) and database mode (each spec is a row in a data source).
-
-For database mode, the target data source must have a Name (title) and Content (rich_text) property. mdspec does not create or modify database schemas.
-
----
-
-## Confluence integration
-
-Supports Confluence Cloud only. Base URL must be https://yourcompany.atlassian.net (no /wiki path). Token generated at id.atlassian.com/manage/api-tokens.
-
-Confluence Data Center /display/SPACEKEY/Page+Title URLs are not supported for link: extraction — use id:<pageId> obtained from the page via ··· → Page Information.
-
----
-
-## ClickUp integration
-
-Two modes: doc pages (target: document, default) and tasks (target: task with list_id). Mode is set per mapping in .mdspecmap. Personal API token starts with pk_.
+- **Free**: 1 project, 15 published docs.
+- **Pro**: $9/month or $100/year. Unlimited projects, docs, integrations.
 `
 
 export function GET() {

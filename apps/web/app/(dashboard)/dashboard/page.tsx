@@ -45,7 +45,7 @@ export default async function DashboardPage() {
         .eq('org_id', currentOrgId),
       supabase
         .from('spec_publish_targets')
-        .select('id, status, last_error, published_at, updated_at, target_type, specs(path)')
+        .select('id, status, last_error, published_at, updated_at, integrations(type), specs(path, type)')
         .order('updated_at', { ascending: false, nullsFirst: false })
         .limit(20),
     ])
@@ -53,7 +53,8 @@ export default async function DashboardPage() {
   const activityItems = (recentActivity ?? []).map((row) => ({
     id: row.id,
     spec_path: (row.specs as any)?.path ?? '',
-    target_type: row.target_type,
+    spec_type: (row.specs as any)?.type ?? '',
+    integration_type: (row.integrations as any)?.type ?? '',
     status: row.status,
     last_error: row.last_error,
     published_at: row.published_at,

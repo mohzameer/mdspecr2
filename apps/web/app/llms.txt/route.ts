@@ -4,14 +4,16 @@ const CONTENT = `# mdspec
 
 > Audit-ready, git-native markdown publishing for engineering teams.
 
-mdspec is a CI-based markdown publishing platform for engineering teams. Drop a yml file in your repo, add one line to GitHub Actions, and on every commit or merge your markdown specs publish automatically to Notion, Confluence, ClickUp, or S3 — with a full audit trail.
+mdspec is a CI-based markdown publishing platform for engineering teams. Add four lines of frontmatter to any markdown file, add one line to GitHub Actions, and on every push to main your markdown specs publish automatically to Notion, Confluence, ClickUp, Jira, or S3 — with a full audit trail.
+
+Routing is per-file via frontmatter: every spec declares its own \`type\`, \`integration\`, and \`parent\`. Files without frontmatter are silently skipped. No config file. No folder mapping.
 
 The CLI package is \`mdspeci\` (note the trailing i) — invoke it as \`npx mdspeci publish --project <project-id>\`.
 
 ## Docs
 
-- [Getting Started & Configuration Reference](https://mdspec.dev/docs/api-reference): Complete reference for .mdspecmap schema, CLI commands, frontmatter, integrations (S3, Notion, ClickUp, Confluence), CI setup, skip patterns, depth limiting, agent templates, and worked example scenarios.
-- [Machine-readable full reference](https://mdspec.dev/llms-full.txt): Condensed .mdspecmap schema, CLI reference, and integration details — optimised for LLM context windows.
+- [Getting Started & API Reference](https://mdspec.dev/docs/api-reference): Frontmatter schema, CLI commands, integrations (Notion, ClickUp, Confluence, Jira, S3), CI setup, and worked examples.
+- [Machine-readable reference](https://mdspec.dev/llms-full.txt): Condensed schema and CLI reference — optimised for LLM context windows.
 
 ## Optional
 

@@ -10,67 +10,19 @@ export type PublishStatus = 'queued' | 'published' | 'failed'
 export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
 
 // ---------------------------------------------------------------------------
-// .mdspecmap config — parsed by CLI, sent in publish payload
+// CLI → API publish payload + QStash job data shapes
+// (rewritten in step 3a/3b/3c — placeholders here so other files keep their imports)
 // ---------------------------------------------------------------------------
-
-export interface MdspecMapMapping {
-  folder?: string                    // repo-relative path; absent = scope root of the owning .mdspecmap file
-  integration?: string
-  target?: 'document' | 'task'
-  parent?: string                    // alias:<name> | id:<nativeId> | bare
-  skip?: string[]
-  depth?: number                     // max folder depth to sync (1 = direct children only)
-  subfolders?: string[]              // resolved per-mapping form of MdspecMapConfig.sub_folders array — micromatch globs against file path relative to mapping folder
-
-  list_id?: string                   // id:<clickupListId> — task_list mode
-  parent_doc?: string                // id:<clickupDocId> — specs publish as pages inside this doc
-  space_id?: string                  // id:<clickupSpaceOrFolderId> — target space/folder (omit for workspace root)
-  custom_task_ids?: boolean          // use ClickUp custom task IDs
-  agent?: string                     // agent template name
-  parent_dir?: string                // s3 only: bucket key prefix (e.g. "docs/eng-specs")
-  maintain_hierarchy?: boolean       // s3 only: preserve subfolder paths under parent_dir (default false = flat)
-  frontmatter_map?: Record<string, string>  // ClickUp task field allowlist (status/priority/tags/...). The unified `id` is never mapped here.
-}
-
-export interface MdspecMapSpecEntry {
-  title?: string
-  agent?: string                     // template name or 'none'
-  id?: string                        // native ID in the target tool to adopt on first publish
-}
-
-export interface MdspecMapDefault {
-  integration?: string
-  parent?: string
-  target?: 'document' | 'task'
-  agent?: string
-}
-
-export interface MdspecMapConfig {
-  version: 1
-  sync_all_on_first_run?: boolean    // default false
-  sub_folders?: boolean | string[]   // default true. false = root only (depth: 1). string[] = micromatch globs against file path relative to scope; matching subfolders included, root files always included.
-  default?: MdspecMapDefault         // fallback for mappings missing integration/parent
-  mappings: MdspecMapMapping[]
-  specs?: Record<string, MdspecMapSpecEntry>   // keyed by file path
-}
-
-// ---------------------------------------------------------------------------
-// CLI → API publish payload
-// ---------------------------------------------------------------------------
-
-export type AttrSource = 'frontmatter' | 'mapping' | 'derived'
 
 export interface SpecArtifact {
   path: string
-  previous_path?: string             // set on rename (git R status)
+  id: string                         // frontmatter.id or file path (per spec §6.4)
+  type: string | null                // null = use project default_type
+  integration: string | null         // null = use project default_integration
+  parent: string | null              // alias, native ID, URL, or null
+  content: string
   hash: string
-  title: string                      // resolved by CLI: frontmatter.title > specs[path].title > H1 > filename
-  title_source: AttrSource
-  id?: string                        // unified native ID — frontmatter.id > specs[path].id
-  id_source?: 'frontmatter' | 'mapping'
-  agent?: string                     // unified agent — frontmatter.agent > specs[path].agent > folder mapping
-  agent_source?: 'frontmatter' | 'mapping'
-  content: string                    // markdown body with frontmatter stripped
+  frontmatter: Record<string, unknown>
 }
 
 export interface PublishPayload {
@@ -78,42 +30,26 @@ export interface PublishPayload {
   repo_name: string
   branch: string
   commit_sha: string
-  commit_timestamp: number           // unix timestamp from git log
+  commit_timestamp: number
   specs: SpecArtifact[]
-  config: MdspecMapConfig            // parsed .mdspecmap — always required
 }
 
-// ---------------------------------------------------------------------------
-// QStash job data shapes
-// ---------------------------------------------------------------------------
-
-// A single spec inside a group job. The group carries shared context
-// (integration, project, target_type) at the top level.
-export interface PublishGroupSpec {
-  spec_id: string
-  spec_publish_target_id: string
-  path: string
-  title: string
-  id?: string
-  id_source?: 'frontmatter' | 'mapping'
-  agent?: string
-  content: string
-  content_hash: string
-}
-
-// All specs in a group share the same (integration_id, immediateParent).
-// The worker resolves folder-mapping state once and processes specs sequentially,
-// eliminating cross-worker races on shared ClickUp folder docs.
-export interface PublishGroupJobData {
+// Replaces PublishGroupJobData. Each spec is a self-contained job — no per-folder
+// grouping (no shared ClickUp section doc concept after the pivot).
+export interface PublishJobData {
   project_id: string
   integration_id: string
   target_type: IntegrationType
-  specs: PublishGroupSpec[]
-  clickup_mode?: 'doc' | 'task_list'
-  matched_folder?: string  // the folder path that was matched for this group (longest-prefix)
-  s3_root_prefix?: string | null  // S3 bucket key prefix from mapping's parent_dir field
-  frontmatter_map?: Record<string, string> | null  // ClickUp task field allowlist (status/priority/tags/...). Never used for `id` — that's unified.
-  sync_run_id?: string  // links all groups in one CLI push; last group sends the consolidated email
+  spec_id: string
+  spec_path: string
+  spec_native_id: string
+  spec_type: string
+  content: string
+  content_hash: string
+  parent_id: string | null
+  agent_template: string | null
+  commit_sha: string
+  sync_run_id?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +88,9 @@ export interface Project {
   name: string
   description: string | null
   registered_repo: string | null
-  spec_dirs: string[]
+  default_integration: IntegrationType | null
+  default_type: 'wiki' | 'task'
+  publish_count: number
   created_at: string
 }
 
@@ -180,7 +118,7 @@ export interface Integration {
   org_id: string
   type: IntegrationType
   status: IntegrationStatus
-  credentials: string
+  credentials_secret_id: string | null
   config: Record<string, unknown> | null
   created_at: string
   updated_at: string
@@ -189,13 +127,13 @@ export interface Integration {
 export interface Spec {
   id: string
   project_id: string
-  repo: string
   path: string
-  mdspec_id: string | null
+  spec_id: string                  // frontmatter.id or file path
+  type: string                     // 'wiki' | 'task' (v1)
   commit_sha: string
   content_hash: string
-  title: string
   frontmatter: Record<string, unknown> | null
+  deleted_from_repo: boolean
   created_at: string
   updated_at: string
 }
@@ -204,13 +142,15 @@ export interface SpecPublishTarget {
   id: string
   spec_id: string
   integration_id: string
-  target_type: IntegrationType
+  external_id: string | null
   external_page_id: string | null
   external_url: string | null
   status: PublishStatus
   retry_count: number
   last_error: string | null
+  content_hash: string | null
   published_at: string | null
+  updated_at: string
 }
 
 export type OrgPlan = 'free' | 'pro'
@@ -253,17 +193,6 @@ export interface Template {
   updated_at: string
 }
 
-export interface FolderMapping {
-  id: string
-  project_id: string
-  folder_path: string
-  integration_id: string
-  template_id: string | null
-  skip_patterns: string[]
-  created_at: string
-  updated_at: string
-}
-
 export interface Alias {
   id: string
   org_id: string
@@ -278,13 +207,11 @@ export interface Alias {
 }
 
 export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'failed'
-export type AgentRunTrigger = 'folder_mapping' | 'frontmatter'
 
 export interface AgentRun {
   id: string
   spec_id: string
   template_id: string | null
-  trigger: AgentRunTrigger
   raw_content: string
   transformed_content: string | null
   status: AgentRunStatus

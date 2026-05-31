@@ -11,19 +11,9 @@ program
 
 program
   .command('publish')
-  .description('Publish spec files to mdspec (reads .mdspecmap from repo root)')
+  .description('Publish markdown files with frontmatter (see docs/new-pivot.md)')
   .requiredOption('--project <project_id>', 'Project ID')
-  .option('--base <base_ref>', 'Base git ref for change detection')
-  .option('--skip-diff', 'Skip git diff and publish all discovered specs')
+  .option('--all', 'Walk the repo and publish every file with frontmatter (ignores git diff)')
   .action(publishCommand)
-
-program
-  .command('init')
-  .description('Generate a starter .mdspecmap file')
-  .requiredOption('--project <project_id>', 'Project ID')
-  .action(async (options: { project: string }) => {
-    const { initCommand } = await import('./commands/init.js')
-    return initCommand(options)
-  })
 
 program.parseAsync(process.argv)

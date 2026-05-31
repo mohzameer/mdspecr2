@@ -1,5 +1,4 @@
 import axios, { AxiosError } from 'axios'
-import { getAncestorFolders } from '../../folder-hierarchy'
 
 export interface ConfluenceCredentials {
   base_url: string
@@ -159,15 +158,8 @@ export async function publishToConfluence(
 
   const spaceId = await resolveSpaceId(credentials)
 
-  // When a folder-mapping parent page is set, use it as the root ancestor.
-  // Otherwise build the full ancestor hierarchy from the spec path.
-  const folders = getAncestorFolders(spec.path)
-  let parentId: string | null = parentPageId ?? null
-  if (!parentPageId) {
-    for (const folder of folders) {
-      parentId = await findOrCreatePage(credentials, spaceId, folder.name, parentId)
-    }
-  }
+  // Per D7: parentPageId null → page lands at space content root.
+  const parentId: string | null = parentPageId ?? null
 
   let activePageId = existingPageId ?? null
 

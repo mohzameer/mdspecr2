@@ -5,47 +5,29 @@ import { Card, CardContent } from "@/components/ui/card"
 
 const integrations = [
   {
-    id: "confluence",
-    label: "Confluence",
+    id: "task",
+    label: "Task",
     lines: [
-      { dim: true, text: "# docs/specs/.mdspecmap" },
-      { text: "version: 1" },
-      { text: "mappings:" },
-      { dim: true, indent: 2, text: "- ", inline: { text: "integration: confluence" } },
-      { dim: true, indent: 4, text: "parent: ", inline: { text: "alias:eng-space" }, comment: "  # alias → space key + parent page in dashboard" },
+      { dim: true, text: "# docs/specs/checkout-retry.md" },
+      { text: "---" },
+      { text: "type: task" },
+      { text: "id: CU-182", comment: "  # links to an existing task in the target tool" },
+      { text: "---" },
+      { text: "" },
+      { text: "# Checkout retry policy" },
     ],
   },
   {
-    id: "notion",
-    label: "Notion",
+    id: "wiki",
+    label: "Wiki",
     lines: [
-      { dim: true, text: "# docs/specs/.mdspecmap" },
-      { text: "version: 1" },
-      { text: "mappings:" },
-      { dim: true, indent: 2, text: "- ", inline: { text: "integration: notion" } },
-      { dim: true, indent: 4, text: "parent: ", inline: { text: "alias:eng-wiki" }, comment: "  # alias → parent page ID in dashboard" },
-    ],
-  },
-  {
-    id: "clickup",
-    label: "ClickUp",
-    lines: [
-      { dim: true, text: "# docs/specs/.mdspecmap" },
-      { text: "version: 1" },
-      { text: "mappings:" },
-      { dim: true, indent: 2, text: "- ", inline: { text: "integration: clickup" } },
-      { dim: true, indent: 4, text: "parent: ", inline: { text: "alias:product-docs" }, comment: "  # alias → ClickUp list in dashboard" },
-    ],
-  },
-  {
-    id: "s3",
-    label: "S3",
-    lines: [
-      { dim: true, text: "# docs/specs/.mdspecmap" },
-      { text: "version: 1" },
-      { text: "mappings:" },
-      { dim: true, indent: 2, text: "- ", inline: { text: "integration: s3" } },
-      { dim: true, indent: 4, text: "parent: ", inline: { text: "alias:eng-bucket" }, comment: "  # alias → S3 key prefix in dashboard" },
+      { dim: true, text: "# docs/specs/auth-flow.md" },
+      { text: "---" },
+      { text: "type: wiki" },
+      { text: "parent: eng-docs", comment: "  # alias → parent page/doc in dashboard" },
+      { text: "---" },
+      { text: "" },
+      { text: "# Authentication flow" },
     ],
   },
 ]
@@ -80,7 +62,7 @@ function SnippetLine({ line }: { line: Line }) {
 
 export function SnippetSlider() {
   return (
-    <Tabs defaultValue="confluence">
+    <Tabs defaultValue="task">
       <div className="flex justify-center mb-3">
         <TabsList>
           {integrations.map((i) => (

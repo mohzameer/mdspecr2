@@ -2,6 +2,17 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { AliasesPanel } from '@/components/AliasesPanel'
+
+interface AliasRow {
+  id: string
+  name: string
+  native_id: string
+  native_url: string | null
+  display_name: string | null
+  integration_id: string
+  integrations: { id: string; type: string; status: string } | null
+}
 
 type IntegrationType = 'notion' | 'confluence' | 'clickup' | 's3' | 'jira'
 
@@ -115,7 +126,15 @@ export default function IntegrationsPage() {
   const [jiraLoadingProjects, setJiraLoadingProjects] = useState(false)
   const [jiraProjectKey, setJiraProjectKey] = useState<string>('')
   const [jiraValidateError, setJiraValidateError] = useState<string | null>(null)
+  const [aliases, setAliases] = useState<AliasRow[]>([])
   const searchParams = useSearchParams()
+
+  async function fetchAliases() {
+    const res = await fetch('/api/aliases')
+    if (res.ok) setAliases(await res.json())
+  }
+
+  useEffect(() => { fetchAliases() }, [])
 
   useEffect(() => {
     const setup = searchParams.get('setup')
@@ -909,6 +928,21 @@ export default function IntegrationsPage() {
             </div>
           )
         })}
+      </div>
+
+      <div className="mt-10">
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Aliases</h2>
+        <p className="text-sm text-zinc-500 mb-4">
+          Short names for pages, docs, or lists in your integrations. Reference them as <code className="font-mono text-xs">parent:</code> in spec frontmatter.
+        </p>
+        <AliasesPanel
+          initialAliases={aliases}
+          connectedIntegrations={INTEGRATION_ORDER
+            .map((t) => integrations[t])
+            .filter((i): i is Integration => i !== null && i.status === 'connected')
+            .map((i) => ({ id: i.id, type: i.type, status: i.status }))}
+          canEdit={true}
+        />
       </div>
 
     </div>
