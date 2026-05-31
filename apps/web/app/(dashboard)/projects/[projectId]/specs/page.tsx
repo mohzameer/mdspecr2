@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { redirect, notFound } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/db-server'
-import type { Spec, SpecPublishTarget } from '@/lib/types'
+import type { Spec, SpecPublishTarget, IntegrationType } from '@/lib/types'
+
+type TargetWithIntegration = SpecPublishTarget & { integrations: { type: IntegrationType } | null }
 import { DeleteAllSpecsButton } from './DeleteAllSpecsButton'
 import { CopyButton } from './CopyButton'
 
@@ -9,7 +11,7 @@ export const dynamic = 'force-dynamic'
 
 interface SpecNode {
   type: 'file'
-  spec: Spec & { targets: SpecPublishTarget[] }
+  spec: Spec & { targets: TargetWithIntegration[] }
   name: string
 }
 
@@ -19,7 +21,7 @@ interface FolderNode {
   children: (SpecNode | FolderNode)[]
 }
 
-function buildTree(specs: (Spec & { targets: SpecPublishTarget[] })[]): FolderNode {
+function buildTree(specs: (Spec & { targets: TargetWithIntegration[] })[]): FolderNode {
   const root: FolderNode = { type: 'folder', name: '', children: [] }
 
   for (const spec of specs) {
@@ -101,7 +103,7 @@ function TreeView({ node, depth = 0 }: { node: FolderNode | SpecNode; depth?: nu
           {node.spec.targets.map((t) => (
             <div key={t.id} className="flex items-center gap-1">
               {statusBadge(t.status)}
-              <span className="text-xs text-zinc-400">{t.target_type}</span>
+              <span className="text-xs text-zinc-400">{t.integrations?.type ?? '—'}</span>
               {t.external_url && (
                 <a href={t.external_url} target="_blank" rel="noopener noreferrer" className="text-xs text-zinc-400 hover:text-zinc-600">↗</a>
               )}
@@ -154,14 +156,14 @@ export default async function SpecsPage({ params }: { params: Promise<{ projectI
 
   const { data: specs } = await supabase
     .from('specs')
-    .select('*, spec_publish_targets(*)')
+    .select('*, spec_publish_targets(*, integrations(type))')
     .eq('project_id', projectId)
     .order('updated_at', { ascending: false, nullsFirst: false })
 
   const specsWithTargets = (specs ?? []).map((s) => ({
     ...s,
-    targets: (s.spec_publish_targets ?? []) as SpecPublishTarget[],
-  })) as (Spec & { targets: SpecPublishTarget[] })[]
+    targets: (s.spec_publish_targets ?? []) as TargetWithIntegration[],
+  })) as (Spec & { targets: TargetWithIntegration[] })[]
 
   const tree = buildTree(specsWithTargets)
 

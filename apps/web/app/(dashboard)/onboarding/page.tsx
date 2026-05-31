@@ -3,13 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-interface OrgForm { name: string }
-interface ProjectForm { name: string; description: string }
-interface DirsForm { dirs: string[] }
-interface TokenForm { token: string | null; projectId: string | null }
-
-type Step = 1 | 2 | 3 | 4 | 5 | 6
-type IntegrationChoice = 'notion' | 'clickup' | 'confluence' | null
+type Step = 1 | 2 | 3 | 4
+type IntegrationChoice = 'notion' | 'clickup' | 'confluence' | 'jira' | 's3' | null
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -20,30 +15,26 @@ export default function OnboardingPage() {
     if (searchParams.get('skip_org') === '1') setStep(2)
   }, [searchParams])
 
-  const [org, setOrg] = useState<OrgForm>({ name: '' })
-  const [project, setProject] = useState<ProjectForm>({ name: '', description: '' })
-  const [dirs, setDirs] = useState<DirsForm>({ dirs: ['/'] })
-  const [tokenData, setTokenData] = useState<TokenForm>({ token: null, projectId: null })
-  const [syncAllOnFirstRun, setSyncAllOnFirstRun] = useState(false)
-  const [newDir, setNewDir] = useState('')
+  const [orgName, setOrgName] = useState('')
+  const [projectName, setProjectName] = useState('')
+  const [projectDescription, setProjectDescription] = useState('')
+  const [token, setToken] = useState<string | null>(null)
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const [selectedIntegration, setSelectedIntegration] = useState<IntegrationChoice>(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [copiedCI, setCopiedCI] = useState(false)
-  const [copiedMap, setCopiedMap] = useState(false)
-  const [orgId, setOrgId] = useState<string | null>(null)
-  const [selectedIntegration, setSelectedIntegration] = useState<IntegrationChoice>(null)
 
-  async function stepOneSubmit(e: React.FormEvent) {
+  async function createOrg(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     const res = await fetch('/api/org/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: org.name }),
+      body: JSON.stringify({ name: orgName }),
     })
     if (res.ok) {
       const data = await res.json()
-      setOrgId(data.id)
       await fetch('/api/org/switch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -54,16 +45,17 @@ export default function OnboardingPage() {
     setLoading(false)
   }
 
-  async function stepTwoAndThreeSubmit(e: React.FormEvent) {
+  async function createProject(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     const res = await fetch('/api/projects/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: project.name, description: project.description, spec_dirs: dirs.dirs }),
+      body: JSON.stringify({ name: projectName, description: projectDescription }),
     })
     if (res.ok) {
       const data = await res.json()
+      setProjectId(data.id)
       const tokenRes = await fetch('/api/tokens/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,48 +63,56 @@ export default function OnboardingPage() {
       })
       if (tokenRes.ok) {
         const { token } = await tokenRes.json()
-        setTokenData({ token, projectId: data.id })
+        setToken(token)
       }
-      setStep(4)
+      setStep(3)
     }
     setLoading(false)
   }
 
-  function addDir() {
-    const d = newDir.trim()
-    if (d && !dirs.dirs.includes(d)) {
-      setDirs({ dirs: [...dirs.dirs, d] })
-      setNewDir('')
-    }
-  }
-
   function copyToken() {
-    if (tokenData.token) {
-      navigator.clipboard.writeText(tokenData.token)
+    if (token) {
+      navigator.clipboard.writeText(token)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
   }
 
   function copyCI() {
-    const snippet = `- uses: actions/checkout@v4
+    const snippet = `name: mdspec sync
+on:
+  push:
+    branches: [main]
 
-- run: npx mdspeci publish --project ${tokenData.projectId ?? '<project-id>'}
-  env:
-    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}
-    GITHUB_EVENT_BEFORE: \${{ github.event.before }}`
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: npx mdspeci publish --project ${projectId ?? '<project-id>'}
+        env:
+          MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}
+          GITHUB_EVENT_BEFORE: \${{ github.event.before }}`
     navigator.clipboard.writeText(snippet)
     setCopiedCI(true)
     setTimeout(() => setCopiedCI(false), 2000)
   }
 
+  const integrationAuthorize: Record<NonNullable<IntegrationChoice>, string> = {
+    notion: '/api/integrations/notion/authorize',
+    clickup: '/api/integrations/clickup/authorize',
+    confluence: '/api/integrations/confluence/authorize',
+    jira: '/api/integrations/jira/authorize',
+    s3: '/integrations',
+  }
+
   const steps = [
     { n: 1, label: 'Organization' },
     { n: 2, label: 'Project' },
-    { n: 3, label: 'Spec Dirs' },
-    { n: 4, label: 'CI Token' },
-    { n: 5, label: 'Integration' },
-    { n: 6, label: 'Mapping' },
+    { n: 3, label: 'CI Token' },
+    { n: 4, label: 'Integration' },
   ]
 
   return (
@@ -137,7 +137,7 @@ export default function OnboardingPage() {
 
           {/* Step 1: Organization */}
           {step === 1 && (
-            <form onSubmit={stepOneSubmit} className="space-y-5">
+            <form onSubmit={createOrg} className="space-y-5">
               <div>
                 <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Create your organization</h2>
                 <p className="text-sm text-zinc-500">Your org is the top-level container for projects, integrations, and billing.</p>
@@ -145,8 +145,8 @@ export default function OnboardingPage() {
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Organization name</label>
                 <input
-                  value={org.name}
-                  onChange={(e) => setOrg({ name: e.target.value })}
+                  value={orgName}
+                  onChange={(e) => setOrgName(e.target.value)}
                   required
                   placeholder="Acme Corp"
                   className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500"
@@ -158,60 +158,23 @@ export default function OnboardingPage() {
             </form>
           )}
 
-          {/* Step 2 + 3 combined: Project + Spec dirs */}
-          {(step === 2 || step === 3) && (
-            <form onSubmit={step === 2 ? (e) => { e.preventDefault(); setStep(3) } : stepTwoAndThreeSubmit} className="space-y-5">
-              {step === 2 && (
-                <>
-                  <div>
-                    <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Project details</h2>
-                    <p className="text-sm text-zinc-500">A project maps to one repository and its spec directories.</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Project name</label>
-                    <input value={project.name} onChange={(e) => setProject({ ...project, name: e.target.value })} required placeholder="Payments Service" className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Description <span className="font-normal text-zinc-400">(optional)</span></label>
-                    <input value={project.description} onChange={(e) => setProject({ ...project, description: e.target.value })} placeholder="Spec docs for the payments service" className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500" />
-                  </div>
-                </>
-              )}
-              {step === 3 && (
-                <>
-                  <div>
-                    <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Spec directories</h2>
-                    <p className="text-sm text-zinc-500">Spec directories are folders in your repo where mdspec will look for markdown spec files. Only <code className="font-mono text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">.md</code> files inside these paths are tracked and published.</p>
-                    <p className="text-sm text-zinc-500 mt-2">Use <code className="font-mono text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">/</code> to scan your entire repository.</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {dirs.dirs.map((d) => (
-                      <span key={d} className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 text-xs font-mono px-2 py-1 rounded">
-                        {d}
-                        <button type="button" onClick={() => setDirs({ dirs: dirs.dirs.filter((x) => x !== d) })} className="text-zinc-400 hover:text-zinc-700">×</button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <input value={newDir} onChange={(e) => setNewDir(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDir() } }} placeholder="/docs/rfc" className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-zinc-500" />
-                    <button type="button" onClick={addDir} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800">Add</button>
-                  </div>
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={syncAllOnFirstRun}
-                      onChange={(e) => setSyncAllOnFirstRun(e.target.checked)}
-                      className="mt-0.5 rounded border-zinc-300 dark:border-zinc-700"
-                    />
-                    <div>
-                      <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Sync all files on first publish</p>
-                      <p className="text-xs text-zinc-500">Uncheck to start with an empty project and only sync future changes.</p>
-                    </div>
-                  </label>
-                </>
-              )}
+          {/* Step 2: Project */}
+          {step === 2 && (
+            <form onSubmit={createProject} className="space-y-5">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Project details</h2>
+                <p className="text-sm text-zinc-500">A project maps to one repository. Routing happens via frontmatter in each markdown file.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Project name</label>
+                <input value={projectName} onChange={(e) => setProjectName(e.target.value)} required placeholder="Payments Service" className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Description <span className="font-normal text-zinc-400">(optional)</span></label>
+                <input value={projectDescription} onChange={(e) => setProjectDescription(e.target.value)} placeholder="Spec docs for the payments service" className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500" />
+              </div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => { if (step === 2 && searchParams.get('skip_org') === '1') { router.push('/projects') } else { setStep((s) => (s - 1) as Step) } }} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
+                <button type="button" onClick={() => { if (searchParams.get('skip_org') === '1') router.push('/projects'); else setStep(1) }} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
                 <button type="submit" disabled={loading} className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900 disabled:opacity-50">
                   {loading ? 'Creating…' : 'Continue →'}
                 </button>
@@ -219,18 +182,18 @@ export default function OnboardingPage() {
             </form>
           )}
 
-          {/* Step 4: CI Token */}
-          {step === 4 && (
+          {/* Step 3: CI Token */}
+          {step === 3 && (
             <div className="space-y-5">
               <div>
                 <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Your CI token</h2>
                 <p className="text-sm text-zinc-500">Copy this token — it won&apos;t be shown again.</p>
               </div>
-              {tokenData.token && (
+              {token && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <code className="flex-1 text-xs font-mono bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded px-3 py-2 break-all text-zinc-900 dark:text-zinc-50">
-                      {tokenData.token}
+                      {token}
                     </code>
                     <button onClick={copyToken} className="shrink-0 rounded border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800">
                       {copied ? 'Copied!' : 'Copy'}
@@ -243,38 +206,48 @@ export default function OnboardingPage() {
               )}
               <div className="rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Add to your CI pipeline:</p>
+                  <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">GitHub Actions workflow:</p>
                   <button onClick={copyCI} className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-700">
                     {copiedCI ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
-                <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{`- uses: actions/checkout@v4
+                <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap overflow-x-auto">{`name: mdspec sync
+on:
+  push:
+    branches: [main]
 
-- run: npx mdspeci publish --project ${tokenData.projectId ?? '<project-id>'}
-  env:
-    MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}
-    GITHUB_EVENT_BEFORE: \${{ github.event.before }}`}</pre>
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: npx mdspeci publish --project ${projectId ?? '<project-id>'}
+        env:
+          MDSPEC_TOKEN: \${{ secrets.MDSPEC_TOKEN }}
+          GITHUB_EVENT_BEFORE: \${{ github.event.before }}`}</pre>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setStep(5)} className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900">
-                  Continue →
-                </button>
-              </div>
+              <button onClick={() => setStep(4)} className="w-full rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900">
+                Continue →
+              </button>
             </div>
           )}
 
-          {/* Step 5: Integration selection */}
-          {step === 5 && (
+          {/* Step 4: Integration */}
+          {step === 4 && (
             <div className="space-y-5">
               <div>
                 <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Choose an integration</h2>
-                <p className="text-sm text-zinc-500">Where should mdspec publish your specs? You can connect the integration after setup.</p>
+                <p className="text-sm text-zinc-500">Where should specs publish? You can connect it next. Add per-spec routing with <code className="font-mono">integration:</code> in frontmatter later.</p>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 {([
                   { key: 'notion', label: 'Notion' },
                   { key: 'clickup', label: 'ClickUp' },
                   { key: 'confluence', label: 'Confluence' },
+                  { key: 'jira', label: 'Jira' },
+                  { key: 's3', label: 'S3' },
                 ] as const).map(({ key, label }) => (
                   <button
                     key={key}
@@ -290,127 +263,38 @@ export default function OnboardingPage() {
                   </button>
                 ))}
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setStep(4)} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
-                <button
-                  onClick={() => setStep(6)}
-                  className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900"
-                >
-                  {selectedIntegration ? 'Continue →' : 'Skip →'}
-                </button>
+
+              <div className="rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-4">
+                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">Add to any markdown file you want to sync:</p>
+                <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{`---
+type: wiki${selectedIntegration ? `\nintegration: ${selectedIntegration}` : ''}
+---
+
+# Your spec title
+…`}</pre>
+                <p className="text-xs text-zinc-500 mt-2">Files without frontmatter are silently skipped.</p>
               </div>
-            </div>
-          )}
 
-          {/* Step 6: Folder mapping */}
-          {step === 6 && (() => {
-            const integrationLine = selectedIntegration
-              ? `    integration: ${selectedIntegration}`
-              : `    # integration: notion`
-            const mappingContent = `# .mdspecmap — mdspec configuration file
-# Project: ${project.name}
-#
-# Edit this file to configure folder-to-integration mappings.
-# Define aliases in Dashboard → Map → Aliases.
-#
-# Docs: https://mdspec.dev/docs/mdspecmap
-
-version: 1
-
-sync_all_on_first_run: ${syncAllOnFirstRun}
-
-mappings:
-${dirs.dirs.map((dir) => `  - folder: ${dir}\n${integrationLine}\n    # parent: <alias-name>`).join('\n\n')}
-`
-
-            function downloadMap() {
-              const blob = new Blob([mappingContent], { type: 'text/yaml' })
-              const url = URL.createObjectURL(blob)
-              const a = document.createElement('a')
-              a.href = url
-              a.download = '.mdspecmap'
-              a.click()
-              URL.revokeObjectURL(url)
-            }
-
-            function copyMap() {
-              navigator.clipboard.writeText(mappingContent)
-              setCopiedMap(true)
-              setTimeout(() => setCopiedMap(false), 2000)
-            }
-
-            const connectHref = selectedIntegration === 'notion'
-              ? '/api/integrations/notion/authorize'
-              : selectedIntegration === 'clickup'
-              ? '/api/integrations/clickup/authorize'
-              : '/integrations'
-
-            return (
-              <div className="space-y-5">
-                <div>
-                  <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Your folder mapping</h2>
-                  <p className="text-sm text-zinc-500">
-                    Add this file to the root of your repo. It tells mdspec which folders map to which integration.
-                  </p>
-                </div>
-
-                <div className="rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-mono text-zinc-500">.mdspecmap</span>
-                    <button onClick={copyMap} className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-700">
-                      {copiedMap ? 'Copied!' : 'Copy'}
-                    </button>
-                  </div>
-                  <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap overflow-x-auto">{mappingContent}</pre>
-                </div>
-
-                <button
-                  onClick={downloadMap}
-                  className="w-full rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 transition-colors"
-                >
-                  Download .mdspecmap
-                </button>
-
-                <div className="rounded-md border border-zinc-100 dark:border-zinc-800 p-4 space-y-2">
-                  <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Next steps</p>
-                  <ul className="text-xs text-zinc-500 space-y-1.5">
-                    <li>
-                      1. Commit <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 rounded">.mdspecmap</code> to the root of your repo
-                    </li>
-                    <li>
-                      2. Customize folder mappings on the{' '}
-                      {tokenData.projectId ? (
-                        <a href={`/projects/${tokenData.projectId}/map`} className="underline hover:text-zinc-900 dark:hover:text-zinc-50">
-                          Mapping page
-                        </a>
-                      ) : (
-                        <span>Mapping page (open your project settings)</span>
-                      )}
-                    </li>
-                    {selectedIntegration && (
-                      <li>
-                        3.{' '}
-                        <a href={connectHref} className="underline hover:text-zinc-900 dark:hover:text-zinc-50">
-                          Connect {selectedIntegration.charAt(0).toUpperCase() + selectedIntegration.slice(1)}
-                        </a>{' '}
-                        to start publishing
-                      </li>
-                    )}
-                  </ul>
-                </div>
-
-                <div className="flex gap-2">
-                  <button onClick={() => setStep(5)} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
+              <div className="flex gap-2">
+                <button onClick={() => setStep(3)} className="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 py-2 text-sm text-zinc-600 dark:text-zinc-400">Back</button>
+                {selectedIntegration ? (
+                  <a
+                    href={integrationAuthorize[selectedIntegration]}
+                    className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900 text-center"
+                  >
+                    Connect {selectedIntegration.charAt(0).toUpperCase() + selectedIntegration.slice(1)} →
+                  </a>
+                ) : (
                   <button
                     onClick={() => { router.push('/dashboard'); router.refresh() }}
                     className="flex-1 rounded-md bg-zinc-900 dark:bg-zinc-50 py-2 text-sm font-medium text-white dark:text-zinc-900"
                   >
-                    Go to Dashboard
+                    Skip — go to Dashboard
                   </button>
-                </div>
+                )}
               </div>
-            )
-          })()}
+            </div>
+          )}
         </div>
       </div>
     </div>

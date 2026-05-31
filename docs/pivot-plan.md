@@ -27,8 +27,9 @@ These were open questions in an earlier draft; settled on this iteration:
 | D9 | Marketing site | **All references to `.mdspecmap` / folder-mapping / Map Page get updated.** Find-and-replace pass at the end. | Affects `HeroDiagram`, `SnippetSlider`, `HowItWorksFlow`, marketing pages, `llms.txt`, `llms-full.txt`. |
 | D10 | GitHub App | **Not in v1.** Webhook routes for it (if any) get deleted in step 2. Paddle billing webhooks stay. | Removes a dependency surface. §15 of spec already lists it as optional. |
 | D11 | `projects.registered_repo` | **Keep.** First publish registers the repo; subsequent publishes must match or get 403. | Already in current schema and §8.1 of spec — explicit retain. |
+| D12 | Default type + minimal-frontmatter UX | **Add `projects.default_type text not null default 'wiki'`** to schema. `type:` becomes optional in frontmatter and falls back to the project default. Settings UI auto-selects the first connected integration as the suggested default when none is set. | Empty `---\n---` blocks become valid — users only need frontmatter to opt files in, not to declare every field. |
 
-The pivot collapses to: **pure frontmatter routing, two types (`task` + `wiki`), main-only trigger, single destination, single overwrite per merge.** This is the v1 surface.
+The pivot collapses to: **pure frontmatter routing, two types (`task` + `wiki`), main-only trigger, single destination, single overwrite per merge.** With project defaults set, frontmatter is opt-in but minimal — files inherit `type` and `integration` from the project. This is the v1 surface.
 
 ---
 
@@ -59,7 +60,7 @@ Load-bearing pieces unchanged by the pivot:
 | [apps/web/lib/publish/processor.ts](../apps/web/lib/publish/processor.ts) | 762 LOC | ~300 | Drop the entire `GroupContext` (folderMapping\*, isMultiMode, sectionPageIds, preserveHierarchy, s3Hierarchy, frontmatterMap, jiraIssueType). Keep credential refresh + adapter dispatch + agent inline run. |
 | [apps/cli/src/commands/publish.ts](../apps/cli/src/commands/publish.ts) | 1080 LOC | ~280 | Delete the whole `MdspecMapConfig` tree, `.mdspecmap` discovery + parsing, `sub_folders`/`depth`/`skip` walking, `micromatch`, first-sync probe. Keep git diff, frontmatter parse, rename detection. |
 | `lib/types.ts` `MdspecMapConfig` | bulky nested types | gone | Replace with the `SpecArtifact` shape from §6.4 of the spec. |
-| Database schema | 30+ migrations | one fresh initial migration | New tables: `specs`, `spec_publish_targets`, `aliases`, `integrations`, `templates`, `sync_runs`. `projects.default_integration text` added per §9.3 of the spec. |
+| Database schema | 30+ migrations | one fresh initial migration | New tables: `specs`, `spec_publish_targets`, `aliases`, `integrations`, `templates`, `sync_runs`. `projects.default_integration text` and `projects.default_type text not null default 'wiki'` added per §9.3 of the spec (D12). |
 | Dashboard sidebar | Map / Activity / Integrations / Settings | Activity / Integrations / **Templates** / Settings | Map gone; Templates is a fresh standalone page with **2 rows** (wiki = None; task = Task Template) per D4. Reuses [TemplateEditor.tsx](../apps/web/app/(dashboard)/projects/[projectId]/map/TemplateEditor.tsx) extracted before delete. |
 | Webhook routes | [apps/web/app/api/webhooks/](../apps/web/app/api/webhooks/) (Paddle + possibly GitHub App) | Paddle only | Audit during step 2 — delete any GitHub App route per D10. Paddle billing webhook stays untouched. |
 | Marketing site | References `.mdspecmap`, folder mapping, Map Page | Updated to frontmatter routing | Per D9 — find-and-replace pass in step 4. Affects components, marketing pages, llms\*.txt. |
@@ -112,14 +113,16 @@ All 30+ migration files (entire `supabase/migrations/`). Replace with one initia
 
 Sequenced for a single contributor on a clean branch.
 
-### 5.1 Step 1 — Salvage
+**Status (live):** all five steps complete except 3f (tests deferred) and the historical changelog entry under §5.4. Build and typecheck are green on both `apps/web` and `apps/cli`.
+
+### 5.1 Step 1 — Salvage  ✓ done
 
 Before the nuke PR, lift these files out of the Map folder so they can be reused later:
 - [TemplateEditor.tsx](../apps/web/app/(dashboard)/projects/[projectId]/map/TemplateEditor.tsx) → `apps/web/components/TemplateEditor.tsx`
 - [templatePresets.ts](../apps/web/app/(dashboard)/projects/[projectId]/map/templatePresets.ts) → `apps/web/lib/templatePresets.ts` (rekey from folder-pattern to per-`type`)
 - [AliasesTab.tsx](../apps/web/app/(dashboard)/projects/[projectId]/map/AliasesTab.tsx) → keep nearby for the Integrations-page inline use
 
-### 5.2 Step 2 — The nuke PR
+### 5.2 Step 2 — The nuke PR  ✓ done
 
 Single PR. Build goes red; nothing else lands until step 3 fixes it.
 
@@ -134,14 +137,15 @@ Single PR. Build goes red; nothing else lands until step 3 fixes it.
 - **Audit `apps/web/app/api/webhooks/`** — delete GitHub App routes per D10; keep Paddle billing route
 - Delete stale docs listed in §4
 
-### 5.3 Step 3 — Core publish path
+### 5.3 Step 3 — Core publish path  ✓ done (tests deferred)
 
 Rewrite against the existing adapters:
 - New `/api/publish/route.ts` (~250 LOC): token auth, payload validate, per-spec resolution chain per §5 of the spec, QStash enqueue with existing rate limits. Per D4: reject any `type` other than `task`/`wiki` with a clear error.
 - New `lib/publish/processor.ts` (~300 LOC): credentials + OAuth refresh + adapter dispatch + agent inline. Per D6: Notion falls back to workspace root when no parent resolves. Per D7: Confluence falls back to space content root.
 - New `cli/commands/publish.ts` (~300 LOC): git diff, frontmatter parse, payload POST. Per D5: add `--all` flag that walks the repo and includes every file with frontmatter regardless of git diff (~30 LOC of the 300).
-- `lib/types.ts` `SpecArtifact` + `PublishPayload` shapes per §6.4 of the spec
-- New tests written alongside each new file (per D8)
+- `lib/types.ts` `SpecArtifact` + `PublishPayload` shapes per §6.4 of the spec. Per D12: `SpecArtifact.type` is `string | null` — server resolves the fallback.
+- Per D12: route resolves `resolvedType = spec.type ?? project.default_type`, rejects only if both absent.
+- New tests written alongside each new file (per D8) — **deferred to step 3f; not blocking v1**
 
 Adapter changes (full detail in §8):
 - **ClickUp**: complete rewrite — `publishAsDoc` + `publishAsTask`, ~250 LOC. Self-heal helpers retained.
@@ -152,15 +156,15 @@ Adapter changes (full detail in §8):
 
 Defer: `previous_path` rename handling. Add later when first user asks.
 
-### 5.4 Step 4 — Dashboard + marketing
+### 5.4 Step 4 — Dashboard + marketing  ✓ done
 
 - New top-level **Templates** page (reuses salvaged `TemplateEditor.tsx`, `templatePresets.ts`). Two rows per D4: `wiki` (None — publish as-is) and `task` (Task Template, editable).
 - **Aliases** UI inline in the per-integration detail view (reuses salvaged `AliasesTab.tsx`).
-- **Default Integration** dropdown in Project Settings (§10.3 of the spec).
-- Activity feed: change column from "folder" to "type".
-- **Marketing update pass** (D9): find-replace `.mdspecmap` / "folder mapping" / "Map Page" across `apps/web/app/(marketing)/`, `components/HeroDiagram.tsx`, `components/SnippetSlider.tsx`, `components/HowItWorksFlow.tsx`, `app/llms.txt`, `app/llms-full.txt`. Update code snippets to the frontmatter form.
+- **Default Integration + Default Type** dropdowns in Project Settings → General (§10.3 of the spec; D12). UI auto-selects the first connected integration when no default is set.
+- Activity feed: shows `→ Integration  type  status  time-ago` per spec §10.2.
+- **Marketing update pass** (D9): find-replace `.mdspecmap` / "folder mapping" / "Map Page" across `apps/web/app/(marketing)/`, `components/HeroDiagram.tsx`, `components/SnippetSlider.tsx`, `components/HowItWorksFlow.tsx`, `components/AgentTemplatesSection.tsx`, `app/llms.txt`, `app/llms-full.txt`, and `app/(marketing)/docs/api-reference/page.tsx` (full rewrite, 1540 → ~600 LOC).
 
-### 5.5 Step 5 — Defer until first user asks
+### 5.5 Step 5 — Defer until first user asks  ✓ scoped
 
 - `mdspec add-frontmatter` helper (§7 of the spec)
 - `previous_path` rename handling
@@ -198,7 +202,7 @@ Net deletion of roughly 9k LOC. Healthy pivot.
 - **Aliases inline in Integrations page** needs an integration-detail view that doesn't currently exist as a dedicated page. Likely a sheet/modal off the Integrations list. Not a blocker.
 - **Webhooks audit** — needs to actually read [apps/web/app/api/webhooks/](../apps/web/app/api/webhooks/) during step 2 to confirm what's GitHub App vs Paddle. ~30 minutes.
 
-D1–D11 closed all prior open threads.
+D1–D12 closed all prior open threads.
 
 ---
 
@@ -363,7 +367,7 @@ A single fresh migration `supabase/migrations/20260601000000_initial.sql` replac
 |---|---|---|
 | `orgs` | carry forward | unchanged shape |
 | `org_members` | carry forward | unchanged shape (user_id, org_id, role) |
-| `projects` | carry forward + new column | adds `default_integration text` per D-spec §9.3; keeps `registered_repo` per D11; keeps `publish_count`; **drops `title_source`** (no longer used) |
+| `projects` | carry forward + new columns | adds `default_integration text` per D-spec §9.3; adds `default_type text not null default 'wiki'` per D12; keeps `registered_repo` per D11; keeps `publish_count`; **drops `title_source`** (no longer used) |
 | `project_tokens` | carry forward | unchanged — `MDSPEC_TOKEN` auth |
 | `integrations` | carry forward | unchanged — `org_id`, `type`, `credentials_secret_id`, `status` |
 | `aliases` | renamed from `mdspecmap_aliases` | parent-resolution lookup; columns unchanged |
@@ -423,12 +427,17 @@ CREATE TABLE spec_publish_targets (
 CREATE INDEX spt_spec_idx ON spec_publish_targets(spec_id);
 ```
 
-### 9.5 Projects column addition
+### 9.5 Projects column additions
 
 ```sql
 ALTER TABLE projects ADD COLUMN default_integration text;
 ALTER TABLE projects ADD CONSTRAINT projects_default_integration_check
   CHECK (default_integration IN ('notion','clickup','confluence','jira','s3') OR default_integration IS NULL);
+
+-- D12: minimal-frontmatter UX. spec.type falls back to project.default_type.
+ALTER TABLE projects ADD COLUMN default_type text NOT NULL DEFAULT 'wiki';
+ALTER TABLE projects ADD CONSTRAINT projects_default_type_check
+  CHECK (default_type IN ('wiki','task'));
 ```
 
 ### 9.6 RLS policies

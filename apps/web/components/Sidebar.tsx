@@ -13,6 +13,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import type { Organization, Project } from '@/lib/types'
 import {
   ActivityIcon,
+  FileTextIcon,
   FolderKanbanIcon,
   LayoutDashboardIcon,
   SettingsIcon,
@@ -34,6 +35,7 @@ const navItems: { href: string; label: string; icon: IconType }[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
   { href: '/projects', label: 'Projects', icon: FolderKanbanIcon },
   { href: '/integrations', label: 'Integrations', icon: WorkflowIcon },
+  { href: '/templates', label: 'Templates', icon: FileTextIcon },
   { href: '/activity', label: 'Activity', icon: ActivityIcon },
   { href: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
@@ -172,7 +174,6 @@ export function Sidebar({ orgs, currentOrg, projects, isAdmin = false }: Sidebar
                     const projectActive = isActive(projectHref)
                     const projectSubNav = [
                       { href: `${projectHref}/specs`, label: 'Specs' },
-                      { href: `${projectHref}/map`, label: 'Map' },
                       { href: `${projectHref}/activity`, label: 'Activity' },
                       { href: `${projectHref}/settings`, label: 'Settings' },
                     ]

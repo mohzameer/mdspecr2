@@ -7,7 +7,22 @@ interface Project {
   id: string
   name: string
   description: string | null
-  spec_dirs: string[]
+  default_integration: string | null
+  default_type: 'wiki' | 'task'
+}
+
+interface IntegrationRow {
+  id: string
+  type: string
+  status: string
+}
+
+const INTEGRATION_LABELS: Record<string, string> = {
+  notion: 'Notion',
+  clickup: 'ClickUp',
+  confluence: 'Confluence',
+  jira: 'Jira',
+  s3: 'S3',
 }
 
 export default function GeneralSettingsPage() {
@@ -16,22 +31,36 @@ export default function GeneralSettingsPage() {
   const router = useRouter()
 
   const [project, setProject] = useState<Project | null>(null)
+  const [integrations, setIntegrations] = useState<IntegrationRow[]>([])
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [specDirs, setSpecDirs] = useState<string[]>([])
-  const [newDir, setNewDir] = useState('')
+  const [defaultIntegration, setDefaultIntegration] = useState<string>('')
+  const [defaultType, setDefaultType] = useState<'wiki' | 'task'>('wiki')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/config`)
-      .then((r) => r.json())
-      .then((p: Project) => {
-        setProject(p)
-        setName(p.name)
-        setDescription(p.description ?? '')
-        setSpecDirs(p.spec_dirs ?? [])
-      })
+    Promise.all([
+      fetch(`/api/projects/${projectId}`).then((r) => r.json()),
+      fetch('/api/integrations/list').then((r) => r.json()),
+    ]).then(([p, ints]: [Project, IntegrationRow[]]) => {
+      setProject(p)
+      setName(p.name)
+      setDescription(p.description ?? '')
+      setDefaultType(p.default_type ?? 'wiki')
+
+      const connected = (Array.isArray(ints) ? ints : []).filter((i) => i.status === 'connected')
+      setIntegrations(Array.isArray(ints) ? ints : [])
+
+      // Auto-default integration to the first connected one if none is set yet
+      if (p.default_integration) {
+        setDefaultIntegration(p.default_integration)
+      } else if (connected.length > 0) {
+        setDefaultIntegration(connected[0].type)
+      } else {
+        setDefaultIntegration('')
+      }
+    })
   }, [projectId])
 
   async function save(e: React.FormEvent) {
@@ -40,7 +69,12 @@ export default function GeneralSettingsPage() {
     await fetch(`/api/projects/${projectId}/update`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description, spec_dirs: specDirs }),
+      body: JSON.stringify({
+        name,
+        description,
+        default_integration: defaultIntegration || null,
+        default_type: defaultType,
+      }),
     })
     setSaved(true)
     setSaving(false)
@@ -48,19 +82,9 @@ export default function GeneralSettingsPage() {
     router.refresh()
   }
 
-  function addDir() {
-    const d = newDir.trim()
-    if (d && !specDirs.includes(d)) {
-      setSpecDirs([...specDirs, d])
-      setNewDir('')
-    }
-  }
-
-  function removeDir(dir: string) {
-    setSpecDirs(specDirs.filter((d) => d !== dir))
-  }
-
   if (!project) return <div className="p-8 text-sm text-zinc-400">Loading…</div>
+
+  const connected = integrations.filter((i) => i.status === 'connected')
 
   return (
     <div className="p-8 max-w-2xl">
@@ -84,34 +108,47 @@ export default function GeneralSettingsPage() {
             className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 resize-none"
           />
         </div>
+
         <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Spec directories</label>
-          {specDirs.includes('/') && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
-              Root folder <span className="font-mono">/</span> is set — other subfolder entries will be skipped during scanning.
+          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Default type</label>
+          <p className="text-xs text-zinc-500 mb-2">
+            Used when a spec has no <code className="font-mono">type:</code> declared in frontmatter.
+          </p>
+          <select
+            value={defaultType}
+            onChange={(e) => setDefaultType(e.target.value as 'wiki' | 'task')}
+            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500"
+          >
+            <option value="wiki">wiki — publish as-is</option>
+            <option value="task">task — transform with the Task Template before publishing</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Default integration</label>
+          <p className="text-xs text-zinc-500 mb-2">
+            Used when a spec has no <code className="font-mono">integration:</code> declared in frontmatter.
+          </p>
+          <select
+            value={defaultIntegration}
+            onChange={(e) => setDefaultIntegration(e.target.value)}
+            disabled={connected.length === 0}
+            className="block w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 disabled:opacity-50"
+          >
+            <option value="">None — every spec must declare its own integration</option>
+            {connected.map((i) => (
+              <option key={i.id} value={i.type}>
+                {INTEGRATION_LABELS[i.type] ?? i.type}
+              </option>
+            ))}
+          </select>
+          {connected.length === 0 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              No integrations connected yet. Connect one on the Integrations page.
             </p>
           )}
-          <div className="flex flex-wrap gap-2 mb-2">
-            {specDirs.map((dir) => (
-              <span key={dir} className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 text-xs font-mono px-2 py-1 rounded">
-                {dir}
-                <button type="button" onClick={() => removeDir(dir)} className="text-zinc-400 hover:text-zinc-700">×</button>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={newDir}
-              onChange={(e) => setNewDir(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDir() } }}
-              placeholder="/specs"
-              className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-zinc-500"
-            />
-            <button type="button" onClick={addDir} className="rounded-md border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-900">
-              Add
-            </button>
-          </div>
         </div>
+
         <button
           type="submit"
           disabled={saving}

@@ -20,9 +20,9 @@ const NODES: Record<NodeId, NodeDef> = {
   repo: {
     icon: GitBranch,
     label: 'Your Repo',
-    sublabel: '.mdspecmap + markdown',
+    sublabel: 'markdown + frontmatter',
     detail:
-      'Your markdown files live alongside your code. A .mdspecmap file in any folder defines which specs sync where — and optionally assigns an agent template to transform them before publishing. The mapping is version-controlled, so changes to routing are reviewed just like code.',
+      'Your markdown files live alongside your code. Each file declares its own routing in frontmatter — type, integration, parent. No external config file to maintain. Open any .md and you know exactly where it publishes.',
   },
   ci: {
     icon: Zap,
@@ -36,14 +36,14 @@ const NODES: Record<NodeId, NodeDef> = {
     label: 'mdspec API',
     sublabel: 'Auth · routing · fan-out',
     detail:
-      'The API authenticates your project token, resolves the .mdspecmap for each changed file, and fans out to every connected integration in parallel. Only metadata is persisted — your spec content flows through and never lands in our database.',
+      'The API authenticates your project token, reads the frontmatter on each changed file, and fans out to every declared integration in parallel. Only metadata is persisted — your spec content flows through and never lands in our database.',
   },
   agent: {
     icon: Sparkles,
     label: 'Agent Transform',
     sublabel: 'Claude Haiku · optional',
     detail:
-      'If a .mdspecmap assigns an agent template to a file or folder, the raw markdown is passed through Claude Haiku before it reaches the destination. A spec becomes a structured task brief, a set of release notes, or a formatted ADR — automatically, with no prompting on your end.',
+      'If a spec declares type: task, the raw markdown is passed through Claude Haiku before it reaches the destination. A spec becomes a structured task brief — automatically, with no prompting on your end. Wikis (type: wiki) publish as-is.',
     optional: true,
   },
   destinations: {
@@ -51,7 +51,7 @@ const NODES: Record<NodeId, NodeDef> = {
     label: 'Destinations',
     sublabel: 'Notion · ClickUp · S3 · Confluence',
     detail:
-      'Transformed or raw content is written to every integration mapped in that folder\'s .mdspecmap. One push can fan out to multiple tools simultaneously. Published docs are never auto-deleted — remove a file from the repo and the published version stays put.',
+      'Transformed or raw content is written to the integration declared in each spec\'s frontmatter. One push can fan out to multiple tools simultaneously. Published docs are never auto-deleted — remove a file from the repo and the published version stays put.',
   },
 }
 

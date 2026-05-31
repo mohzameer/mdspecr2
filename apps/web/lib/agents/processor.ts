@@ -10,7 +10,6 @@ export async function runAgentInline(
   supabase: SupabaseClient,
   specId: string,
   templateId: string,
-  trigger: 'folder_mapping' | 'frontmatter',
   rawContent: string,
   targetIntegrationType: IntegrationType
 ): Promise<string> {
@@ -19,7 +18,6 @@ export async function runAgentInline(
     .insert({
       spec_id: specId,
       template_id: templateId,
-      trigger,
       raw_content: rawContent,
       status: 'running',
     })
@@ -56,7 +54,7 @@ export async function runAgentInline(
       })
       .eq('id', agentRun.id)
 
-    console.log(`[agent] ✓ ${trigger} — spec ${specId} transformed in ${Date.now() - startMs}ms`)
+    console.log(`[agent] ok — spec ${specId} transformed in ${Date.now() - startMs}ms`)
     return transformed
   } catch (err) {
     await supabase

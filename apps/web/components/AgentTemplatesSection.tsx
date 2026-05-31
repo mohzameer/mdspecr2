@@ -300,7 +300,7 @@ function TemplateDetail({ template }: { template: Template | null }) {
 
         <div>
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-            .mdspecmap usage
+            Frontmatter usage
           </p>
           <pre className="bg-muted rounded-md p-4 text-xs font-mono overflow-x-auto leading-relaxed whitespace-pre text-foreground">
             {template.example}
@@ -310,10 +310,9 @@ function TemplateDetail({ template }: { template: Template | null }) {
         <div className="rounded-md border border-border bg-muted/30 p-3">
           <p className="text-xs text-muted-foreground">
             Agent templates run after change detection and before publishing — your original markdown
-            is never modified. Assign one per folder in your{' '}
-            <code className="font-mono bg-muted px-1 py-0.5 rounded text-foreground">.mdspecmap</code>
-            , or per file in{' '}
-            <code className="font-mono bg-muted px-1 py-0.5 rounded text-foreground">specs:</code>.
+            is never modified. Driven by the{' '}
+            <code className="font-mono bg-muted px-1 py-0.5 rounded text-foreground">type:</code>{' '}
+            field in your spec frontmatter.
           </p>
         </div>
       </div>

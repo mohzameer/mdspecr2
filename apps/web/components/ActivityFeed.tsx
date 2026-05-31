@@ -13,12 +13,21 @@ interface AgentRunInfo {
 interface ActivityItem {
   id: string
   spec_path: string
-  target_type: string
+  spec_type: string                // 'wiki' | 'task' (per D4)
+  integration_type: string         // 'notion' | 'clickup' | ...
   status: string
   last_error: string | null
   published_at: string | null
   updated_at: string | null
   agent_run: AgentRunInfo | null
+}
+
+const INTEGRATION_LABELS: Record<string, string> = {
+  notion: 'Notion',
+  clickup: 'ClickUp',
+  confluence: 'Confluence',
+  jira: 'Jira',
+  s3: 'S3',
 }
 
 interface ActivityFeedProps {
@@ -70,7 +79,7 @@ export function ActivityFeed({ projectId, orgId, initialItems }: ActivityFeedPro
         async () => {
           const { data } = await supabase
             .from('spec_publish_targets')
-            .select('id, spec_id, status, last_error, published_at, updated_at, target_type, specs(path, project_id, projects(org_id))')
+            .select('id, spec_id, status, last_error, published_at, updated_at, integrations(type), specs(path, type, project_id, projects(org_id))')
             .order('updated_at', { ascending: false, nullsFirst: false })
             .limit(30)
           if (data) {
@@ -79,7 +88,8 @@ export function ActivityFeed({ projectId, orgId, initialItems }: ActivityFeedPro
               return data.map((row) => ({
                 id: row.id,
                 spec_path: (row.specs as any)?.path ?? '',
-                target_type: row.target_type,
+                spec_type: (row.specs as any)?.type ?? '',
+                integration_type: (row.integrations as any)?.type ?? '',
                 status: row.status,
                 last_error: row.last_error,
                 published_at: row.published_at,
@@ -134,7 +144,12 @@ export function ActivityFeed({ projectId, orgId, initialItems }: ActivityFeedPro
           <div className="flex items-start justify-between gap-4">
             <p className="text-sm font-mono text-zinc-700 dark:text-zinc-300 truncate">{item.spec_path}</p>
             <div className="flex items-center gap-3 shrink-0 text-xs">
-              <span className="text-zinc-400">→ {item.target_type}</span>
+              <span className="text-zinc-400">→ {INTEGRATION_LABELS[item.integration_type] ?? item.integration_type}</span>
+              {item.spec_type && (
+                <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-mono text-[10px]">
+                  {item.spec_type}
+                </span>
+              )}
               <span className={statusColors[item.status] ?? 'text-zinc-400'}>
                 {statusLabels[item.status] ?? item.status}
               </span>

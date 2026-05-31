@@ -49,7 +49,7 @@ export const metadata: Metadata = {
     siteName: "mdspec",
     title: "mdspec — CI-first markdown spec publishing",
     description:
-      "Sync markdown files from CI to ClickUp, S3, Notion, and Confluence. Drop a .mdspecmap, add one CI step, done.",
+      "Sync markdown files from CI to ClickUp, S3, Notion, Confluence, and Jira. Add frontmatter to any spec, push to main, done.",
     url: "https://mdspec.dev",
     images: [
       {
@@ -64,7 +64,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "mdspec — CI-first markdown spec publishing",
     description:
-      "Sync markdown files from CI to ClickUp, S3, Notion, and Confluence. Drop a .mdspecmap, add one CI step, done.",
+      "Sync markdown files from CI to ClickUp, S3, Notion, Confluence, and Jira. Add frontmatter to any spec, push to main, done.",
     images: ["/og.png"],
   },
   robots: {

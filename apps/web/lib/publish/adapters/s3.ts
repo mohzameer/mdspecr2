@@ -7,25 +7,10 @@ export interface S3Credentials {
   region: string
 }
 
-export function buildS3Key(
-  specPath: string,
-  rootPrefix: string | null | undefined,
-  options: { maintainHierarchy?: boolean; matchedFolder?: string } = {}
-): string {
+export function buildS3Key(specPath: string, rootPrefix: string | null | undefined): string {
   const prefix = rootPrefix?.replace(/\/$/, '') ?? ''
-
-  let relativePath: string
-  if (options.maintainHierarchy && options.matchedFolder) {
-    const folderPrefix = options.matchedFolder.replace(/\/$/, '') + '/'
-    relativePath = specPath.startsWith(folderPrefix)
-      ? specPath.slice(folderPrefix.length)
-      : specPath
-  } else {
-    relativePath = specPath.split('/').pop() ?? specPath
-  }
-
-  const path = relativePath.replace(/^\//, '')
-  return prefix ? `${prefix}/${path}` : path
+  const filename = specPath.split('/').pop() ?? specPath
+  return prefix ? `${prefix}/${filename}` : filename
 }
 
 export async function s3ObjectExists(
