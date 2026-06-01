@@ -70,6 +70,24 @@ export default function OnboardingPage() {
     setLoading(false)
   }
 
+  // Task tools default to task specs; doc tools default to wiki. This is what
+  // lets onboarding frontmatter stay minimal — the project default fills in
+  // type, and per-file overrides live in the API docs.
+  const TASK_INTEGRATIONS: IntegrationChoice[] = ['clickup', 'jira']
+
+  async function selectIntegration(key: IntegrationChoice) {
+    setSelectedIntegration(key)
+    if (!key || !projectId) return
+    await fetch(`/api/projects/${projectId}/update`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        default_integration: key,
+        default_type: TASK_INTEGRATIONS.includes(key) ? 'task' : 'wiki',
+      }),
+    }).catch(() => {})
+  }
+
   function copyToken() {
     if (token) {
       navigator.clipboard.writeText(token)
@@ -238,8 +256,8 @@ jobs:
           {step === 4 && (
             <div className="space-y-5">
               <div>
-                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Choose an integration</h2>
-                <p className="text-sm text-zinc-500">Where should specs publish? You can connect it next. Add per-spec routing with <code className="font-mono">integration:</code> in frontmatter later.</p>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Set your default integration</h2>
+                <p className="text-sm text-zinc-500">Specs publish here by default. Connect it next — you can change the default or override it per file anytime.</p>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 {([
@@ -252,7 +270,7 @@ jobs:
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setSelectedIntegration(key)}
+                    onClick={() => selectIntegration(key)}
                     className={`rounded-lg border p-4 text-sm font-medium transition-colors text-center ${
                       selectedIntegration === key
                         ? 'border-zinc-900 dark:border-zinc-50 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50'
@@ -265,14 +283,29 @@ jobs:
               </div>
 
               <div className="rounded-md bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-4">
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">Add to any markdown file you want to sync:</p>
-                <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{`---
-type: wiki${selectedIntegration ? `\nintegration: ${selectedIntegration}` : ''}
+                {TASK_INTEGRATIONS.includes(selectedIntegration) ? (
+                  <>
+                    <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">Link a spec to a task — add its ID:</p>
+                    <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{`---
+parent: CU-182
 ---
 
 # Your spec title
 …`}</pre>
-                <p className="text-xs text-zinc-500 mt-2">Files without frontmatter are silently skipped.</p>
+                    <p className="text-xs text-zinc-500 mt-2">Or leave <code className="font-mono">parent</code> off to create a task in your default list.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">Add a frontmatter block to any file you want to sync:</p>
+                    <pre className="text-xs font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{`---
+---
+
+# Your spec title
+…`}</pre>
+                    <p className="text-xs text-zinc-500 mt-2">Files without frontmatter are silently skipped.</p>
+                  </>
+                )}
+                <p className="text-xs text-zinc-400 mt-2">Document types and per-file <code className="font-mono">integration:</code> overrides → <a href="/docs/api-reference" className="underline hover:text-zinc-600 dark:hover:text-zinc-300">API docs</a>.</p>
               </div>
 
               <div className="flex gap-2">

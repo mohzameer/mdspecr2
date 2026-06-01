@@ -322,3 +322,35 @@ export async function publishAsTask(
     task_url: res.data?.url ?? `https://app.clickup.com/t/${taskId}`,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Link mode — sync a spec into an EXISTING task referenced by ID in
+// `parent: <task-id>` (native or custom, e.g. CU-182). No task is created;
+// the referenced task's name + description are overwritten with the spec.
+// ---------------------------------------------------------------------------
+
+export async function publishToExistingTask(
+  credentials: ClickUpCredentials,
+  spec: SpecPayload,
+  taskRef: string
+): Promise<{ task_id: string; task_url: string }> {
+  const headers = authHeaders(credentials.api_token)
+
+  // Resolve native ID (handles both native and custom task IDs). Store the
+  // native ID so future updates never need the custom_task_ids flag.
+  const nativeId = await resolveToNativeTaskId(credentials, taskRef, true)
+  if (!nativeId) {
+    throw new Error(`ClickUp task not found for parent: ${taskRef}`)
+  }
+
+  console.log(`[clickup:task] linking spec to existing task ${taskRef} (native ${nativeId})`)
+  const res = await axios.put(
+    `${CLICKUP_API}/task/${nativeId}`,
+    { name: spec.resolvedTitle, markdown_description: spec.content },
+    { headers }
+  )
+  return {
+    task_id: nativeId,
+    task_url: res.data?.url ?? `https://app.clickup.com/t/${nativeId}`,
+  }
+}

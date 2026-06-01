@@ -83,10 +83,17 @@ export async function GET(request: NextRequest) {
 
     const secretId = await storeCredentials(service, JSON.stringify(credentials), `integration:${orgId}:clickup:${randomUUID()}`)
 
-    await service.from('integrations').upsert(
-      { org_id: orgId, type: 'clickup', status: 'connected', credentials_secret_id: secretId, credentials: '', config: credentials, updated_at: new Date().toISOString() },
+    const { error: upsertError } = await service.from('integrations').upsert(
+      { org_id: orgId, type: 'clickup', status: 'connected', credentials_secret_id: secretId, config: credentials, updated_at: new Date().toISOString() },
       { onConflict: 'org_id,type' }
     )
+
+    if (upsertError) {
+      console.error('[clickup/callback] integration upsert failed:', upsertError.message)
+      await deleteCredentials(service, secretId).catch(() => {})
+      base.searchParams.set('error', 'clickup_token')
+      return NextResponse.redirect(base)
+    }
 
     if (existing?.credentials_secret_id) {
       await deleteCredentials(service, existing.credentials_secret_id).catch(() => {})

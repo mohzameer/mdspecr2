@@ -7,7 +7,7 @@ import {
   refreshConfluenceToken,
   type ConfluenceOAuthCredentials,
 } from './adapters/confluence'
-import { publishAsDoc, publishAsTask, type ClickUpCredentials } from './adapters/clickup'
+import { publishAsDoc, publishAsTask, publishToExistingTask, type ClickUpCredentials } from './adapters/clickup'
 import { publishToS3, buildS3Key } from './adapters/s3'
 import { publishToJira, refreshJiraToken, type JiraOAuthCredentials } from './adapters/jira'
 import { runAgentInline } from '@/lib/agents/processor'
@@ -190,11 +190,16 @@ async function dispatchPublish(
     case 'clickup': {
       const creds = credentials as unknown as ClickUpCredentials
       if (data.spec_type === 'task') {
-        const listId = data.parent_id
-        if (!listId) throw new UnrecoverableError('ClickUp task publish requires a list ID in parent:')
-        const out = await publishAsTask(creds, spec, listId, externalId)
+        const target = data.parent_id
+        if (!target) throw new UnrecoverableError('ClickUp task publish requires a list ID or task ref in parent:')
+        // 'task:<id>' → link to & update that existing task; otherwise it's a list.
+        if (target.startsWith('task:')) {
+          const out = await publishToExistingTask(creds, spec, target.slice(5))
+          return { external_id: out.task_id, external_url: out.task_url }
+        }
+        const out = await publishAsTask(creds, spec, target, externalId)
         if (out.previousIdStale) {
-          const fresh = await publishAsTask(creds, spec, listId, null)
+          const fresh = await publishAsTask(creds, spec, target, null)
           return { external_id: fresh.task_id, external_url: fresh.task_url }
         }
         return { external_id: out.task_id, external_url: out.task_url }

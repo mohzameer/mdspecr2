@@ -55,7 +55,6 @@ export async function POST(request: NextRequest) {
         type: 'confluence',
         status: 'connected',
         credentials_secret_id: secretId,
-        credentials: '',
         config: { base_url: siteUrl, space_key: spaceKey },
         updated_at: new Date().toISOString(),
       },

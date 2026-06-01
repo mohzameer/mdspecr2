@@ -36,7 +36,6 @@ export async function POST(request: NextRequest) {
         type,
         status: 'connected',
         credentials_secret_id: secretId,
-        credentials: '',
         config,
         updated_at: new Date().toISOString(),
       },

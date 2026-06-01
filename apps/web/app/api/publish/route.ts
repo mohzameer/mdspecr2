@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { Client } from '@upstash/qstash'
 import { createSupabaseServiceClient } from '@/lib/db-server'
+import { resolveParentUrl, isUrl, LinkResolutionError } from '@/lib/publish/linkResolver'
 import type { PublishPayload, SpecArtifact, PublishJobData, IntegrationType } from '@/lib/types'
 
 const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
@@ -58,19 +59,23 @@ function validateSpec(spec: SpecArtifact): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Parent resolution — alias lookup at the route layer. URLs and bare IDs
-// pass through to the processor (which has integration credentials for
-// URL → native ID resolution).
+// Parent resolution — three formats per spec §3.5:
+//   alias      → looked up in the aliases table (must match this integration)
+//   URL        → resolved to the adapter-native ID/target (pure string parse)
+//   native ID  → passed through untouched
+// Resolution happens here at the route so the processor always receives a
+// ready-to-use native parent. May throw LinkResolutionError on a bad URL.
 // ---------------------------------------------------------------------------
 
 async function resolveParent(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   parent: string | null,
   orgId: string,
-  integrationId: string
+  integrationId: string,
+  integrationType: IntegrationType
 ): Promise<string | null> {
   if (!parent) return null
-  if (parent.startsWith('http://') || parent.startsWith('https://')) return parent
+  if (isUrl(parent)) return resolveParentUrl(parent, integrationType)
 
   const { data: alias } = await supabase
     .from('aliases')
@@ -150,12 +155,13 @@ export async function POST(request: Request) {
   // -- Fetch org integrations once -------------------------------------------
   const { data: orgIntegrations } = await supabase
     .from('integrations')
-    .select('id, type, status')
+    .select('id, type, status, config')
     .eq('org_id', project.org_id)
 
-  const integrationsByType = new Map<string, { id: string; type: IntegrationType; status: string }>()
+  type OrgIntegration = { id: string; type: IntegrationType; status: string; config: Record<string, unknown> | null }
+  const integrationsByType = new Map<string, OrgIntegration>()
   for (const i of orgIntegrations ?? []) {
-    integrationsByType.set(i.type, { id: i.id, type: i.type as IntegrationType, status: i.status })
+    integrationsByType.set(i.type, { id: i.id, type: i.type as IntegrationType, status: i.status, config: i.config ?? null })
   }
 
   // -- Fetch default task template (used for type=task; type=wiki has none) --
@@ -201,8 +207,33 @@ export async function POST(request: Request) {
       continue
     }
 
-    // Resolve parent (alias lookup; URL/bare pass through to processor)
-    const parentId = await resolveParent(supabase, spec.parent, project.org_id, integration.id)
+    // Resolve parent (alias / URL / bare native ID → adapter-native form)
+    let parentId: string | null
+    try {
+      parentId = await resolveParent(supabase, spec.parent, project.org_id, integration.id, targetType)
+    } catch (err) {
+      const reason = err instanceof LinkResolutionError ? err.message : `parent resolution failed: ${(err as Error).message}`
+      results.push({ path: spec.path, status: 'rejected', reason })
+      continue
+    }
+
+    // ClickUp task routing:
+    //  - no parent:        → integration default list (create a task there)
+    //  - task ref (CU-182) → 'task:<id>' (link to & update that existing task)
+    //  - URL already resolved to 'task:<id>' by the link resolver
+    //  - anything else      → treated as a list ID (create a task in it)
+    if (targetType === 'clickup' && resolvedType === 'task') {
+      if (!parentId) {
+        const defaultList = (integration.config?.default_list_id as string | undefined) ?? null
+        if (!defaultList) {
+          results.push({ path: spec.path, status: 'rejected', reason: 'ClickUp task has no parent: and no default list configured for the integration' })
+          continue
+        }
+        parentId = defaultList
+      } else if (!parentId.startsWith('task:') && /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(parentId)) {
+        parentId = `task:${parentId}`
+      }
+    }
 
     // Upsert spec row
     const { data: specRow, error: specErr } = await supabase

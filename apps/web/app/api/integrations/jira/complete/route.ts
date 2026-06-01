@@ -55,7 +55,6 @@ export async function POST(request: NextRequest) {
         type: 'jira',
         status: 'connected',
         credentials_secret_id: secretId,
-        credentials: '',
         config: { site_url: siteUrl, project_key: projectKey },
         updated_at: new Date().toISOString(),
       },
