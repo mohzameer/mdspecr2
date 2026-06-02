@@ -207,10 +207,13 @@ export async function POST(request: Request) {
       continue
     }
 
-    // Resolve parent (alias / URL / bare native ID → adapter-native form)
+    // Resolve parent (alias / URL / bare native ID → adapter-native form).
+    // When the spec declares no parent:, fall back to the integration's
+    // configured default_parent before hitting the integration root.
+    const rawParent = spec.parent ?? (integration.config?.default_parent as string | undefined) ?? null
     let parentId: string | null
     try {
-      parentId = await resolveParent(supabase, spec.parent, project.org_id, integration.id, targetType)
+      parentId = await resolveParent(supabase, rawParent, project.org_id, integration.id, targetType)
     } catch (err) {
       const reason = err instanceof LinkResolutionError ? err.message : `parent resolution failed: ${(err as Error).message}`
       results.push({ path: spec.path, status: 'rejected', reason })

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AliasesPanel } from '@/components/AliasesPanel'
+import { DefaultsPanel } from '@/components/DefaultsPanel'
 
 interface AliasRow {
   id: string
@@ -941,6 +942,19 @@ export default function IntegrationsPage() {
             .map((t) => integrations[t])
             .filter((i): i is Integration => i !== null && i.status === 'connected')
             .map((i) => ({ id: i.id, type: i.type, status: i.status }))}
+          canEdit={true}
+        />
+      </div>
+
+      <div className="mt-10">
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Defaults</h2>
+        <p className="text-sm text-zinc-500 mb-4">
+          Per-integration fallbacks used when a spec&apos;s frontmatter leaves a field out.
+        </p>
+        <DefaultsPanel
+          integrations={INTEGRATION_ORDER
+            .map((t) => integrations[t])
+            .filter((i): i is Integration => i !== null && i.status === 'connected')}
           canEdit={true}
         />
       </div>

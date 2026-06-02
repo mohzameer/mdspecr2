@@ -1,9 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/db-server'
 
-// PATCH /api/integrations/:id — update an integration's config.
-// v1 supports the ClickUp default task list (and the set of selectable lists).
-// A spec with type=task and no parent: routes to config.default_list_id.
+// PATCH /api/integrations/:id — update an integration's routing defaults (config).
+//  - default_parent: alias | native ID | URL | prefix — used as the parent for
+//    any spec targeting this integration that declares no parent: in frontmatter.
+//  - default_list_id / lists: ClickUp only — the list a type=task spec with no
+//    parent: publishes into (plus the picked list cached for display).
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ integrationId: string }> }
@@ -33,24 +35,36 @@ export async function PATCH(
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  let body: { default_list_id?: string | null; lists?: Array<{ id: string; name: string }> }
+  let body: {
+    default_parent?: string | null
+    default_list_id?: string | null
+    lists?: Array<{ id: string; name: string }>
+  }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
   }
 
-  if (integration.type !== 'clickup') {
-    return NextResponse.json({ error: 'unsupported_integration' }, { status: 400 })
-  }
-
   const config = { ...(integration.config as Record<string, unknown> | null ?? {}) }
 
-  if ('default_list_id' in body) {
-    config.default_list_id = body.default_list_id || null
+  // default_parent applies to any integration (the parent fallback). Jira ignores
+  // parent (it always creates in its configured project), so reject it there.
+  if ('default_parent' in body) {
+    if (integration.type === 'jira') {
+      return NextResponse.json({ error: 'unsupported_field', detail: 'Jira has no parent fallback — it publishes to its configured project.' }, { status: 400 })
+    }
+    const v = typeof body.default_parent === 'string' ? body.default_parent.trim() : ''
+    config.default_parent = v || null
   }
-  if (Array.isArray(body.lists)) {
-    config.lists = body.lists.map((l) => ({ id: String(l.id), name: String(l.name) }))
+
+  // ClickUp-only: default task list for type=task specs with no parent.
+  if ('default_list_id' in body || 'lists' in body) {
+    if (integration.type !== 'clickup') {
+      return NextResponse.json({ error: 'unsupported_field', detail: 'default_list_id is ClickUp-only.' }, { status: 400 })
+    }
+    if ('default_list_id' in body) config.default_list_id = body.default_list_id || null
+    if (Array.isArray(body.lists)) config.lists = body.lists.map((l) => ({ id: String(l.id), name: String(l.name) }))
   }
 
   const { error } = await supabase
