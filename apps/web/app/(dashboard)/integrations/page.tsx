@@ -89,6 +89,9 @@ export default function IntegrationsPage() {
   })
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState<IntegrationType | null>(null)
+  const [tab, setTab] = useState<'integrations' | 'aliases' | 'defaults'>('integrations')
+  const [orgDefault, setOrgDefault] = useState<IntegrationType | null>(null)
+  const [settingDefault, setSettingDefault] = useState(false)
   const [form, setForm] = useState<ConnectForm>({
     notion: { token: '', root_page_id: '' },
     clickup: { api_token: '', workspace_url: '' },
@@ -342,7 +345,24 @@ export default function IntegrationsPage() {
 
   useEffect(() => {
     fetchIntegrations()
+    fetch('/api/org/current')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((o) => setOrgDefault((o?.default_integration as IntegrationType | null) ?? null))
+      .catch(() => {})
   }, [])
+
+  async function makeDefault(type: IntegrationType) {
+    const prev = orgDefault
+    setOrgDefault(type) // optimistic
+    setSettingDefault(true)
+    const res = await fetch('/api/org/update', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ default_integration: type }),
+    }).catch(() => null)
+    if (!res || !res.ok) setOrgDefault(prev) // revert on failure
+    setSettingDefault(false)
+  }
 
   async function connect(type: IntegrationType, e: React.FormEvent) {
     e.preventDefault()
@@ -536,8 +556,29 @@ export default function IntegrationsPage() {
 
   return (
     <div className="p-8 max-w-3xl">
-      <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50 mb-6">Integrations</h1>
+      <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50 mb-4">Integrations</h1>
 
+      <div className="flex gap-1 border-b border-zinc-200 dark:border-zinc-800 mb-6">
+        {([
+          { key: 'integrations', label: 'Integrations' },
+          { key: 'aliases', label: 'Aliases' },
+          { key: 'defaults', label: 'Defaults' },
+        ] as const).map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+              tab === key
+                ? 'border-zinc-900 dark:border-zinc-50 text-zinc-900 dark:text-zinc-50'
+                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'integrations' && (
       <div className="space-y-4">
         {INTEGRATION_ORDER.map((type) => {
           const meta = integrationMeta[type]
@@ -659,6 +700,25 @@ export default function IntegrationsPage() {
                   )}
                 </div>
               </div>
+
+              {!disabled && status === 'connected' && (
+                <div className="mt-3 flex items-center gap-2">
+                  {orgDefault === type ? (
+                    <span className="inline-flex items-center rounded-full bg-zinc-900 dark:bg-zinc-50 px-2.5 py-0.5 text-xs font-medium text-white dark:text-zinc-900">
+                      Default integration
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => makeDefault(type)}
+                      disabled={settingDefault}
+                      className="rounded-md border border-zinc-200 dark:border-zinc-700 px-2.5 py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:border-zinc-400 dark:hover:border-zinc-500 disabled:opacity-50"
+                    >
+                      Make default
+                    </button>
+                  )}
+                  <span className="text-xs text-zinc-400">Used when a spec declares no <code className="font-mono">integration:</code>.</span>
+                </div>
+              )}
 
               {!disabled && connecting === type && (
                 <form onSubmit={(e) => connect(type, e)} className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
@@ -930,9 +990,10 @@ export default function IntegrationsPage() {
           )
         })}
       </div>
+      )}
 
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Aliases</h2>
+      {tab === 'aliases' && (
+      <div>
         <p className="text-sm text-zinc-500 mb-4">
           Short names for pages, docs, or lists in your integrations. Reference them as <code className="font-mono text-xs">parent:</code> in spec frontmatter.
         </p>
@@ -945,9 +1006,10 @@ export default function IntegrationsPage() {
           canEdit={true}
         />
       </div>
+      )}
 
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">Defaults</h2>
+      {tab === 'defaults' && (
+      <div>
         <p className="text-sm text-zinc-500 mb-4">
           Per-integration fallbacks used when a spec&apos;s frontmatter leaves a field out.
         </p>
@@ -958,6 +1020,7 @@ export default function IntegrationsPage() {
           canEdit={true}
         />
       </div>
+      )}
 
     </div>
   )

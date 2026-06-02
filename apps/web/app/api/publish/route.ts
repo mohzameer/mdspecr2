@@ -152,6 +152,13 @@ export async function POST(request: Request) {
     await supabase.from('projects').update({ registered_repo: repo_name }).eq('id', matchedProjectId)
   }
 
+  // -- Fetch org (for the org-level default integration fallback) ------------
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('default_integration')
+    .eq('id', project.org_id)
+    .single()
+
   // -- Fetch org integrations once -------------------------------------------
   const { data: orgIntegrations } = await supabase
     .from('integrations')
@@ -188,10 +195,10 @@ export async function POST(request: Request) {
   const results: Array<{ path: string; status: 'queued' | 'rejected'; reason?: string }> = []
 
   for (const spec of specs) {
-    // Resolve integration: spec.integration > project.default_integration
-    const targetType = (spec.integration ?? project.default_integration) as IntegrationType | null
+    // Resolve integration: spec.integration > project default > org default
+    const targetType = (spec.integration ?? project.default_integration ?? org?.default_integration ?? null) as IntegrationType | null
     if (!targetType) {
-      results.push({ path: spec.path, status: 'rejected', reason: 'no integration declared and no project default set' })
+      results.push({ path: spec.path, status: 'rejected', reason: 'no integration declared and no project or org default set' })
       continue
     }
     const integration = integrationsByType.get(targetType)
