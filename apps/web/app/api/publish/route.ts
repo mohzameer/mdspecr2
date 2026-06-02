@@ -171,6 +171,11 @@ export async function POST(request: Request) {
     integrationsByType.set(i.type, { id: i.id, type: i.type as IntegrationType, status: i.status, config: i.config ?? null })
   }
 
+  // When the org has exactly one connected integration, it's the implicit
+  // default — no need for an explicit default to be set anywhere.
+  const connectedTypes = [...integrationsByType.values()].filter((i) => i.status === 'connected').map((i) => i.type)
+  const soleConnected = connectedTypes.length === 1 ? connectedTypes[0] : null
+
   // -- Fetch default task template (used for type=task; type=wiki has none) --
   const { data: taskTemplate } = await supabase
     .from('templates')
@@ -195,8 +200,8 @@ export async function POST(request: Request) {
   const results: Array<{ path: string; status: 'queued' | 'rejected'; reason?: string }> = []
 
   for (const spec of specs) {
-    // Resolve integration: spec.integration > project default > org default
-    const targetType = (spec.integration ?? project.default_integration ?? org?.default_integration ?? null) as IntegrationType | null
+    // Resolve integration: spec > project default > org default > sole connected
+    const targetType = (spec.integration ?? project.default_integration ?? org?.default_integration ?? soleConnected ?? null) as IntegrationType | null
     if (!targetType) {
       results.push({ path: spec.path, status: 'rejected', reason: 'no integration declared and no project or org default set' })
       continue

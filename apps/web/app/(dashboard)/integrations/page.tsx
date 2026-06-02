@@ -554,6 +554,12 @@ export default function IntegrationsPage() {
     fetchIntegrations()
   }
 
+  // With exactly one connected integration it's the implicit default, even if
+  // no org default has been explicitly set.
+  const connectedTypes = INTEGRATION_ORDER.filter((t) => integrations[t]?.status === 'connected')
+  const soleConnected = connectedTypes.length === 1 ? connectedTypes[0] : null
+  const effectiveDefault = orgDefault ?? soleConnected
+
   return (
     <div className="p-8 max-w-3xl">
       <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50 mb-4">Integrations</h1>
@@ -703,9 +709,9 @@ export default function IntegrationsPage() {
 
               {!disabled && status === 'connected' && (
                 <div className="mt-3 flex items-center gap-2">
-                  {orgDefault === type ? (
+                  {effectiveDefault === type ? (
                     <span className="inline-flex items-center rounded-full bg-zinc-900 dark:bg-zinc-50 px-2.5 py-0.5 text-xs font-medium text-white dark:text-zinc-900">
-                      Default integration
+                      Default integration{soleConnected === type && orgDefault !== type ? ' (only one connected)' : ''}
                     </span>
                   ) : (
                     <button
