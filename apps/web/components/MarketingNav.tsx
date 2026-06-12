@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { Github } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { cn } from '@/lib/utils'
 
@@ -13,8 +14,16 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className="flex items-center gap-1.5">
           <div className="hidden items-center gap-1.5 md:flex">
             <Link href="/docs/api-reference" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>Docs</Link>
-            <Link href="/pricing" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>Pricing</Link>
             <a href="https://blog.mdspec.dev" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>Blog</a>
+            <a
+              href="https://github.com/mohzameer/mdspecr2"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'gap-1.5')}
+            >
+              <Github className="size-4" />
+              GitHub
+            </a>
           </div>
           <Link
             href={isLoggedIn ? '/dashboard' : '/login'}

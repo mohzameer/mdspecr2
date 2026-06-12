@@ -1,113 +1,118 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { Github, ArrowRight, Check } from 'lucide-react'
+import { buttonVariants } from '@/components/ui/button-variants'
+import { Card, CardContent } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = {
-  title: "Pricing",
+  title: "mdspec — Free & Open Source",
   description:
-    "mdspec is free to start — 1 project, 15 documents. Upgrade to Pro for $9/mo or $100/yr for unlimited markdown sync to ClickUp, S3, Notion, and Confluence.",
+    "mdspec is free and open source. Self-host it or use the hosted version — no pricing tiers, no limits, no credit card required.",
   alternates: { canonical: "https://mdspec.dev/pricing" },
   openGraph: {
-    title: "mdspec Pricing — Free to start",
+    title: "mdspec — Free & Open Source",
     description:
-      "Free plan with 1 project and 15 documents. Pro plan at $9/mo for unlimited markdown sync to ClickUp, S3, Notion, and Confluence.",
+      "mdspec is free and open source. Self-host it or use the hosted version — no pricing tiers, no limits.",
     url: "https://mdspec.dev/pricing",
   },
 }
-import { buttonVariants } from '@/components/ui/button-variants'
-import { Card, CardContent } from '@/components/ui/card'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { cn } from '@/lib/utils'
-import { Check } from 'lucide-react'
 
-const sharedFeatures = [
+const features = [
   'All integrations (ClickUp, S3, Notion, Confluence)',
   'CI/CD integration',
   'Agent layer',
   'Git-native change detection',
   'Alias system',
+  'Unlimited projects',
+  'Unlimited documents',
+  'Self-hostable',
 ]
 
-export default function PricingPage() {
+export default function OpenSourcePage() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-20">
       <div className="mb-12 text-center">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-brand">Pricing</p>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Simple, honest pricing</h1>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-brand">Open Source</p>
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Free forever. Built in the open.</h1>
         <p className="mx-auto mt-3 max-w-md text-muted-foreground">
-          Both plans include every feature — the only difference is how many
-          projects and documents you can publish.
+          mdspec is open source under the MIT license. Use the hosted version for free, or
+          self-host it on your own infrastructure. No tiers, no limits, no credit card.
         </p>
       </div>
 
-      <div className="mb-8 grid gap-5 sm:grid-cols-2">
-        {/* Free */}
+      <Card className="mb-8 ring-2 ring-brand">
+        <CardContent className="p-8">
+          <div className="mb-6 flex flex-col items-center gap-3 text-center sm:flex-row sm:text-left">
+            <div>
+              <p className="text-2xl font-semibold">Free &amp; Open Source</p>
+              <p className="text-sm text-muted-foreground">MIT license · forever</p>
+            </div>
+          </div>
+          <ul className="mb-8 grid gap-2 sm:grid-cols-2">
+            {features.map((f) => (
+              <li key={f} className="flex items-center gap-2 text-sm">
+                <Check className="size-4 shrink-0 text-brand" /> {f}
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="https://github.com/mohzameer/mdspecr2"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(buttonVariants({ size: 'lg' }), 'gap-2')}
+            >
+              <Github className="size-4" />
+              View on GitHub
+            </a>
+            <Link
+              href="/login?next=/onboarding"
+              className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'gap-1.5')}
+            >
+              Start publishing
+              <ArrowRight className="size-4" />
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-5 sm:grid-cols-2">
         <Card>
           <CardContent className="p-6">
-            <div className="mb-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Free</p>
-              <p className="mt-1 text-3xl font-semibold">$0</p>
-              <p className="text-xs text-muted-foreground">forever</p>
-            </div>
-            <div className="mb-5 space-y-0.5 rounded-lg bg-muted/60 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Limits</p>
-              <p className="text-sm">1 project</p>
-              <p className="text-sm">15 documents</p>
-            </div>
-            <ul className="mb-6 space-y-2">
-              {sharedFeatures.map((f) => (
-                <li key={f} className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Check className="size-4 shrink-0 text-brand" /> {f}
-                </li>
-              ))}
-            </ul>
-            <Link href="/login?next=/onboarding" className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'w-full justify-center')}>
-              Get started free
+            <h2 className="mb-2 font-semibold">Hosted</h2>
+            <p className="text-sm text-muted-foreground">
+              Sign up and start publishing in minutes. We handle the infrastructure —
+              Supabase, queues, and delivery — so you don&apos;t have to.
+            </p>
+            <Link
+              href="/login?next=/onboarding"
+              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-4 gap-1.5')}
+            >
+              Get started
+              <ArrowRight className="size-3.5" />
             </Link>
           </CardContent>
         </Card>
-
-        {/* Pro */}
-        <Card className="ring-2 ring-brand">
+        <Card>
           <CardContent className="p-6">
-            <div className="mb-5">
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pro</p>
-                <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
-                  Popular
-                </span>
-              </div>
-              <div className="mt-1 flex items-baseline gap-1">
-                <p className="text-3xl font-semibold">$9</p>
-                <p className="text-sm text-muted-foreground">/mo</p>
-              </div>
-              <p className="text-xs text-muted-foreground">or $100/yr (save $8)</p>
-            </div>
-            <div className="mb-5 space-y-0.5 rounded-lg bg-muted/60 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Limits</p>
-              <p className="text-sm">Unlimited projects</p>
-              <p className="text-sm">Unlimited documents</p>
-            </div>
-            <ul className="mb-6 space-y-2">
-              {[...sharedFeatures, 'Priority support'].map((f) => (
-                <li key={f} className="flex items-center gap-2 text-sm">
-                  <Check className="size-4 shrink-0 text-brand" /> {f}
-                </li>
-              ))}
-            </ul>
-            <Link href="/login?next=/onboarding" className={cn(buttonVariants({ size: 'lg' }), 'w-full justify-center')}>
-              Start free, upgrade later
-            </Link>
+            <h2 className="mb-2 font-semibold">Self-hosted</h2>
+            <p className="text-sm text-muted-foreground">
+              Clone the repo, set your environment variables, and deploy to Vercel or any
+              Node.js host. Full source available on GitHub.
+            </p>
+            <a
+              href="https://github.com/mohzameer/mdspecr2"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-4 gap-1.5')}
+            >
+              <Github className="size-3.5" />
+              Clone the repo
+            </a>
           </CardContent>
         </Card>
       </div>
-
-      <Alert>
-        <AlertDescription className="space-y-1 text-xs">
-          <p><strong>14-day refund:</strong> Not satisfied? Request a full refund within 14 days of your initial Pro purchase — email <a href="mailto:zameer@xadlabs.com" className="underline">zameer@xadlabs.com</a>. See <Link href="/terms" className="underline">Terms §4</Link>. Renewal charges and requests after 14 days are not eligible.</p>
-          <p><strong>Monthly plan:</strong> Cancel any time. Billing continues until end of the current period.</p>
-          <p><strong>Annual plan:</strong> Rate locked for the full billing year. No partial refunds after the 14-day window.</p>
-        </AlertDescription>
-      </Alert>
     </div>
   )
 }

@@ -5,18 +5,19 @@ import {
   Workflow,
   BookMarked,
   ArrowRight,
+  Github,
   type LucideIcon,
 } from 'lucide-react'
 
 export const metadata: Metadata = {
   title: "mdspec — Audit-ready, git-native markdown publishing for engineering teams",
   description:
-    "Drop a yml file in your repo, add one line to GitHub Actions, and on every commit or merge your markdown specs publish to Notion, Confluence, ClickUp, or S3 — with a full audit trail. Free to start.",
+    "Drop a yml file in your repo, add one line to GitHub Actions, and on every commit or merge your markdown specs publish to Notion, Confluence, ClickUp, or S3 — with a full audit trail. Free and open source.",
   alternates: { canonical: "https://mdspec.dev" },
   openGraph: {
     title: "mdspec — Audit-ready, git-native markdown publishing for engineering teams",
     description:
-      "On every commit or merge, your markdown specs publish automatically to Notion, Confluence, ClickUp, or S3 — audit-ready, git-native, free to start.",
+      "On every commit or merge, your markdown specs publish automatically to Notion, Confluence, ClickUp, or S3 — audit-ready, git-native, open source.",
     url: "https://mdspec.dev",
   },
 }
@@ -56,7 +57,7 @@ export default async function LandingPage() {
           <div className="flex flex-col items-start text-left">
             <span className="inline-flex animate-in fade-in slide-in-from-bottom-3 items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-xs duration-700 fill-mode-both">
               <span className="size-1.5 rounded-full bg-brand" />
-              Audit-ready, git-native, CI-based markdown publishing
+              Open source · CI-native · Free forever
             </span>
             <h1 className="mt-6 animate-in fade-in slide-in-from-bottom-4 text-4xl font-semibold leading-[1.07] tracking-tight duration-700 fill-mode-both [animation-delay:80ms] sm:text-5xl">
               Keep writing markdown.
@@ -75,14 +76,20 @@ export default async function LandingPage() {
                 href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'}
                 className={cn(buttonVariants({ size: 'lg' }), 'gap-1.5')}
               >
-                {isLoggedIn ? 'Go to dashboard' : 'Get started free'}
+                {isLoggedIn ? 'Go to dashboard' : 'Get started'}
                 <ArrowRight className="size-4" />
               </Link>
-              <a href="#how-it-works" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
-                How it works
+              <a
+                href="https://github.com/mohzameer/mdspecr2"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'gap-2')}
+              >
+                <Github className="size-4" />
+                GitHub
               </a>
-              <a href="#why" className={buttonVariants({ variant: 'ghost', size: 'lg' })}>
-                Why your team needs it
+              <a href="#how-it-works" className={buttonVariants({ variant: 'ghost', size: 'lg' })}>
+                How it works
               </a>
             </div>
           </div>
@@ -239,25 +246,32 @@ export default async function LandingPage() {
         </div>
       </Section>
 
-      {/* Pricing teaser */}
-      <Section eyebrow="Pricing" border>
+      {/* Open source CTA */}
+      <Section eyebrow="Open source" border>
         <div className="mx-auto max-w-2xl text-center">
-          <SectionHeading>Simple, honest pricing</SectionHeading>
+          <SectionHeading>Free forever. Built in the open.</SectionHeading>
           <p className="mb-10 mt-3 text-muted-foreground">
-            Free to start. $9/mo or $100/yr for unlimited everything.
+            mdspec is open source and free to use, self-host, and contribute to.
+            No pricing tiers, no limits, no credit card required — ever.
           </p>
-          <div className="grid grid-cols-1 gap-4 text-left sm:grid-cols-3">
-            <PriceCard plan="Free" price="$0" note="1 project, 15 documents" />
-            <PriceCard plan="Pro" price="$9" unit="/mo" note="Unlimited everything" featured />
-            <PriceCard plan="Pro Annual" price="$100" unit="/yr" note="2 months free" featured />
+          <div className="flex flex-wrap justify-center gap-3">
+            <a
+              href="https://github.com/mohzameer/mdspecr2"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(buttonVariants({ size: 'lg' }), 'gap-2')}
+            >
+              <Github className="size-4" />
+              View on GitHub
+            </a>
+            <Link
+              href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'}
+              className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'gap-1.5')}
+            >
+              {isLoggedIn ? 'Go to dashboard' : 'Start publishing'}
+              <ArrowRight className="size-4" />
+            </Link>
           </div>
-          <Link
-            href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'}
-            className={cn(buttonVariants({ size: 'lg' }), 'mt-10 gap-1.5')}
-          >
-            {isLoggedIn ? 'Go to dashboard' : 'Get started free'}
-            <ArrowRight className="size-4" />
-          </Link>
         </div>
       </Section>
     </>
@@ -356,29 +370,3 @@ function SecurityCard({ title, description }: { title: string; description: stri
   )
 }
 
-function PriceCard({
-  plan,
-  price,
-  unit,
-  note,
-  featured,
-}: {
-  plan: string
-  price: string
-  unit?: string
-  note: string
-  featured?: boolean
-}) {
-  return (
-    <Card className={cn(featured && 'ring-2 ring-brand')}>
-      <CardContent className="p-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{plan}</p>
-        <p className="mt-1 text-2xl font-semibold">
-          {price}
-          {unit && <span className="text-sm font-normal text-muted-foreground">{unit}</span>}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">{note}</p>
-      </CardContent>
-    </Card>
-  )
-}
