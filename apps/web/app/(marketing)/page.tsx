@@ -92,7 +92,7 @@ export default async function LandingPage() {
                 rel="noopener noreferrer"
                 className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'gap-2')}
               >
-                <Github className="size-4" />
+                <GithubIcon className="size-4" />
                 GitHub
               </a>
               <a href="#how-it-works" className={buttonVariants({ variant: 'ghost', size: 'lg' })}>
@@ -268,7 +268,7 @@ export default async function LandingPage() {
               rel="noopener noreferrer"
               className={cn(buttonVariants({ size: 'lg' }), 'gap-2')}
             >
-              <Github className="size-4" />
+              <GithubIcon className="size-4" />
               View on GitHub
             </a>
             <Link
