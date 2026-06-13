@@ -35,13 +35,7 @@ import { HowItWorksFlow } from '@/components/HowItWorksFlow'
 import { AgentTemplatesSection } from '@/components/AgentTemplatesSection'
 import { SnippetSlider } from '@/components/SnippetSlider'
 import { HeroDiagram } from '@/components/HeroDiagram'
-import { createSupabaseServerClient } from '@/lib/db-server'
-
-export default async function LandingPage() {
-  const supabase = await createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  const isLoggedIn = !!user
-
+export default function LandingPage() {
   return (
     <>
       {/* Hero */}
@@ -80,10 +74,10 @@ export default async function LandingPage() {
             </p>
             <div className="mt-8 flex animate-in fade-in slide-in-from-bottom-4 flex-wrap gap-3 duration-700 fill-mode-both [animation-delay:240ms]">
               <Link
-                href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'}
+                href="/login?next=/onboarding"
                 className={cn(buttonVariants({ size: 'lg' }), 'gap-1.5')}
               >
-                {isLoggedIn ? 'Go to dashboard' : 'Get started'}
+                Get started
                 <ArrowRight className="size-4" />
               </Link>
               <a
@@ -272,10 +266,10 @@ export default async function LandingPage() {
               View on GitHub
             </a>
             <Link
-              href={isLoggedIn ? '/dashboard' : '/login?next=/onboarding'}
+              href="/login?next=/onboarding"
               className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'gap-1.5')}
             >
-              {isLoggedIn ? 'Go to dashboard' : 'Start publishing'}
+              Start publishing
               <ArrowRight className="size-4" />
             </Link>
           </div>
