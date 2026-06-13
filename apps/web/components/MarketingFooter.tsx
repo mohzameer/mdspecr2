@@ -7,7 +7,7 @@ const LINKS = [
   { href: '/changelog', label: 'Changelog' },
   { href: '/security', label: 'Security' },
   { href: '/status', label: 'Status' },
-  { href: '/terms', label: 'Terms' },
+  { href: 'https://github.com/mohzameer/mdspecr2/blob/main/LICENSE', label: 'MIT License', external: true },
   { href: '/privacy', label: 'Privacy' },
   { href: '/contact', label: 'Contact' },
   { href: '/login', label: 'Sign in' },

@@ -2,23 +2,8 @@
 
 import { useRouter } from 'next/navigation'
 
-interface NewProjectButtonProps {
-  atLimit?: boolean
-}
-
-export function NewProjectButton({ atLimit }: NewProjectButtonProps) {
+export function NewProjectButton() {
   const router = useRouter()
-
-  if (atLimit) {
-    return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        Free plan is limited to 1 project.{' '}
-        <a href="/settings/billing" className="underline font-medium text-zinc-900 dark:text-zinc-50">
-          Upgrade to Pro
-        </a>
-      </p>
-    )
-  }
 
   return (
     <button
