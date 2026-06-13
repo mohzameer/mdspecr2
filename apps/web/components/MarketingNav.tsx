@@ -28,7 +28,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
               rel="noopener noreferrer"
               className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'gap-1.5')}
             >
-              <Github className="size-4" />
+              <GithubIcon className="size-4" />
               GitHub
             </a>
           </div>
