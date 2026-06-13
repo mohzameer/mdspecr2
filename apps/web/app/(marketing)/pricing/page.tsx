@@ -71,7 +71,7 @@ export default function OpenSourcePage() {
               rel="noopener noreferrer"
               className={cn(buttonVariants({ size: 'lg' }), 'gap-2')}
             >
-              <Github className="size-4" />
+              <GithubIcon className="size-4" />
               View on GitHub
             </a>
             <Link
@@ -115,7 +115,7 @@ export default function OpenSourcePage() {
               rel="noopener noreferrer"
               className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-4 gap-1.5')}
             >
-              <Github className="size-3.5" />
+              <GithubIcon className="size-3.5" />
               Clone the repo
             </a>
           </CardContent>
